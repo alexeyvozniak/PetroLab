@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 from uuid import uuid4
 
 import pandas as pd
 
+from petrolab.column_schema import (
+    SheetSchema,
+    apply_semantic_mapping,
+    inspect_sheet_schema,
+    stored_semantic_mapping,
+)
 from petrolab.db import (
     DATA_DIR,
     add_dataset,
@@ -41,6 +49,16 @@ class ImportBatchResult:
         return len(self.dataset_ids)
 
 
+@dataclass(frozen=True)
+class ImportSchemaPreview:
+    """Normalized headers and semantic suggestions for one source sheet."""
+
+    sheet_name: str
+    schema: SheetSchema
+    source_headers: tuple[tuple[str, str], ...]
+    duplicate_canonical_columns: tuple[str, ...]
+
+
 def validate_source_path(path: str | Path) -> Path:
     """Return a normalized supported source path or raise a descriptive error."""
     source = Path(path).expanduser()
@@ -50,7 +68,10 @@ def validate_source_path(path: str | Path) -> Path:
         raise ValueError(f"Источник не является файлом: {source}")
     if source.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
         supported = ", ".join(sorted(SUPPORTED_SOURCE_SUFFIXES))
-        raise ValueError(f"Неподдерживаемый формат {source.suffix or '(без расширения)'}. Поддерживаются: {supported}")
+        raise ValueError(
+            f"Неподдерживаемый формат {source.suffix or '(без расширения)'}. "
+            f"Поддерживаются: {supported}"
+        )
     return source.resolve()
 
 
@@ -72,16 +93,45 @@ def list_uploaded_sheets(file_bytes: bytes, filename: str) -> list[str]:
     return [""]
 
 
+def inspect_linked_sheet(
+    path: str | Path,
+    sheet_name: str,
+    header_row: int,
+) -> ImportSchemaPreview:
+    """Inspect normalized headers and semantic-role suggestions for a linked sheet."""
+    source = validate_source_path(path)
+    dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
+    return _schema_preview(sheet_name, dataframe, column_map)
+
+
+def inspect_uploaded_sheet(
+    file_bytes: bytes,
+    filename: str,
+    sheet_name: str,
+    header_row: int,
+) -> ImportSchemaPreview:
+    """Inspect normalized headers and semantic-role suggestions for uploaded bytes."""
+    dataframe, column_map, _ = read_tabular_with_map(
+        file_bytes,
+        filename,
+        sheet_name or None,
+        int(header_row),
+    )
+    return _schema_preview(sheet_name, dataframe, column_map)
+
+
 def preview_linked_source(
     path: str | Path,
     sheet_name: str,
     header_row: int,
     mineral_key: str,
+    semantic_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Read and calculate a preview from a linked local source."""
+    """Read, normalize semantic roles, and calculate a preview from a linked source."""
     source = validate_source_path(path)
-    df, _, _ = read_tabular_path(source, sheet_name or None, int(header_row))
-    return _calculate_mineral(df, mineral_key)
+    dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
+    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    return _calculate_mineral(mapped, mineral_key)
 
 
 def preview_uploaded_source(
@@ -90,10 +140,17 @@ def preview_uploaded_source(
     sheet_name: str,
     header_row: int,
     mineral_key: str,
+    semantic_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Read and calculate a preview from uploaded bytes without storing them."""
-    df, _, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
-    return _calculate_mineral(df, mineral_key)
+    """Read, normalize semantic roles, and calculate a preview from uploaded bytes."""
+    dataframe, column_map, _ = read_tabular_with_map(
+        file_bytes,
+        filename,
+        sheet_name or None,
+        int(header_row),
+    )
+    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    return _calculate_mineral(mapped, mineral_key)
 
 
 def import_linked_sheets(
@@ -104,6 +161,7 @@ def import_linked_sheets(
     mineral_key: str,
     dataset_name: str,
     header_row: int,
+    semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
     """Import selected sheets while keeping a live link to the user's local source file."""
     source = validate_source_path(path)
@@ -113,8 +171,17 @@ def import_linked_sheets(
     source_hash = sha256_file(source)
     dataset_ids: list[int] = []
     for sheet_name in sheet_names:
-        df, column_map, source_rows = read_tabular_path(source, sheet_name or None, int(header_row))
-        calculated = _calculate_mineral(df, mineral_key)
+        dataframe, column_map, source_rows = read_tabular_path(
+            source,
+            sheet_name or None,
+            int(header_row),
+        )
+        mapped, mapped_column_map, _ = apply_semantic_mapping(
+            dataframe,
+            column_map,
+            (semantic_maps or {}).get(sheet_name, {}),
+        )
+        calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, source.stem, sheet_name, len(sheet_names))
         dataset_ids.append(
             _save_dataset(
@@ -125,7 +192,7 @@ def import_linked_sheets(
                 source_filename=source.name,
                 source_sheet=sheet_name or "",
                 source_hash=source_hash,
-                column_map=column_map,
+                column_map=mapped_column_map,
                 source_rows=source_rows,
                 source_path=str(source),
                 source_kind="linked",
@@ -145,23 +212,29 @@ def import_uploaded_sheets(
     mineral_key: str,
     dataset_name: str,
     header_row: int,
+    semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
     """Store an uploaded source as a managed copy and import selected sheets from it."""
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
-    list_uploaded_sheets(file_bytes, filename)  # validates the filename and workbook readability
+    list_uploaded_sheets(file_bytes, filename)
 
     managed_path = _store_managed_source(project_id, filename, file_bytes)
     source_hash = sha256_bytes(file_bytes)
     dataset_ids: list[int] = []
     for sheet_name in sheet_names:
-        df, column_map, source_rows = read_tabular_with_map(
+        dataframe, column_map, source_rows = read_tabular_with_map(
             file_bytes,
             filename,
             sheet_name or None,
             int(header_row),
         )
-        calculated = _calculate_mineral(df, mineral_key)
+        mapped, mapped_column_map, _ = apply_semantic_mapping(
+            dataframe,
+            column_map,
+            (semantic_maps or {}).get(sheet_name, {}),
+        )
+        calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, Path(filename).stem, sheet_name, len(sheet_names))
         dataset_ids.append(
             _save_dataset(
@@ -172,7 +245,7 @@ def import_uploaded_sheets(
                 source_filename=Path(filename).name,
                 source_sheet=sheet_name or "",
                 source_hash=source_hash,
-                column_map=column_map,
+                column_map=mapped_column_map,
                 source_rows=source_rows,
                 source_path=str(managed_path),
                 source_kind="managed_copy",
@@ -184,10 +257,13 @@ def import_uploaded_sheets(
 
 
 def refresh_dataset_from_source(dataset_id: int) -> int:
-    """Reload a linked dataset, recalculate its mineral data, and preserve point IDs by Excel row."""
+    """Reload a linked dataset using its stored schema and preserve point IDs by Excel row."""
     dataset = get_dataset(int(dataset_id))
-    df, column_map, source_rows, new_hash = reload_linked_source(int(dataset_id))
-    calculated = _calculate_mineral(df, dataset.get("mineral_key") or "generic")
+    dataframe, column_map, source_rows, new_hash = reload_linked_source(int(dataset_id))
+    stored_map = json.loads(dataset.get("column_map_json") or "{}")
+    semantic_map = stored_semantic_mapping(stored_map)
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    calculated = _calculate_mineral(mapped, dataset.get("mineral_key") or "generic")
     replace_dataset_rows(
         int(dataset_id),
         calculated,
@@ -197,10 +273,33 @@ def refresh_dataset_from_source(dataset_id: int) -> int:
     update_dataset_metadata(
         int(dataset_id),
         source_sha256=new_hash,
-        column_map_json=column_map,
+        column_map_json=mapped_column_map,
         row_count=len(calculated),
     )
     return len(calculated)
+
+
+def _schema_preview(
+    sheet_name: str,
+    dataframe: pd.DataFrame,
+    column_map: Mapping[str, Mapping[str, object]],
+) -> ImportSchemaPreview:
+    pairs: list[tuple[str, str]] = []
+    duplicates: list[str] = []
+    for normalized in dataframe.columns:
+        if str(normalized) in {"Σ оксидов", "QC суммы"}:
+            continue
+        info = column_map.get(str(normalized), {})
+        original = str(info.get("original", normalized))
+        pairs.append((original, str(normalized)))
+        if "__" in str(normalized) and str(normalized).rsplit("__", 1)[-1].isdigit():
+            duplicates.append(str(normalized))
+    return ImportSchemaPreview(
+        sheet_name=sheet_name,
+        schema=inspect_sheet_schema(dataframe.columns),
+        source_headers=tuple(pairs),
+        duplicate_canonical_columns=tuple(duplicates),
+    )
 
 
 def _calculate_mineral(df: pd.DataFrame, mineral_key: str) -> pd.DataFrame:

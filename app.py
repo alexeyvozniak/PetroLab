@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-from pathlib import Path
-from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,15 +9,11 @@ import streamlit as st
 
 from petrolab import __version__
 from petrolab.db import (
-    ASSETS_DIR,
-    add_image_asset,
-    delete_image_asset,
     delete_plot_recipe,
     delete_style_profile,
     ensure_storage,
     list_change_log,
     list_datasets,
-    list_image_assets,
     list_plot_recipes,
     list_style_profiles,
     load_dataset_dataframe,
@@ -38,8 +32,9 @@ from petrolab.minerals.formulae import calculate_formula, methods_for
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
+from petrolab.services.image_service import list_all_images
 from petrolab.ui.components import collect_related_images, render_asset_gallery, render_project_selector
-from petrolab.ui.pages import render_analyses_page, render_home_page, render_projects_page, render_sources_page
+from petrolab.ui.pages import render_analyses_page, render_home_page, render_images_page, render_projects_page, render_sources_page
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
@@ -99,54 +94,7 @@ elif page == "Единая база":
     render_analyses_page()
 
 elif page == "Изображения":
-    st.title("Изображения и аналитические точки")
-    project = render_project_selector("images_project")
-    if project is None:
-        st.stop()
-    datasets = list_datasets(project["id"])
-    if not datasets:
-        st.stop()
-    ds_map = {dataset_label(d): d for d in datasets}
-    chosen = ds_map[st.selectbox("Набор данных", list(ds_map), key="img_dataset")]
-    df = load_dataset_dataframe(int(chosen["id"]), include_meta=True)
-    query = st.text_input("Найти точку/образец/зерно", key="img_search")
-    filtered = apply_quick_filter(df, query)
-    scope_type = st.radio("Привязать изображение к", ["Набор данных", "Значение поля", "Конкретная точка анализа"], horizontal=True)
-    analysis_id = None
-    scope_column = ""
-    scope_value = ""
-    if scope_type == "Значение поля":
-        candidates = [c for c in filtered.columns if not str(c).startswith("_") and filtered[c].nunique(dropna=True) <= 300]
-        if candidates:
-            scope_column = st.selectbox("Поле", candidates)
-            values = filtered[scope_column].dropna().astype(str).unique().tolist()
-            scope_value = st.selectbox("Значение", values) if values else ""
-    elif scope_type == "Конкретная точка анализа" and not filtered.empty:
-        option_map = {f"{row_identity(row)} · строка {row.get('_source_row', '—')} · {str(row['_analysis_id'])[:8]}": str(row["_analysis_id"]) for _, row in filtered.head(3000).iterrows()}
-        analysis_id = option_map[st.selectbox("Аналитическая точка", list(option_map))]
-    kind = st.selectbox("Тип изображения", ["BSE", "EDS", "Оптическая микрофотография", "Карта элементов", "Фото образца", "Другое"])
-    title = st.text_input("Подпись/название изображения")
-    files = st.file_uploader("Изображения", type=["png", "jpg", "jpeg", "webp", "tif", "tiff"], accept_multiple_files=True, key="image_upload")
-    if st.button("Привязать изображения", type="primary", disabled=not files):
-        asset_dir = ASSETS_DIR / f"project_{project['id']}" / f"dataset_{chosen['id']}"
-        asset_dir.mkdir(parents=True, exist_ok=True)
-        count = 0
-        for f in files or []:
-            suffix = Path(f.name).suffix.lower()
-            target = asset_dir / f"{uuid4().hex}{suffix}"
-            target.write_bytes(f.getvalue())
-            add_image_asset(project_id=project["id"], dataset_id=int(chosen["id"]), analysis_id=analysis_id, scope_type=scope_type, scope_column=scope_column, scope_value=scope_value, kind=kind, title=title.strip(), original_filename=f.name, stored_path=str(target))
-            count += 1
-        st.success(f"Привязано изображений: {count}.")
-        st.rerun()
-    st.subheader("Галерея набора")
-    assets = list_image_assets(dataset_id=int(chosen["id"]))
-    for asset in assets[:100]:
-        with st.expander(f"{asset['kind']} · {asset['title'] or asset['original_filename']} · {asset['scope_type']}"):
-            render_asset_gallery([asset], max_items=1, width=700)
-            if st.button("Удалить привязку и файл", key=f"delete_asset_{asset['id']}"):
-                delete_image_asset(int(asset["id"]))
-                st.rerun()
+    render_images_page()
 
 elif page == "Пересчёт формул":
     st.title("Пересчёт структурных формул")
@@ -348,7 +296,7 @@ elif page == "Экспорт":
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Все анализы")
-        pd.DataFrame(list_image_assets()).to_excel(writer, index=False, sheet_name="Изображения")
+        pd.DataFrame(list_all_images()).to_excel(writer, index=False, sheet_name="Изображения")
         recipes = list_plot_recipes()
         if recipes:
             pd.DataFrame([{"id": r["id"], "project_id": r["project_id"], "name": r["name"], "created_at": r["created_at"], "updated_at": r["updated_at"], "config": json.dumps(r["config"], ensure_ascii=False)} for r in recipes]).to_excel(writer, index=False, sheet_name="Рецепты графиков")
