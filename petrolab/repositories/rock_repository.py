@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import pandas as pd
 
@@ -14,14 +14,50 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def rock_connection() -> Iterator[sqlite3.Connection]:
+    """Open one rock repository connection and always close it on Windows."""
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def _nullable_float(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str) and not value.strip():
+        return None
+    return float(value)
+
+
+def _text(value) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value)
 
 
 def create_rock(project_id: int, name: str, **metadata) -> int:
+    clean_name = str(name).strip()
+    if not clean_name:
+        raise ValueError("Название породы не может быть пустым")
     now = _utcnow()
     fields = {
         "description": "", "massif": "", "locality": "", "lithology": "",
@@ -29,7 +65,7 @@ def create_rock(project_id: int, name: str, **metadata) -> int:
         "age_method": "", "chemistry_method": "", "isotope_method": "", "laboratory": "", "notes": "",
     }
     fields.update({key: value for key, value in metadata.items() if key in fields})
-    with _connect() as con:
+    with rock_connection() as con:
         cur = con.execute(
             """
             INSERT INTO rock_samples(
@@ -38,10 +74,14 @@ def create_rock(project_id: int, name: str, **metadata) -> int:
                 laboratory, notes, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (project_id, name, fields["description"], fields["massif"], fields["locality"], fields["lithology"],
-             fields["latitude"], fields["longitude"], fields["age_ma"], fields["age_uncertainty_ma"],
-             fields["age_method"], fields["chemistry_method"], fields["isotope_method"], fields["laboratory"],
-             fields["notes"], now, now),
+            (
+                int(project_id), clean_name, _text(fields["description"]), _text(fields["massif"]),
+                _text(fields["locality"]), _text(fields["lithology"]), _nullable_float(fields["latitude"]),
+                _nullable_float(fields["longitude"]), _nullable_float(fields["age_ma"]),
+                _nullable_float(fields["age_uncertainty_ma"]), _text(fields["age_method"]),
+                _text(fields["chemistry_method"]), _text(fields["isotope_method"]),
+                _text(fields["laboratory"]), _text(fields["notes"]), now, now,
+            ),
         )
         return int(cur.lastrowid)
 
@@ -52,22 +92,29 @@ def update_rock(rock_id: int, **metadata) -> None:
         "age_ma", "age_uncertainty_ma", "age_method", "chemistry_method", "isotope_method",
         "laboratory", "notes",
     }
-    values = {key: value for key, value in metadata.items() if key in allowed}
+    numeric_fields = {"latitude", "longitude", "age_ma", "age_uncertainty_ma"}
+    values: dict[str, object] = {}
+    for key, value in metadata.items():
+        if key not in allowed:
+            continue
+        values[key] = _nullable_float(value) if key in numeric_fields else _text(value)
+    if "name" in values and not str(values["name"]).strip():
+        raise ValueError("Название породы не может быть пустым")
     if not values:
         return
     values["updated_at"] = _utcnow()
     assignments = ", ".join(f"{key}=?" for key in values)
-    with _connect() as con:
+    with rock_connection() as con:
         con.execute(f"UPDATE rock_samples SET {assignments} WHERE id=?", (*values.values(), int(rock_id)))
 
 
 def delete_rock(rock_id: int) -> None:
-    with _connect() as con:
+    with rock_connection() as con:
         con.execute("DELETE FROM rock_samples WHERE id=?", (int(rock_id),))
 
 
 def list_rocks(project_id: int | None = None) -> list[dict]:
-    with _connect() as con:
+    with rock_connection() as con:
         if project_id is None:
             rows = con.execute(
                 "SELECT r.*, p.name AS project_name FROM rock_samples r JOIN projects p ON p.id=r.project_id ORDER BY p.name, r.name"
@@ -81,7 +128,7 @@ def list_rocks(project_id: int | None = None) -> list[dict]:
 
 
 def get_rock(rock_id: int) -> dict | None:
-    with _connect() as con:
+    with rock_connection() as con:
         row = con.execute(
             "SELECT r.*, p.name AS project_name FROM rock_samples r JOIN projects p ON p.id=r.project_id WHERE r.id=?",
             (int(rock_id),),
@@ -89,17 +136,21 @@ def get_rock(rock_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def replace_composition(rock_id: int, composition: dict[str, float], *, units: dict[str, str] | None = None, method: str = "", source: str = "") -> None:
+def replace_composition(
+    rock_id: int,
+    composition: dict[str, float],
+    *,
+    units: dict[str, str] | None = None,
+    method: str = "",
+    source: str = "",
+) -> None:
     units = units or {}
     now = _utcnow()
-    with _connect() as con:
+    with rock_connection() as con:
         con.execute("DELETE FROM rock_compositions WHERE rock_id=?", (int(rock_id),))
         for analyte, value in composition.items():
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                continue
-            if pd.isna(numeric):
+            numeric = _nullable_float(value)
+            if numeric is None:
                 continue
             con.execute(
                 "INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -109,13 +160,12 @@ def replace_composition(rock_id: int, composition: dict[str, float], *, units: d
 
 def upsert_composition_values(rock_id: int, rows: Iterable[dict]) -> None:
     now = _utcnow()
-    with _connect() as con:
+    with rock_connection() as con:
         for row in rows:
-            analyte = str(row.get("analyte", "")).strip()
+            analyte = _text(row.get("analyte")).strip()
             if not analyte:
                 continue
-            value = row.get("value")
-            numeric = None if value in (None, "") else float(value)
+            numeric = _nullable_float(row.get("value"))
             con.execute(
                 """
                 INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at)
@@ -124,13 +174,15 @@ def upsert_composition_values(rock_id: int, rows: Iterable[dict]) -> None:
                     value=excluded.value, unit=excluded.unit, method=excluded.method,
                     source=excluded.source, updated_at=excluded.updated_at
                 """,
-                (int(rock_id), analyte, numeric, str(row.get("unit", "")), str(row.get("method", "")),
-                 str(row.get("source", "")), now),
+                (
+                    int(rock_id), analyte, numeric, _text(row.get("unit")), _text(row.get("method")),
+                    _text(row.get("source")), now,
+                ),
             )
 
 
 def get_composition(rock_id: int) -> pd.DataFrame:
-    with _connect() as con:
+    with rock_connection() as con:
         rows = con.execute(
             "SELECT analyte, value, unit, method, source, updated_at FROM rock_compositions WHERE rock_id=? ORDER BY analyte",
             (int(rock_id),),
@@ -139,9 +191,8 @@ def get_composition(rock_id: int) -> pd.DataFrame:
 
 
 def composition_wide(project_id: int | None = None) -> pd.DataFrame:
-    rocks = list_rocks(project_id)
     records: list[dict] = []
-    for rock in rocks:
+    for rock in list_rocks(project_id):
         record = {
             "_rock_id": rock["id"], "Project": rock["project_name"], "Rock": rock["name"],
             "Massif": rock["massif"], "Locality": rock["locality"], "Lithology": rock["lithology"],
@@ -156,17 +207,12 @@ def composition_wide(project_id: int | None = None) -> pd.DataFrame:
 
 def replace_isotopes(rock_id: int, dataframe: pd.DataFrame) -> None:
     now = _utcnow()
-    with _connect() as con:
+    with rock_connection() as con:
         con.execute("DELETE FROM rock_isotopes WHERE rock_id=?", (int(rock_id),))
         for _, row in dataframe.iterrows():
-            ratio = str(row.get("ratio_name", "")).strip()
+            ratio = _text(row.get("ratio_name")).strip()
             if not ratio:
                 continue
-            def number(key: str):
-                value = row.get(key)
-                if value in (None, "") or pd.isna(value):
-                    return None
-                return float(value)
             con.execute(
                 """
                 INSERT INTO rock_isotopes(
@@ -174,14 +220,17 @@ def replace_isotopes(rock_id: int, dataframe: pd.DataFrame) -> None:
                     method, laboratory, notes, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (int(rock_id), str(row.get("system", "")), ratio, number("value"), number("uncertainty"),
-                 number("initial_value"), number("age_ma_used"), str(row.get("method", "")),
-                 str(row.get("laboratory", "")), str(row.get("notes", "")), now),
+                (
+                    int(rock_id), _text(row.get("system")), ratio, _nullable_float(row.get("value")),
+                    _nullable_float(row.get("uncertainty")), _nullable_float(row.get("initial_value")),
+                    _nullable_float(row.get("age_ma_used")), _text(row.get("method")),
+                    _text(row.get("laboratory")), _text(row.get("notes")), now,
+                ),
             )
 
 
 def get_isotopes(rock_id: int) -> pd.DataFrame:
-    with _connect() as con:
+    with rock_connection() as con:
         rows = con.execute(
             "SELECT system, ratio_name, value, uncertainty, initial_value, age_ma_used, method, laboratory, notes FROM rock_isotopes WHERE rock_id=? ORDER BY system, ratio_name",
             (int(rock_id),),
@@ -205,7 +254,7 @@ def isotope_wide(project_id: int | None = None) -> pd.DataFrame:
 
 def set_mineral_links(rock_id: int, dataset_ids: Iterable[int]) -> None:
     ids = sorted({int(value) for value in dataset_ids})
-    with _connect() as con:
+    with rock_connection() as con:
         con.execute("DELETE FROM rock_mineral_links WHERE rock_id=?", (int(rock_id),))
         now = _utcnow()
         for dataset_id in ids:
@@ -216,6 +265,9 @@ def set_mineral_links(rock_id: int, dataset_ids: Iterable[int]) -> None:
 
 
 def list_mineral_links(rock_id: int) -> list[int]:
-    with _connect() as con:
-        rows = con.execute("SELECT dataset_id FROM rock_mineral_links WHERE rock_id=? ORDER BY dataset_id", (int(rock_id),)).fetchall()
+    with rock_connection() as con:
+        rows = con.execute(
+            "SELECT dataset_id FROM rock_mineral_links WHERE rock_id=? ORDER BY dataset_id",
+            (int(rock_id),),
+        ).fetchall()
     return [int(row[0]) for row in rows]
