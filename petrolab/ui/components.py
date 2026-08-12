@@ -5,7 +5,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_image_assets, list_projects
+from petrolab.db import list_projects
+from petrolab.services.image_service import related_images_for_row
 
 
 def render_project_selector(key: str = "project_select") -> dict | None:
@@ -20,23 +21,8 @@ def render_project_selector(key: str = "project_select") -> dict | None:
 
 
 def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
-    """Return images linked directly or indirectly to an analysis row."""
-    assets = list_image_assets(
-        project_id=project_id,
-        dataset_id=int(selected_row.get("_dataset_id")),
-    )
-    related: list[dict] = []
-    analysis_id = str(selected_row.get("_analysis_id"))
-    for asset in assets:
-        if asset.get("analysis_id") == analysis_id:
-            related.append(asset)
-        elif asset.get("scope_type") == "Набор данных":
-            related.append(asset)
-        elif asset.get("scope_type") == "Значение поля":
-            column = asset.get("scope_column")
-            if column in selected_row.index and str(selected_row.get(column)) == str(asset.get("scope_value")):
-                related.append(asset)
-    return related
+    """UI-friendly wrapper around the image service relation resolver."""
+    return related_images_for_row(selected_row, project_id=project_id)
 
 
 def render_asset_gallery(assets: list[dict], max_items: int = 20, width: int = 650) -> None:
