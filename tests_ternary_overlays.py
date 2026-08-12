@@ -7,11 +7,9 @@ from petrolab.interactive_plotting import selected_analysis_ids
 from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.ternary_data import TERNARY_A, TERNARY_B, TERNARY_C, prepare_ternary
 from petrolab.ternary_overlays import (
-    FELDSPAR_DEER_1992,
     PYROXENE_MORIMOTO_1988,
     TERNARY_OVERLAYS,
     attach_ternary_classification,
-    classify_feldspar_deer,
     classify_pyroxene_morimoto,
     pyroxene_qj_group,
 )
@@ -26,7 +24,7 @@ from petrolab.ternary_presets import (
 )
 
 
-# Overlay geometry is always valid ternary percent space and carries auditable references.
+# Overlay geometry is always valid ternary percent space and carries an auditable source.
 for overlay in TERNARY_OVERLAYS.values():
     assert overlay.source_citation
     assert overlay.has_reference_identifier
@@ -39,11 +37,8 @@ for overlay in TERNARY_OVERLAYS.values():
         point = label.position
         assert abs(point.a + point.b + point.c - 100.0) < 1e-8
 
+assert set(TERNARY_OVERLAYS) == {"pyroxene_morimoto_1988"}
 assert PYROXENE_MORIMOTO_1988.source_doi == "10.1180/minmag.1988.052.367.15"
-assert FELDSPAR_DEER_1992.source_doi == ""
-assert "Deer" in FELDSPAR_DEER_1992.source_citation
-assert "Gündüz" in FELDSPAR_DEER_1992.verification_citation
-assert FELDSPAR_DEER_1992.verification_doi == "10.1180/mgm.2022.113"
 
 # Pyroxene preset uses conventional En-left / Fs-right / Wo-top orientation and
 # a Morimoto-specific source projection rather than the legacy Fe2-only Wo/En/Fs columns.
@@ -51,6 +46,7 @@ px_preset = TERNARY_PRESETS["pyroxene_wo_en_fs"]
 assert (px_preset.a_label, px_preset.b_label, px_preset.c_label) == ("En", "Fs", "Wo")
 assert (px_preset.a_col, px_preset.b_col, px_preset.c_col) == (MORIMOTO_EN, MORIMOTO_FS, MORIMOTO_WO)
 assert px_preset.field_overlay_id == "pyroxene_morimoto_1988"
+assert {"Q", "J"}.issubset(px_preset.source_requirements)
 
 px_source = pd.DataFrame(
     {
@@ -91,25 +87,19 @@ assert classify_pyroxene_morimoto(px_row(23, 30, 47)) == "Hedenbergite"
 assert "Ca–Na" in classify_pyroxene_morimoto(px_row(40, 30, 30, q=1.2, j=0.5))
 assert "outside" in classify_pyroxene_morimoto(px_row(20, 20, 60))
 
-# Feldspar classification is deliberately conservative outside the low-Or plagioclase band.
-def fsp_row(ab: float, an: float, or_value: float) -> pd.Series:
-    return pd.Series({TERNARY_A: ab, TERNARY_B: an, TERNARY_C: or_value})
+# Feldspar and garnet presets remain available without inventing unsourced overlay geometry.
+fsp_preset = TERNARY_PRESETS["feldspar_ab_an_or"]
+assert fsp_preset.field_overlay_id is None
+assert "эвристическим" in fsp_preset.description_ru
+feldspar_ids = {preset.preset_id for preset in available_ternary_presets({"Ab", "An", "Or"})}
+assert feldspar_ids == {"feldspar_ab_an_or"}
 
-
-assert classify_feldspar_deer(fsp_row(93, 5, 2)) == "Albite"
-assert classify_feldspar_deer(fsp_row(78, 20, 2)) == "Oligoclase"
-assert classify_feldspar_deer(fsp_row(58, 40, 2)) == "Andesine"
-assert classify_feldspar_deer(fsp_row(38, 60, 2)) == "Labradorite"
-assert classify_feldspar_deer(fsp_row(18, 80, 2)) == "Bytownite"
-assert classify_feldspar_deer(fsp_row(3, 95, 2)) == "Anorthite"
-assert "Alkali feldspar" in classify_feldspar_deer(fsp_row(45, 5, 50))
-assert "Intermediate" in classify_feldspar_deer(fsp_row(40, 30, 30))
-
-# Garnet projections are available whenever their stored end-members exist.
 garnet_columns = {"Prp", "Alm", "Grs", "Sps"}
 available_ids = {preset.preset_id for preset in available_ternary_presets(garnet_columns)}
 assert "garnet_prp_alm_grs" in available_ids
 assert "garnet_prp_alm_sps" in available_ids
+assert TERNARY_PRESETS["garnet_prp_alm_grs"].field_overlay_id is None
+assert TERNARY_PRESETS["garnet_prp_alm_sps"].field_overlay_id is None
 
 # Classification becomes a local view field and never changes the source columns.
 source = pd.DataFrame(
@@ -156,20 +146,5 @@ svg = figure_svg_bytes(publication)
 plt.close(publication)
 assert png.startswith(b"\x89PNG")
 assert b"<svg" in svg[:1000]
-
-# Feldspar overlay can also be rendered without source-specific renderer code.
-fsp = pd.DataFrame({"_analysis_id": ["f1"], "Ab": [58.0], "An": [40.0], "Or": [2.0]})
-fsp_prepared = prepare_ternary(fsp, "Ab", "An", "Or", normalization="already")
-fsp_classified = attach_ternary_classification(fsp_prepared.valid, "feldspar_deer_1992")
-assert fsp_classified["Классификационное поле"].iloc[0] == "Andesine"
-fsp_figure = build_publication_ternary(
-    fsp_classified,
-    a_label="Ab",
-    b_label="An",
-    c_label="Or",
-    overlay=FELDSPAR_DEER_1992,
-)
-assert figure_png_bytes(fsp_figure, dpi=72).startswith(b"\x89PNG")
-plt.close(fsp_figure)
 
 print("ternary overlay tests: OK")
