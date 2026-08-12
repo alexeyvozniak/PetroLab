@@ -65,6 +65,20 @@ def _custom_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection
     )
 
 
+def _render_overlay_reference(overlay: TernaryOverlay) -> None:
+    st.markdown("**Первичный источник схемы**")
+    st.write(overlay.source_citation)
+    if overlay.source_doi:
+        st.caption(f"DOI первичного источника: {overlay.source_doi}")
+    if overlay.verification_citation:
+        st.markdown("**Современная проверочная реализация / сопоставление**")
+        st.write(overlay.verification_citation)
+        if overlay.verification_doi:
+            st.caption(f"DOI проверочной работы: {overlay.verification_doi}")
+    if overlay.note_ru:
+        st.info(overlay.note_ru)
+
+
 def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection | None:
     available = available_ternary_presets(dataframe.columns)
     if not available:
@@ -95,10 +109,7 @@ def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection
             key="ternary_show_overlay",
         )
         with st.expander("Источник классификационной схемы", expanded=False):
-            st.write(overlay.source_citation)
-            st.caption(f"DOI: {overlay.source_doi}")
-            if overlay.note_ru:
-                st.info(overlay.note_ru)
+            _render_overlay_reference(overlay)
 
     return TernarySelection(
         dataframe=projected,
