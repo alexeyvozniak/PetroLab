@@ -28,6 +28,8 @@ SEMANTIC_ALIASES: dict[str, set[str]] = {
     },
 }
 
+# Group / Type / Zone / Population / Series are intentionally weak candidates for
+# Generation: they are shown to the user but never renamed automatically.
 WEAK_ROLE_CANDIDATES: dict[str, set[str]] = {
     "Generation": {"group", "type", "zone", "rimcore", "population", "series"},
 }
