@@ -60,11 +60,14 @@ def render_images_page() -> None:
 
 
 def _render_batch_wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame) -> None:
+    epoch_key = f"image_upload_epoch_{dataset['id']}"
+    epoch = int(st.session_state.get(epoch_key, 0))
+    uploader_key = f"image_batch_upload_{dataset['id']}_{epoch}"
     files = st.file_uploader(
         "Загрузите фотографии",
         type=["png", "jpg", "jpeg", "webp", "tif", "tiff"],
         accept_multiple_files=True,
-        key=f"image_batch_upload_{dataset['id']}",
+        key=uploader_key,
     )
     if not files:
         st.info("Можно выбрать сразу 10, 20 или больше изображений. Они не сохранятся, пока не будет подтверждена вся пачка.")
@@ -124,6 +127,7 @@ def _render_batch_wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame
             st.rerun()
     if nav3.button("Перейти к проверке всей пачки", key=f"{prefix}_review"):
         st.session_state[index_key] = len(entries) - 1
+        st.rerun()
 
     st.divider()
     _render_batch_summary(project_id, dataset, dataframe, entries)
@@ -135,19 +139,22 @@ def _render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
         key=f"{prefix}_point_query",
         placeholder="Например: N-7, зерно 14 или N-X1",
     )
+    full_labels = _analysis_id_labels(dataframe)
     filtered = apply_quick_filter(dataframe, query)
-    option_map = _analysis_option_map(filtered.head(5000))
-    previously = st.session_state.get(f"{prefix}_analysis_ids", [])
-    available_ids = set(option_map.values())
-    retained = [value for value in previously if value in available_ids]
-    selected_labels = st.multiselect(
+    filtered_ids = [str(value) for value in filtered["_analysis_id"].head(5000).tolist()]
+    selected_key = f"{prefix}_analysis_ids"
+    previous = [str(value) for value in st.session_state.get(selected_key, [])]
+    valid_previous = [value for value in previous if value in full_labels]
+    option_ids = list(dict.fromkeys(valid_previous + filtered_ids))
+
+    st.multiselect(
         "Точки, видимые на этой фотографии",
-        list(option_map),
-        default=[label for label, value in option_map.items() if value in retained],
-        key=f"{prefix}_analysis_labels",
+        option_ids,
+        default=valid_previous,
+        format_func=lambda analysis_id: full_labels.get(analysis_id, analysis_id[:8]),
+        key=selected_key,
     )
-    st.session_state[f"{prefix}_analysis_ids"] = [option_map[label] for label in selected_labels]
-    st.caption(f"Выбрано точек: {len(st.session_state[f'{prefix}_analysis_ids'])}.")
+    st.caption(f"Выбрано точек: {len(st.session_state.get(selected_key, []))}.")
 
 
 def _render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
@@ -162,17 +169,21 @@ def _render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
         return
     column = st.selectbox("Поле", candidates, key=f"{prefix}_field_column")
     values = sorted(dataframe[column].dropna().astype(str).unique().tolist())
-    st.selectbox("Значение", values, key=f"{prefix}_field_value") if values else None
+    if values:
+        st.selectbox("Значение", values, key=f"{prefix}_field_value")
 
 
-def _analysis_option_map(dataframe: pd.DataFrame) -> dict[str, str]:
+def _analysis_id_labels(dataframe: pd.DataFrame) -> dict[str, str]:
     result: dict[str, str] = {}
+    used_labels: set[str] = set()
     for _, row in dataframe.iterrows():
         analysis_id = str(row["_analysis_id"])
-        label = f"{row_identity(row)} · Excel {row.get('_source_row', '—')} · {analysis_id[:8]}"
-        if label in result:
-            label = f"{label} · {analysis_id[8:12]}"
-        result[label] = analysis_id
+        base = f"{row_identity(row)} · Excel {row.get('_source_row', '—')} · {analysis_id[:8]}"
+        label = base
+        if label in used_labels:
+            label = f"{base} · {analysis_id[8:12]}"
+        used_labels.add(label)
+        result[analysis_id] = label
     return result
 
 
@@ -251,10 +262,12 @@ def _render_batch_summary(
 
 
 def _clear_wizard_state(dataset_id: int) -> None:
-    prefixes = (f"imgwiz_{dataset_id}_", f"image_wizard_index_{dataset_id}")
+    wizard_prefix = f"imgwiz_{dataset_id}_"
     for key in list(st.session_state):
-        if any(str(key).startswith(prefix) for prefix in prefixes):
+        if str(key).startswith(wizard_prefix) or key == f"image_wizard_index_{dataset_id}":
             del st.session_state[key]
+    epoch_key = f"image_upload_epoch_{dataset_id}"
+    st.session_state[epoch_key] = int(st.session_state.get(epoch_key, 0)) + 1
 
 
 def _render_dataset_gallery(dataset_id: int, dataframe: pd.DataFrame) -> None:
