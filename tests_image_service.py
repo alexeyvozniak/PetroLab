@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 from pathlib import Path
@@ -21,6 +22,7 @@ from petrolab.services.image_service import (
     create_assigned_image_batch,
     create_image_assets,
     delete_image_asset,
+    image_export_records,
     list_dataset_images,
     related_images_for_row,
 )
@@ -88,6 +90,16 @@ assert point_result.count == 1
 assert len(list_dataset_images(dataset_id)) == 3
 point_record = get_image_record(point_result.asset_ids[0])
 assert set(point_record["analysis_ids"]) == {first_id, second_id}
+
+# Multi-point metadata must remain exportable to XLSX; raw Python lists are not valid Excel cells.
+export_records = image_export_records()
+export_row = next(row for row in export_records if int(row["id"]) == point_result.asset_ids[0])
+assert isinstance(export_row["analysis_ids"], str)
+assert first_id in export_row["analysis_ids"] and second_id in export_row["analysis_ids"]
+export_buffer = io.BytesIO()
+with pd.ExcelWriter(export_buffer, engine="openpyxl") as writer:
+    pd.DataFrame(export_records).to_excel(writer, index=False, sheet_name="Изображения")
+assert export_buffer.getvalue().startswith(b"PK")
 
 related_first = related_images_for_row(first, project_id=project_id)
 related_second = related_images_for_row(second, project_id=project_id)
