@@ -9,8 +9,6 @@ import pandas as pd
 
 CANONICAL_ROLES = ("Sample", "Grain", "Point", "Generation")
 
-# These aliases are intentionally conservative. Ambiguous labels such as Group/Type
-# are not silently converted to Generation; the import UI may suggest them for review.
 SEMANTIC_ALIASES: dict[str, set[str]] = {
     "Sample": {
         "sample", "sampleid", "sampleno", "samplenumber", "образец", "образецid",
@@ -34,56 +32,55 @@ WEAK_ROLE_CANDIDATES: dict[str, set[str]] = {
     "Generation": {"group", "type", "zone", "rimcore", "population", "series"},
 }
 
+# FeOt is deliberately NOT collapsed into FeO. It is total iron expressed as FeO.
 OXIDE_ALIASES: dict[str, str] = {
-    "sio2": "SiO2",
-    "tio2": "TiO2",
-    "al2o3": "Al2O3",
-    "cr2o3": "Cr2O3",
-    "fe2o3": "Fe2O3",
-    "feo": "FeO",
-    "feot": "FeO",
-    "feotot": "FeO",
-    "feototal": "FeO",
-    "totalfeasfeo": "FeO",
-    "feo*": "FeO",
-    "mno": "MnO",
-    "mgo": "MgO",
-    "cao": "CaO",
-    "na2o": "Na2O",
-    "k2o": "K2O",
-    "p2o5": "P2O5",
-    "nio": "NiO",
-    "bao": "BaO",
-    "sro": "SrO",
-    "zno": "ZnO",
-    "v2o3": "V2O3",
-    "v2o5": "V2O5",
-    "zro2": "ZrO2",
-    "hfo2": "HfO2",
-    "nb2o5": "Nb2O5",
-    "ta2o5": "Ta2O5",
-    "la2o3": "La2O3",
-    "ce2o3": "Ce2O3",
-    "nd2o3": "Nd2O3",
-    "y2o3": "Y2O3",
-    "tho2": "ThO2",
-    "uo2": "UO2",
-    "so3": "SO3",
-    "h2o": "H2O",
-    "f": "F",
-    "cl": "Cl",
+    "sio2": "SiO2", "tio2": "TiO2", "al2o3": "Al2O3", "cr2o3": "Cr2O3",
+    "fe2o3": "Fe2O3", "feo": "FeO", "feot": "FeOt", "feotot": "FeOt",
+    "feototal": "FeOt", "totalfeasfeo": "FeOt", "feo*": "FeOt",
+    "mno": "MnO", "mgo": "MgO", "cao": "CaO", "na2o": "Na2O", "k2o": "K2O",
+    "p2o5": "P2O5", "nio": "NiO", "bao": "BaO", "sro": "SrO", "zno": "ZnO",
+    "v2o3": "V2O3", "v2o5": "V2O5", "zro2": "ZrO2", "hfo2": "HfO2",
+    "nb2o5": "Nb2O5", "ta2o5": "Ta2O5", "la2o3": "La2O3", "ce2o3": "Ce2O3",
+    "nd2o3": "Nd2O3", "y2o3": "Y2O3", "tho2": "ThO2", "uo2": "UO2",
+    "so3": "SO3", "h2o": "H2O", "f": "F", "cl": "Cl",
 }
+
+ELEMENT_SYMBOLS = {
+    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al",
+    "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe",
+    "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y",
+    "Zr", "Nb", "Mo", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I",
+    "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er",
+    "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl",
+    "Pb", "Bi", "Th", "U",
+}
+_ELEMENT_BY_CASEFOLD = {symbol.casefold(): symbol for symbol in ELEMENT_SYMBOLS}
 
 _UNIT_SUFFIX_RE = re.compile(
     r"[\s,;:_-]*(?:\(|\[)?\s*(?:wt\.?\s*%|wtpct|mass\s*%|мас\.?\s*%|weight\s*%)\s*(?:\)|\])?$",
     flags=re.IGNORECASE,
 )
+_CONCENTRATION_UNIT_RE = re.compile(
+    r"(?:\(|\[)?\s*(ppm|ppb|ppt|[µμu]g\s*/\s*g|mg\s*/\s*kg|ng\s*/\s*g|pg\s*/\s*g|"
+    r"мкг\s*/\s*г|мг\s*/\s*кг|нг\s*/\s*г|пг\s*/\s*г|"
+    r"wt\.?\s*%|mass\s*%|мас\.?\s*%)\s*(?:\)|\])?\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class ColumnDescriptor:
+    canonical_name: str
+    quantity_kind: str
+    source_unit: str
+    canonical_unit: str
+    to_canonical_factor: float
+    to_source_factor: float
+    warning: str = ""
 
 
 @dataclass(frozen=True)
 class SheetSchema:
-    """Detected semantic roles for one imported sheet."""
-
     columns: tuple[str, ...]
     suggested: Mapping[str, str]
     weak_candidates: Mapping[str, tuple[str, ...]]
@@ -111,15 +108,65 @@ _WEAK_TOKENS = {
 }
 
 
-def canonicalize_header(value: object) -> str:
-    """Normalize known oxide headers while preserving unknown scientific columns."""
+def describe_header(value: object) -> ColumnDescriptor:
+    """Classify one header and define reversible normalization when it is safe."""
     original = _nfkc(value)
     token = _token(original)
-    return OXIDE_ALIASES.get(token, original)
+    if token in OXIDE_ALIASES:
+        canonical = OXIDE_ALIASES[token]
+        warning = "total Fe as FeO" if canonical == "FeOt" else ""
+        return ColumnDescriptor(canonical, "oxide", "wt%", "wt%", 1.0, 1.0, warning)
+
+    unit_match = _CONCENTRATION_UNIT_RE.search(original)
+    if unit_match:
+        source_unit, canonical_unit, factor = _normalize_concentration_unit(unit_match.group(1))
+        element_text = original[:unit_match.start()].strip(" _-,:;()[]")
+        element = _ELEMENT_BY_CASEFOLD.get(_nfkc(element_text).casefold())
+        if element:
+            canonical = f"{element} [{canonical_unit}]"
+            return ColumnDescriptor(
+                canonical_name=canonical,
+                quantity_kind="trace_element" if canonical_unit == "µg/g" else "element_concentration",
+                source_unit=source_unit,
+                canonical_unit=canonical_unit,
+                to_canonical_factor=factor,
+                to_source_factor=1.0 / factor,
+            )
+
+    bare_element = _ELEMENT_BY_CASEFOLD.get(original.casefold())
+    if bare_element:
+        return ColumnDescriptor(
+            bare_element,
+            "element_unknown_unit",
+            "",
+            "",
+            1.0,
+            1.0,
+            "Единица не указана в заголовке; автоматическое объединение с ppm/µg/g не выполняется.",
+        )
+
+    return ColumnDescriptor(original, "unknown", "", "", 1.0, 1.0)
+
+
+def _normalize_concentration_unit(raw: str) -> tuple[str, str, float]:
+    unit = _nfkc(raw).lower().replace("μ", "µ").replace("u", "µ")
+    unit = re.sub(r"\s+", "", unit)
+    if unit in {"ppm", "µg/g", "мкг/г", "mg/kg", "мг/кг"}:
+        return raw, "µg/g", 1.0
+    if unit in {"ppb", "ng/g", "нг/г"}:
+        return raw, "µg/g", 1e-3
+    if unit in {"ppt", "pg/g", "пг/г"}:
+        return raw, "µg/g", 1e-6
+    if unit in {"wt%", "wt.%", "mass%", "мас.%", "мас%"}:
+        return raw, "wt%", 1.0
+    raise ValueError(f"Неподдерживаемая единица концентрации: {raw}")
+
+
+def canonicalize_header(value: object) -> str:
+    return describe_header(value).canonical_name
 
 
 def infer_semantic_mapping(columns: Iterable[object]) -> dict[str, str]:
-    """Return only high-confidence semantic column mappings."""
     result: dict[str, str] = {}
     for column in columns:
         token = _token(column)
@@ -128,6 +175,25 @@ def infer_semantic_mapping(columns: Iterable[object]) -> dict[str, str]:
                 result[role] = str(column)
                 break
     return result
+
+
+def resolve_semantic_mapping(
+    columns: Iterable[object],
+    stored_map: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Reuse confirmed roles, but recover safely from harmless header renames."""
+    names = {str(column) for column in columns}
+    inferred = infer_semantic_mapping(names)
+    resolved: dict[str, str] = {}
+    for role in CANONICAL_ROLES:
+        previous = str((stored_map or {}).get(role, ""))
+        if previous and previous in names:
+            resolved[role] = previous
+        elif role in names:
+            resolved[role] = role
+        elif role in inferred:
+            resolved[role] = inferred[role]
+    return resolved
 
 
 def inspect_sheet_schema(columns: Iterable[object]) -> SheetSchema:
@@ -142,7 +208,6 @@ def inspect_sheet_schema(columns: Iterable[object]) -> SheetSchema:
 
 
 def validate_semantic_mapping(columns: Iterable[str], semantic_map: Mapping[str, str] | None) -> dict[str, str]:
-    """Validate user-confirmed semantic roles against one sheet's normalized headers."""
     available = {str(column) for column in columns}
     clean: dict[str, str] = {}
     used_sources: set[str] = set()
@@ -166,10 +231,11 @@ def apply_semantic_mapping(
     column_map: dict[str, dict],
     semantic_map: Mapping[str, str] | None,
 ) -> tuple[pd.DataFrame, dict[str, dict], dict[str, str]]:
-    """Rename confirmed semantic columns without losing their Excel origin mapping."""
     clean = validate_semantic_mapping(dataframe.columns, semantic_map)
     if not clean:
-        return dataframe.copy(), dict(column_map), {}
+        mapped = dict(column_map)
+        mapped.setdefault("__schema__", {})["semantic"] = {}
+        return dataframe.copy(), mapped, {}
 
     rename_map = {source: role for role, source in clean.items() if source != role}
     out = dataframe.rename(columns=rename_map).copy()
@@ -178,7 +244,7 @@ def apply_semantic_mapping(
         info = dict(mapped.pop(source))
         info["normalized_from"] = source
         mapped[role] = info
-    mapped["__schema__"] = {"semantic": clean}
+    mapped.setdefault("__schema__", {})["semantic"] = clean
     return out, mapped, clean
 
 
