@@ -279,6 +279,11 @@ def _render_source_statuses(project_id: int) -> None:
                         )
                         if result.moved_rows_detected:
                             st.info("Обнаружена перестановка/вставка строк: позиционный fallback был отключён для безопасности.")
+                        if result.positional_reused_count:
+                            st.warning(
+                                f"ID, сохранённых только по прежней строке Excel: {result.positional_reused_count}. "
+                                "Это низкоуверенное сопоставление; для устойчивой истории лучше назначить Sample/Grain/Point."
+                            )
                         if result.recovered_roles:
                             st.info("После переименования колонок восстановлены роли: " + ", ".join(result.recovered_roles))
                         if result.detached_image_count:
