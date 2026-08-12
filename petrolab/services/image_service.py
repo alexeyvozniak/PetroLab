@@ -19,7 +19,7 @@ from petrolab.repositories.image_repository import (
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
 SCOPE_DATASET = "Набор данных"
 SCOPE_FIELD = "Значение поля"
-SCOPE_ANALYSIS = "Конкретная точка анализа"
+SCOPE_ANALYSIS = "Точки анализа"
 
 
 @dataclass(frozen=True)
@@ -31,9 +31,18 @@ class ImagePayload:
 @dataclass(frozen=True)
 class ImageScope:
     scope_type: str
-    analysis_id: str | None = None
+    analysis_id: str | None = None  # backward compatibility for old callers
+    analysis_ids: tuple[str, ...] = ()
     scope_column: str = ""
     scope_value: str = ""
+
+
+@dataclass(frozen=True)
+class ImageAssignment:
+    image: ImagePayload
+    scope: ImageScope
+    kind: str
+    title: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,32 +63,56 @@ def create_image_assets(
     kind: str,
     title: str = "",
 ) -> ImageBatchResult:
-    """Validate a batch, store files, and register their metadata."""
+    assignments = [ImageAssignment(image, scope, kind, title) for image in images]
+    return create_assigned_image_batch(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        assignments=assignments,
+    )
+
+
+def create_assigned_image_batch(
+    *,
+    project_id: int,
+    dataset_id: int,
+    assignments: list[ImageAssignment],
+) -> ImageBatchResult:
+    """Atomically validate and store images that may each have a different scope."""
     dataset = _validate_dataset(project_id, dataset_id)
-    normalized_scope = _validate_scope(dataset, scope)
-    if not images:
+    if not assignments:
         raise ValueError("Не выбрано ни одного изображения")
-    for image in images:
-        _validate_payload(image)
+
+    normalized: list[ImageAssignment] = []
+    for assignment in assignments:
+        _validate_payload(assignment.image)
+        normalized.append(
+            ImageAssignment(
+                image=assignment.image,
+                scope=_validate_scope(dataset, assignment.scope),
+                kind=assignment.kind.strip() or "Другое",
+                title=assignment.title.strip(),
+            )
+        )
 
     asset_dir = ASSETS_DIR / f"project_{int(project_id)}" / f"dataset_{int(dataset_id)}"
     asset_dir.mkdir(parents=True, exist_ok=True)
     created_paths: list[Path] = []
     created_ids: list[int] = []
     try:
-        for image in images:
-            target = _write_image_file(asset_dir, image)
+        for assignment in normalized:
+            target = _write_image_file(asset_dir, assignment.image)
             created_paths.append(target)
+            analysis_ids = _analysis_ids(assignment.scope)
             asset_id = create_image_record(
                 project_id=int(project_id),
                 dataset_id=int(dataset_id),
-                analysis_id=normalized_scope.analysis_id,
-                scope_type=normalized_scope.scope_type,
-                scope_column=normalized_scope.scope_column,
-                scope_value=normalized_scope.scope_value,
-                kind=kind.strip() or "Другое",
-                title=title.strip(),
-                original_filename=Path(image.filename).name,
+                analysis_ids=analysis_ids,
+                scope_type=assignment.scope.scope_type,
+                scope_column=assignment.scope.scope_column,
+                scope_value=assignment.scope.scope_value,
+                kind=assignment.kind,
+                title=assignment.title,
+                original_filename=Path(assignment.image.filename).name,
                 stored_path=str(target),
             )
             created_ids.append(asset_id)
@@ -90,7 +123,6 @@ def create_image_assets(
 
 
 def delete_image_asset(asset_id: int) -> None:
-    """Remove one asset without leaving a dangling DB record or orphaned user-visible file."""
     record = get_image_record(int(asset_id))
     path = Path(record["stored_path"])
     staged = path.with_name(path.name + ".petrolab_delete")
@@ -112,18 +144,16 @@ def list_dataset_images(dataset_id: int) -> list[dict]:
 
 
 def list_all_images() -> list[dict]:
-    """Return all image metadata for unified project export."""
     return list_image_records()
 
 
 def related_images_for_row(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
-    """Resolve direct, dataset-level, and field-value image links for one analysis row."""
     dataset_id = int(selected_row.get("_dataset_id"))
     assets = list_image_records(project_id=project_id, dataset_id=dataset_id)
     analysis_id = str(selected_row.get("_analysis_id"))
     related: list[dict] = []
     for asset in assets:
-        if asset.get("analysis_id") == analysis_id:
+        if analysis_id in set(asset.get("analysis_ids") or []):
             related.append(asset)
         elif asset.get("scope_type") == SCOPE_DATASET:
             related.append(asset)
@@ -151,13 +181,26 @@ def _validate_scope(dataset: dict, scope: ImageScope) -> ImageScope:
     raise ValueError(f"Неизвестный тип привязки: {scope.scope_type}")
 
 
+def _analysis_ids(scope: ImageScope) -> tuple[str, ...]:
+    values = list(scope.analysis_ids)
+    if scope.analysis_id:
+        values.append(scope.analysis_id)
+    return tuple(dict.fromkeys(str(value) for value in values if value))
+
+
 def _validate_analysis_scope(dataset: dict, scope: ImageScope) -> ImageScope:
-    if not scope.analysis_id:
-        raise ValueError("Не выбрана аналитическая точка")
-    record = get_analysis_record(str(scope.analysis_id))
-    if int(record["dataset_id"]) != int(dataset["id"]):
-        raise ValueError("Аналитическая точка относится к другому набору")
-    return ImageScope(SCOPE_ANALYSIS, analysis_id=str(scope.analysis_id))
+    analysis_ids = _analysis_ids(scope)
+    if not analysis_ids:
+        raise ValueError("Не выбрана ни одна аналитическая точка")
+    for analysis_id in analysis_ids:
+        record = get_analysis_record(analysis_id)
+        if int(record["dataset_id"]) != int(dataset["id"]):
+            raise ValueError(f"Аналитическая точка {analysis_id[:8]} относится к другому набору")
+    return ImageScope(
+        SCOPE_ANALYSIS,
+        analysis_id=analysis_ids[0] if len(analysis_ids) == 1 else None,
+        analysis_ids=analysis_ids,
+    )
 
 
 def _validate_field_scope(dataset: dict, scope: ImageScope) -> ImageScope:
