@@ -3,12 +3,13 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_datasets, load_dataset_dataframe
 from petrolab.derived import formula_status, save_formula_results
+from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
 from petrolab.minerals.formulae import methods_for
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ui.components import render_project_selector
-from petrolab.dataframe_utils import dataset_label
 
 
 def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
@@ -19,11 +20,36 @@ def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
     ]
 
 
+def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
+    return [
+        column for column in ("Sample", "Grain", "Point", "Generation")
+        if column in dataframe.columns
+    ]
+
+
+def _render_classification_summary(result: pd.DataFrame) -> None:
+    columns = [column for column in CLASSIFICATION_COLUMNS if column in result.columns]
+    if not columns:
+        return
+    identity = _identity_columns(result)
+    st.subheader("Автоматическая классификация")
+    st.caption(
+        "Название вида показывается только там, где текущего пересчёта достаточно. "
+        "Композиционное поле или диагностическая проекция не подменяются формальным IMA-именем."
+    )
+    st.dataframe(
+        result[identity + columns].head(1000),
+        width="stretch",
+        hide_index=True,
+        height=min(420, 42 + 35 * min(len(result), 10)),
+    )
+
+
 def render_formulae_page() -> None:
     st.title("Расчёты и структурные формулы")
     st.caption(
-        "Расчётные величины хранятся отдельно от исходного Excel. После сохранения они "
-        "сразу становятся доступны в «Единой базе» и «Диаграммах»."
+        "Расчётные величины и автоматическая классификация хранятся отдельно от исходного Excel. "
+        "После сохранения они сразу доступны в «Единой базе» и «Диаграммах»."
     )
 
     project = render_project_selector("formula_project")
@@ -103,11 +129,10 @@ def render_formulae_page() -> None:
         st.info(result.note_ru)
 
     if derived:
+        _render_classification_summary(result.data)
+
         st.subheader("Результаты пересчёта")
-        identity = [
-            column for column in ("Sample", "Grain", "Point", "Generation")
-            if column in result.data.columns
-        ]
+        identity = _identity_columns(result.data)
         table_columns = identity + derived
         st.dataframe(
             result.data[table_columns].head(1000),
@@ -135,7 +160,7 @@ def render_formulae_page() -> None:
             )
             st.success(
                 f"Сохранено {len(saved.derived_columns)} расчётных полей для {saved.row_count} анализов. "
-                "Их уже можно выбирать как оси в «Диаграммах»."
+                "Их уже можно выбирать как оси/фильтры в «Диаграммах»."
             )
             st.rerun()
     else:
