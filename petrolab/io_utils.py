@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 from pathlib import Path
 
 import pandas as pd
 
-from petrolab.column_schema import describe_header
+from petrolab.column_schema import ColumnDescriptor, describe_header
 
 COMMON_OXIDES = {
     "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "FeO", "FeOt", "MnO", "MgO",
@@ -14,6 +15,9 @@ COMMON_OXIDES = {
     "F", "Cl", "H2O", "ZrO2", "HfO2", "Nb2O5", "Ta2O5", "La2O3", "Ce2O3",
     "Nd2O3", "Y2O3", "ThO2", "UO2", "V2O5", "SO3",
 }
+
+_PANDAS_DUPLICATE_RE = re.compile(r"^(?P<base>.+)\.(?P<index>[1-9]\d*)$")
+_SCIENTIFIC_KINDS = {"oxide", "trace_element", "element_concentration"}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -29,24 +33,46 @@ def sha256_file(path: str | Path) -> str:
 
 
 def normalize_column_name(value: object) -> str:
-    return describe_header(value).canonical_name
+    return _import_descriptor(value)[0].canonical_name
+
+
+def _import_descriptor(value: object) -> tuple[ColumnDescriptor, str]:
+    """Recover known scientific headers that pandas mangled as duplicate `.1`, `.2`, ... names."""
+    descriptor = describe_header(value)
+    if descriptor.quantity_kind != "unknown":
+        return descriptor, ""
+
+    text = str(value).strip()
+    match = _PANDAS_DUPLICATE_RE.match(text)
+    if not match:
+        return descriptor, ""
+    base_descriptor = describe_header(match.group("base"))
+    if base_descriptor.quantity_kind not in _SCIENTIFIC_KINDS:
+        return descriptor, ""
+    return (
+        base_descriptor,
+        "Повторяющийся научный заголовок был переименован pandas; проверьте конфликт исходных колонок.",
+    )
 
 
 def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Normalize scientific headers, units, and retain reversible Excel provenance."""
     out = df.copy()
     normalized: list[str] = []
-    descriptors = []
+    descriptors: list[tuple[str, ColumnDescriptor]] = []
     mapping: dict[str, dict] = {}
     seen: dict[str, int] = {}
 
     for column_index, original in enumerate(df.columns, start=1):
-        descriptor = describe_header(original)
+        descriptor, import_warning = _import_descriptor(original)
         base = descriptor.canonical_name
         seen[base] = seen.get(base, 0) + 1
         name = base if seen[base] == 1 else f"{base}__{seen[base]}"
         normalized.append(name)
         descriptors.append((name, descriptor))
+        warning = "; ".join(
+            item for item in [descriptor.warning, import_warning] if item
+        )
         mapping[name] = {
             "original": str(original),
             "column_index": column_index,
@@ -55,12 +81,12 @@ def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str
             "canonical_unit": descriptor.canonical_unit,
             "to_canonical_factor": descriptor.to_canonical_factor,
             "to_source_factor": descriptor.to_source_factor,
-            "warning": descriptor.warning,
+            "warning": warning,
         }
 
     out.columns = normalized
     for name, descriptor in descriptors:
-        if descriptor.quantity_kind in {"oxide", "trace_element", "element_concentration"}:
+        if descriptor.quantity_kind in _SCIENTIFIC_KINDS:
             numeric = pd.to_numeric(out[name], errors="coerce")
             if descriptor.to_canonical_factor != 1.0:
                 numeric = numeric * descriptor.to_canonical_factor
@@ -133,6 +159,20 @@ def list_excel_sheets_path(path: str | Path) -> list[str]:
         return list(book.sheet_names)
 
 
+def _drop_fully_empty_rows(df: pd.DataFrame, header_row: int) -> tuple[pd.DataFrame, list[int]]:
+    """Drop separator rows while retaining their real Excel row positions for round trips."""
+    if df.empty:
+        return df.reset_index(drop=True), []
+    comparable = df.replace(r"^\s*$", pd.NA, regex=True)
+    keep_mask = ~comparable.isna().all(axis=1)
+    source_rows = [
+        int(header_row) + 1 + position
+        for position, keep in enumerate(keep_mask.tolist())
+        if keep
+    ]
+    return df.loc[keep_mask].reset_index(drop=True), source_rows
+
+
 def read_tabular_with_map(
     file_bytes: bytes,
     filename: str,
@@ -153,9 +193,9 @@ def read_tabular_with_map(
     else:
         raise ValueError("Поддерживаются файлы XLSX, XLSM, XLS и CSV")
 
+    df, source_rows = _drop_fully_empty_rows(df, int(header_row))
     df, mapping = normalize_columns_with_map(df)
     df = add_qc_columns(df)
-    source_rows = list(range(int(header_row) + 1, int(header_row) + 1 + len(df)))
     return df, mapping, source_rows
 
 
