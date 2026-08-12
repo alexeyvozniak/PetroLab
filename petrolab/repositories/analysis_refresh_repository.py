@@ -18,6 +18,7 @@ class RefreshPersistenceResult:
     removed_count: int
     moved_rows_detected: bool
     detached_image_count: int = 0
+    positional_reused_count: int = 0
 
 
 def replace_dataset_rows_stable(
@@ -126,4 +127,7 @@ def replace_dataset_rows_stable(
         removed_count=len(match.unmatched_existing_ids),
         moved_rows_detected=match.moved_rows_detected,
         detached_image_count=len(detached_asset_ids),
+        positional_reused_count=sum(
+            1 for strategy in match.strategies.values() if strategy == "source-row"
+        ),
     )
