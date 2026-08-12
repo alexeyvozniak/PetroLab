@@ -35,41 +35,94 @@ def backup_source(path: str | Path, dataset_id: int) -> Path:
     return target
 
 
-def sync_cell_changes(dataset: dict, changes: list[dict]) -> str:
-    """Записывает изменения конкретных ячеек в связанный XLSX/XLSM. Возвращает путь к backup."""
+def validate_sync_change(dataset: dict, change: dict) -> None:
+    """Validate one pending change before any workbook is modified."""
+    if not dataset.get("sync_enabled"):
+        raise ValueError(f"Набор «{dataset['name']}»: обратная запись в источник отключена")
+
     path_text = dataset.get("source_path") or ""
     if not path_text:
-        raise ValueError("У набора нет связанного локального файла")
+        raise ValueError(f"Набор «{dataset['name']}»: нет связанного локального файла")
     path = Path(path_text)
     if not path.exists():
         raise FileNotFoundError(path)
     if path.suffix.lower() not in {".xlsx", ".xlsm"}:
-        raise ValueError("Обратная запись сейчас поддерживается только для XLSX и XLSM")
+        raise ValueError("Обратная запись поддерживается только для XLSX и XLSM")
+
+    source_row = change.get("source_row")
+    if source_row is None:
+        raise ValueError(f"У анализа {change['analysis_id']} не сохранена строка источника")
 
     mapping = json.loads(dataset.get("column_map_json") or "{}")
-    sheet_name = dataset.get("source_sheet") or None
+    column = change["column_name"]
+    if column not in mapping:
+        raise ValueError(
+            f"Набор «{dataset['name']}»: колонка «{column}» не связана с исходной колонкой Excel"
+        )
+
+
+def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str:
+    """Write changes from one or more datasets that share the same workbook.
+
+    A single backup and a single workbook save are used for the whole physical
+    XLSX/XLSM file. All changes must be validated before calling this function.
+    """
+    if not dataset_changes:
+        raise ValueError("Нет изменений для записи")
+
+    first_dataset = dataset_changes[0][0]
+    path = Path(first_dataset.get("source_path") or "")
+    if not path:
+        raise ValueError("Не указан путь к источнику")
+
+    resolved = path.resolve()
+    for dataset, changes in dataset_changes:
+        dataset_path = Path(dataset.get("source_path") or "").resolve()
+        if dataset_path != resolved:
+            raise ValueError("В одну операцию sync_workbook_changes переданы разные файлы")
+        for change in changes:
+            validate_sync_change(dataset, change)
+
+    backup = backup_source(path, int(first_dataset["id"]))
     keep_vba = path.suffix.lower() == ".xlsm"
-    backup = backup_source(path, int(dataset["id"]))
-    wb = openpyxl.load_workbook(path, keep_vba=keep_vba)
-    ws = wb[sheet_name] if sheet_name else wb.active
-
-    for ch in changes:
-        source_row = ch.get("source_row")
-        col = ch["column_name"]
-        if source_row is None:
-            raise ValueError(f"У анализа {ch['analysis_id']} не сохранена строка источника")
-        info = mapping.get(col)
-        if not info:
-            raise ValueError(f"Колонка «{col}» не связана с исходной колонкой Excel")
-        ws.cell(row=int(source_row), column=int(info["column_index"]), value=ch["new_value"])
-
+    workbook = openpyxl.load_workbook(path, keep_vba=keep_vba)
     temp = path.with_name(path.stem + ".petrolab_tmp" + path.suffix)
-    wb.save(temp)
-    wb.close()
+
+    try:
+        for dataset, changes in dataset_changes:
+            mapping = json.loads(dataset.get("column_map_json") or "{}")
+            sheet_name = dataset.get("source_sheet") or None
+            worksheet = workbook[sheet_name] if sheet_name else workbook.active
+            for change in changes:
+                info = mapping[change["column_name"]]
+                worksheet.cell(
+                    row=int(change["source_row"]),
+                    column=int(info["column_index"]),
+                    value=change["new_value"],
+                )
+        workbook.save(temp)
+    finally:
+        workbook.close()
+
     os.replace(temp, path)
     new_hash = sha256_file(path)
     update_source_hash_for_path(str(path), new_hash)
     return str(backup)
+
+
+def restore_source_backup(source_path: str | Path, backup_path: str | Path) -> None:
+    """Restore a workbook from a PetroLab backup and refresh stored hashes."""
+    source = Path(source_path)
+    backup = Path(backup_path)
+    if not backup.exists():
+        raise FileNotFoundError(backup)
+    shutil.copy2(backup, source)
+    update_source_hash_for_path(str(source), sha256_file(source))
+
+
+def sync_cell_changes(dataset: dict, changes: list[dict]) -> str:
+    """Backward-compatible wrapper for syncing one dataset."""
+    return sync_workbook_changes([(dataset, changes)])
 
 
 def reload_linked_source(dataset_id: int):
