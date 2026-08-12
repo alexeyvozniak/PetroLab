@@ -9,6 +9,7 @@ from petrolab.dataframe_utils import (
     display_value,
     row_identity,
 )
+from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 
 
 original = pd.DataFrame(
@@ -40,5 +41,31 @@ assert list(filtered["Sample"]) == ["K1"]
 assert row_identity(original.iloc[0]).startswith("Sample: K1")
 assert display_value(pd.NA) == ""
 assert display_value(12) == "12"
+
+# Manual ranges are reversible views; the source dataframe remains untouched.
+chem = pd.DataFrame(
+    {
+        "_analysis_id": [f"p{i}" for i in range(8)],
+        "Rb [µg/g]": [100, 105, 98, 102, 101, 99, 103, 900],
+        "apfu_AlIV": [1.10, 1.12, 1.09, 1.11, 1.10, 1.08, 1.13, 2.50],
+    }
+)
+ranged = apply_numeric_ranges(chem, {"Rb [µg/g]": (95.0, 200.0)})
+assert len(ranged) == 7
+assert len(chem) == 8
+assert "p7" not in set(ranged["_analysis_id"])
+
+mad = robust_outliers(chem, ["Rb [µg/g]", "apfu_AlIV"], method="MAD", threshold=3.5)
+assert mad.outlier_count == 1
+assert chem.loc[mad.outlier_mask, "_analysis_id"].tolist() == ["p7"]
+assert len(chem.loc[mad.keep_mask]) == 7
+
+iqr = robust_outliers(chem, ["Rb [µg/g]"], method="IQR", threshold=1.5)
+assert iqr.outlier_count == 1
+assert chem.loc[iqr.outlier_mask, "_analysis_id"].tolist() == ["p7"]
+
+manual = exclude_analysis_ids(chem, ["p1", "p7"])
+assert set(manual["_analysis_id"]) == {"p0", "p2", "p3", "p4", "p5", "p6"}
+assert len(chem) == 8
 
 print("dataframe utility tests: OK")

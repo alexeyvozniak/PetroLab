@@ -101,13 +101,93 @@ def oxygen_normalized_apfu(
     раздельно как Fe2 и Fe3, если оба измерены.
     """
     allowed = set(allowed_oxides) if allowed_oxides else set(OXIDES)
+
+    # A duplicated scientific input such as FeO + FeO__2 is ambiguous. The import
+    # layer deliberately keeps both columns instead of merging them, and the formula
+    # engine must not silently choose the first one.
+    formula_inputs = set(allowed) | set(HALOGENS)
+    if "FeO" in allowed:
+        formula_inputs.add("FeOt")
+    duplicate_inputs: list[str] = []
+    for column in df.columns:
+        name = str(column)
+        if "__" not in name:
+            continue
+        base, suffix = name.rsplit("__", 1)
+        if suffix.isdigit() and base in formula_inputs:
+            duplicate_inputs.append(name)
+    if duplicate_inputs:
+        raise ValueError(
+            "Нельзя пересчитать формулу при конфликтующих химических колонках: "
+            + ", ".join(sorted(duplicate_inputs))
+            + ". Сначала выберите правильный исходный столбец."
+        )
+
+    # Fe2O3t is total Fe expressed as Fe2O3, not measured ferric iron. Ignoring it
+    # would silently calculate an iron-poor formula; converting it requires an explicit
+    # reporting-basis conversion and, where needed, a Fe2+/Fe3+ allocation method.
+    if "Fe2O3t" in df.columns:
+        total_fe2o3 = pd.to_numeric(df["Fe2O3t"], errors="coerce")
+        if total_fe2o3.notna().any():
+            raise ValueError(
+                "Обнаружен Fe2O3t (total Fe as Fe2O3). Структурная формула не может "
+                "автоматически считать его измеренным Fe2O3 или игнорировать. "
+                "Сначала выберите явный способ преобразования total Fe."
+            )
+
     cats: dict[str, pd.Series] = {}
     oxygen_moles = pd.Series(0.0, index=df.index, dtype=float)
 
+    # FeO and FeOt can coexist as columns in historical merged datasets while being
+    # mutually exclusive row by row. Preserve NaN so the correct source can be chosen
+    # for every analysis instead of selecting one column globally.
+    feo_raw = (
+        pd.to_numeric(df["FeO"], errors="coerce")
+        if "FeO" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    feot_raw = (
+        pd.to_numeric(df["FeOt"], errors="coerce")
+        if "FeOt" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    fe3_raw = (
+        pd.to_numeric(df["Fe2O3"], errors="coerce")
+        if "Fe2O3" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+
+    both_feo_feot = feo_raw.notna() & feot_raw.notna()
+    if both_feo_feot.any():
+        rows = ", ".join(str(int(i) + 1) for i in df.index[both_feo_feot][:10])
+        raise ValueError(
+            "В одной или нескольких строках одновременно заданы FeO и FeOt "
+            f"(строки данных: {rows}). Нельзя выбрать источник Fe автоматически."
+        )
+
+    # FeOt is total Fe expressed as FeO. If a row also contains a separately supplied
+    # Fe2O3 value but no FeO, deriving Fe2+/Fe3+ would require an explicit method; do
+    # not double-count or infer it implicitly. Zero is still an explicit supplied value.
+    ambiguous_total_fe = feot_raw.notna() & feo_raw.isna() & fe3_raw.notna()
+    if ambiguous_total_fe.any():
+        rows = ", ".join(str(int(i) + 1) for i in df.index[ambiguous_total_fe][:10])
+        raise ValueError(
+            "Одновременно заданы FeOt и Fe2O3 без отдельного FeO "
+            f"(строки данных: {rows}). Нельзя однозначно разделить total Fe и Fe3+."
+        )
+
     for oxide, spec in OXIDES.items():
-        if oxide not in allowed or oxide not in df.columns:
+        if oxide not in allowed:
             continue
-        moles_oxide = _num(df, oxide) / spec.molar_mass
+        if oxide == "FeO":
+            if "FeO" not in df.columns and "FeOt" not in df.columns:
+                continue
+            values = feo_raw.combine_first(feot_raw).fillna(0.0)
+        else:
+            if oxide not in df.columns:
+                continue
+            values = _num(df, oxide)
+        moles_oxide = values / spec.molar_mass
         oxygen_moles = oxygen_moles + moles_oxide * spec.n_oxygen
         cat_moles = moles_oxide * spec.n_cation
         cats[spec.cation] = cats.get(spec.cation, pd.Series(0.0, index=df.index)) + cat_moles

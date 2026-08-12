@@ -12,15 +12,10 @@ from petrolab.column_schema import (
     SheetSchema,
     apply_semantic_mapping,
     inspect_sheet_schema,
+    resolve_semantic_mapping,
     stored_semantic_mapping,
 )
-from petrolab.db import (
-    DATA_DIR,
-    add_dataset,
-    get_dataset,
-    replace_dataset_rows,
-    update_dataset_metadata,
-)
+from petrolab.db import DATA_DIR, add_dataset, get_dataset, replace_dataset_rows, update_dataset_metadata
 from petrolab.io_utils import (
     list_excel_sheets,
     list_excel_sheets_path,
@@ -29,7 +24,15 @@ from petrolab.io_utils import (
     sha256_bytes,
     sha256_file,
 )
+from petrolab.measurement_semantics import (
+    apply_measurement_overrides,
+    stored_measurement_overrides,
+)
 from petrolab.minerals.registry import MINERALS
+from petrolab.repositories.analysis_refresh_repository import (
+    RefreshPersistenceResult,
+    replace_dataset_rows_stable,
+)
 from petrolab.sources import reload_linked_source
 
 SUPPORTED_SOURCE_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".csv"}
@@ -39,8 +42,6 @@ SYNCABLE_SUFFIXES = {".xlsx", ".xlsm"}
 
 @dataclass(frozen=True)
 class ImportBatchResult:
-    """Result of importing one or more sheets from a single source."""
-
     dataset_ids: tuple[int, ...]
     source_path: Path
 
@@ -51,16 +52,28 @@ class ImportBatchResult:
 
 @dataclass(frozen=True)
 class ImportSchemaPreview:
-    """Normalized headers and semantic suggestions for one source sheet."""
-
     sheet_name: str
     schema: SheetSchema
     source_headers: tuple[tuple[str, str], ...]
     duplicate_canonical_columns: tuple[str, ...]
+    measurement_notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    dataset_id: int
+    row_count: int
+    reused_count: int
+    new_count: int
+    removed_count: int
+    moved_rows_detected: bool
+    recovered_roles: tuple[str, ...] = ()
+    detached_image_count: int = 0
+    positional_reused_count: int = 0
+    positional_fallback_disabled: bool = False
 
 
 def validate_source_path(path: str | Path) -> Path:
-    """Return a normalized supported source path or raise a descriptive error."""
     source = Path(path).expanduser()
     if not source.exists():
         raise FileNotFoundError(source)
@@ -69,14 +82,12 @@ def validate_source_path(path: str | Path) -> Path:
     if source.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
         supported = ", ".join(sorted(SUPPORTED_SOURCE_SUFFIXES))
         raise ValueError(
-            f"Неподдерживаемый формат {source.suffix or '(без расширения)'}. "
-            f"Поддерживаются: {supported}"
+            f"Неподдерживаемый формат {source.suffix or '(без расширения)'}. Поддерживаются: {supported}"
         )
     return source.resolve()
 
 
 def list_linked_sheets(path: str | Path) -> list[str]:
-    """List importable sheets for a linked source; CSV is represented by an empty sheet name."""
     source = validate_source_path(path)
     if source.suffix.lower() in EXCEL_SUFFIXES:
         return list_excel_sheets_path(source)
@@ -84,7 +95,6 @@ def list_linked_sheets(path: str | Path) -> list[str]:
 
 
 def list_uploaded_sheets(file_bytes: bytes, filename: str) -> list[str]:
-    """List importable sheets for an uploaded source; CSV has one unnamed sheet."""
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SOURCE_SUFFIXES:
         raise ValueError(f"Неподдерживаемый формат: {suffix or '(без расширения)'}")
@@ -93,12 +103,7 @@ def list_uploaded_sheets(file_bytes: bytes, filename: str) -> list[str]:
     return [""]
 
 
-def inspect_linked_sheet(
-    path: str | Path,
-    sheet_name: str,
-    header_row: int,
-) -> ImportSchemaPreview:
-    """Inspect normalized headers and semantic-role suggestions for a linked sheet."""
+def inspect_linked_sheet(path: str | Path, sheet_name: str, header_row: int) -> ImportSchemaPreview:
     source = validate_source_path(path)
     dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
     return _schema_preview(sheet_name, dataframe, column_map)
@@ -110,13 +115,7 @@ def inspect_uploaded_sheet(
     sheet_name: str,
     header_row: int,
 ) -> ImportSchemaPreview:
-    """Inspect normalized headers and semantic-role suggestions for uploaded bytes."""
-    dataframe, column_map, _ = read_tabular_with_map(
-        file_bytes,
-        filename,
-        sheet_name or None,
-        int(header_row),
-    )
+    dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
     return _schema_preview(sheet_name, dataframe, column_map)
 
 
@@ -126,11 +125,12 @@ def preview_linked_source(
     header_row: int,
     mineral_key: str,
     semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Read, normalize semantic roles, and calculate a preview from a linked source."""
     source = validate_source_path(path)
     dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
-    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -141,15 +141,11 @@ def preview_uploaded_source(
     header_row: int,
     mineral_key: str,
     semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Read, normalize semantic roles, and calculate a preview from uploaded bytes."""
-    dataframe, column_map, _ = read_tabular_with_map(
-        file_bytes,
-        filename,
-        sheet_name or None,
-        int(header_row),
-    )
-    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -162,8 +158,8 @@ def import_linked_sheets(
     dataset_name: str,
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
-    """Import selected sheets while keeping a live link to the user's local source file."""
     source = validate_source_path(path)
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
@@ -171,15 +167,12 @@ def import_linked_sheets(
     source_hash = sha256_file(source)
     dataset_ids: list[int] = []
     for sheet_name in sheet_names:
-        dataframe, column_map, source_rows = read_tabular_path(
-            source,
-            sheet_name or None,
-            int(header_row),
-        )
+        dataframe, column_map, source_rows = read_tabular_path(source, sheet_name or None, int(header_row))
         mapped, mapped_column_map, _ = apply_semantic_mapping(
-            dataframe,
-            column_map,
-            (semantic_maps or {}).get(sheet_name, {}),
+            dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
+        )
+        mapped, mapped_column_map, _ = apply_measurement_overrides(
+            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
         )
         calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, source.stem, sheet_name, len(sheet_names))
@@ -213,8 +206,8 @@ def import_uploaded_sheets(
     dataset_name: str,
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
-    """Store an uploaded source as a managed copy and import selected sheets from it."""
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
     list_uploaded_sheets(file_bytes, filename)
@@ -224,15 +217,13 @@ def import_uploaded_sheets(
     dataset_ids: list[int] = []
     for sheet_name in sheet_names:
         dataframe, column_map, source_rows = read_tabular_with_map(
-            file_bytes,
-            filename,
-            sheet_name or None,
-            int(header_row),
+            file_bytes, filename, sheet_name or None, int(header_row)
         )
         mapped, mapped_column_map, _ = apply_semantic_mapping(
-            dataframe,
-            column_map,
-            (semantic_maps or {}).get(sheet_name, {}),
+            dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
+        )
+        mapped, mapped_column_map, _ = apply_measurement_overrides(
+            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
         )
         calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, Path(filename).stem, sheet_name, len(sheet_names))
@@ -256,19 +247,26 @@ def import_uploaded_sheets(
     return ImportBatchResult(tuple(dataset_ids), managed_path)
 
 
-def refresh_dataset_from_source(dataset_id: int) -> int:
-    """Reload a linked dataset using its stored schema and preserve point IDs by Excel row."""
+def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
+    """Reload a source while preserving identities and confirmed column semantics."""
     dataset = get_dataset(int(dataset_id))
     dataframe, column_map, source_rows, new_hash = reload_linked_source(int(dataset_id))
     stored_map = json.loads(dataset.get("column_map_json") or "{}")
-    semantic_map = stored_semantic_mapping(stored_map)
+    previous_semantic = stored_semantic_mapping(stored_map)
+    measurement_map = stored_measurement_overrides(stored_map)
+    semantic_map = resolve_semantic_mapping(dataframe.columns, previous_semantic)
+    recovered_roles = tuple(
+        role for role, previous in previous_semantic.items()
+        if role in semantic_map and semantic_map[role] != previous
+    )
+
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(
+        mapped, mapped_column_map, measurement_map
+    )
     calculated = _calculate_mineral(mapped, dataset.get("mineral_key") or "generic")
-    replace_dataset_rows(
-        int(dataset_id),
-        calculated,
-        source_rows=source_rows,
-        preserve_ids_by_source_row=True,
+    persistence: RefreshPersistenceResult = replace_dataset_rows_stable(
+        int(dataset_id), calculated, source_rows
     )
     update_dataset_metadata(
         int(dataset_id),
@@ -276,7 +274,18 @@ def refresh_dataset_from_source(dataset_id: int) -> int:
         column_map_json=mapped_column_map,
         row_count=len(calculated),
     )
-    return len(calculated)
+    return RefreshResult(
+        dataset_id=int(dataset_id),
+        row_count=persistence.row_count,
+        reused_count=persistence.reused_count,
+        new_count=persistence.new_count,
+        removed_count=persistence.removed_count,
+        moved_rows_detected=persistence.moved_rows_detected,
+        recovered_roles=recovered_roles,
+        detached_image_count=persistence.detached_image_count,
+        positional_reused_count=persistence.positional_reused_count,
+        positional_fallback_disabled=persistence.positional_fallback_disabled,
+    )
 
 
 def _schema_preview(
@@ -286,19 +295,33 @@ def _schema_preview(
 ) -> ImportSchemaPreview:
     pairs: list[tuple[str, str]] = []
     duplicates: list[str] = []
+    notes: list[str] = []
     for normalized in dataframe.columns:
-        if str(normalized) in {"Σ оксидов", "QC суммы"}:
+        if str(normalized) in {"Σ оксидов", "QC суммы", "QC железа"}:
             continue
         info = column_map.get(str(normalized), {})
         original = str(info.get("original", normalized))
         pairs.append((original, str(normalized)))
         if "__" in str(normalized) and str(normalized).rsplit("__", 1)[-1].isdigit():
             duplicates.append(str(normalized))
+        source_unit = str(info.get("source_unit") or "")
+        canonical_unit = str(info.get("canonical_unit") or "")
+        factor = float(info.get("to_canonical_factor", 1.0) or 1.0)
+        warning = str(info.get("warning") or "")
+        if source_unit and canonical_unit and (factor != 1.0 or source_unit != canonical_unit):
+            notes.append(f"{original} → {normalized}: {source_unit} → {canonical_unit}, ×{factor:g}")
+        if warning:
+            notes.append(f"{original}: {warning}")
+    if "Fe2O3" in dataframe.columns:
+        notes.append(
+            "Fe2O3: подтвердите смысл колонки — отдельно заданное Fe³⁺ или ΣFe, выраженное как Fe2O3 total."
+        )
     return ImportSchemaPreview(
         sheet_name=sheet_name,
         schema=inspect_sheet_schema(dataframe.columns),
         source_headers=tuple(pairs),
         duplicate_canonical_columns=tuple(duplicates),
+        measurement_notes=tuple(dict.fromkeys(notes)),
     )
 
 
