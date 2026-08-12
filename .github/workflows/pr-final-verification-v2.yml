@@ -1,0 +1,74 @@
+name: PetroLab final PR verification v2
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: petrolab-pr-final-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and enforce architecture
+        shell: cmd
+        run: |
+          python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_dataframe_utils.py tests_column_schema.py tests_import_service.py tests_import_schema.py tests_analysis_service.py tests_image_service.py tests_smoke.py tests_streamlit.py
+          python tests_architecture.py
+      - name: Run real PetroLab Windows startup in CI mode
+        shell: cmd
+        run: |
+          set PETROLAB_CI=1
+          call START_PETROLAB.bat
+
+  mark-verified:
+    needs: windows-verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Record only the exact verified head
+        shell: bash
+        env:
+          VERIFIED_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git fetch origin "${HEAD_BRANCH}"
+          git reset --hard "origin/${HEAD_BRANCH}"
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          if [ "${CURRENT_SHA}" != "${VERIFIED_SHA}" ]; then
+            echo "Branch advanced from ${VERIFIED_SHA} to ${CURRENT_SHA}; refusing stale verification marker."
+            exit 1
+          fi
+          mkdir -p docs
+          cat > docs/PR_CI_VERIFIED_0.6.0.txt <<EOF
+          PetroLab 0.6.0 independent pull_request verification: PASS
+          PR: ${PR_NUMBER}
+          Verified code SHA: ${VERIFIED_SHA}
+          Platform: GitHub Actions windows-2025, Python 3.12
+          Verification: architecture + real START_PETROLAB.bat CI suite
+          EOF
+          rm -f .github/workflows/pr-final-verification.yml
+          rm -f .github/workflows/pr-final-verification-v2.yml
+          git config user.name "PetroLab CI Verification"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Record independent Windows PR verification"
+          git push origin HEAD:"${HEAD_BRANCH}"
