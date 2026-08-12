@@ -73,6 +73,27 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         ),
         field_overlay_id="feldspar_gunduz_asan_2023",
     ),
+    "garnet_ti_grew2013": TernaryPreset(
+        preset_id="garnet_ti_grew2013",
+        title_ru="Ti-гранаты · Schorlomite–Morimotoite–Andradite · Grew 2013",
+        mineral_keys=("garnet",),
+        a_col="TiGrt_Mor",
+        b_col="TiGrt_Adr",
+        c_col="TiGrt_Sch",
+        a_label="Morimotoite component",
+        b_label="Andradite component",
+        c_label="Schorlomite component",
+        normalization="already",
+        description_ru=(
+            "Диагностика Ti-богатых гранатов по Grew et al. (2013), Fig. 5. Компоненты "
+            "выводятся из X/Y/Z site allocation. В диаграмму допускаются только строки с "
+            "TiO2 > 12 wt.% и Ti > Zr, как в опубликованной выборке Figure 5. Положение в поле "
+            "считается композиционной диагностикой, а не безусловным IMA species assignment."
+        ),
+        field_overlay_id="garnet_ti_grew2013_fig5",
+        required_columns=("TiGrt_Mor", "TiGrt_Adr", "TiGrt_Sch", "TiGrt_Fig5_applicable"),
+        projection_id="garnet_ti_grew2013_fig5",
+    ),
     "garnet_prp_alm_grs": TernaryPreset(
         preset_id="garnet_prp_alm_grs",
         title_ru="Гранаты · Prp–Alm–Grs",
@@ -138,6 +159,16 @@ def apply_preset_projection(
     view-only fields used by the selected diagram and its export.
     """
     result = dataframe.copy()
+    if preset.projection_id == "garnet_ti_grew2013_fig5":
+        missing = [column for column in preset.source_requirements if column not in result.columns]
+        if missing:
+            raise ValueError("Для Ti-гранатовой диаграммы Grew et al. не хватает: " + ", ".join(missing))
+        applicable = result["TiGrt_Fig5_applicable"].fillna(False).astype(bool)
+        for column in (preset.a_col, preset.b_col, preset.c_col):
+            values = pd.to_numeric(result[column], errors="coerce")
+            result[column] = values.where(applicable, np.nan)
+        return result, (preset.a_col, preset.b_col, preset.c_col)
+
     if preset.projection_id != "morimoto_pyroxene_1988":
         return result, (preset.a_col, preset.b_col, preset.c_col)
 

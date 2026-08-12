@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import pandas as pd
 
+from petrolab.minerals.classification import (
+    FIELD_COL,
+    LEVEL_COL,
+    METHOD_COL,
+    NOTE_COL,
+    SPECIES_COL,
+    attach_mineral_classification,
+)
 from petrolab.minerals.formulae import CalculationResult, OXIDES, calculate_formula
+from petrolab.minerals.garnet_ti import apply_strict_grew_figure5
 
 
 FE2O3T_TO_FEOT = (
@@ -11,13 +20,7 @@ FE2O3T_TO_FEOT = (
 
 
 def prepare_formula_input(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
-    """Prepare reporting-basis iron columns for a structural-formula calculation.
-
-    Fe2O3t means total Fe *reported* as Fe2O3. It does not establish ferric valence.
-    We therefore convert only the reporting basis to total Fe as FeO (FeOt), preserving
-    the same number of Fe atoms. The selected mineral formula method can then either keep
-    total Fe as Fe2+ or split Fe2+/Fe3+ stoichiometrically when that method supports it.
-    """
+    """Prepare reporting-basis iron columns for a structural-formula calculation."""
     work = dataframe.copy()
     if "Fe2O3t" not in work.columns:
         return work, ""
@@ -56,21 +59,37 @@ def prepare_formula_input(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     return work, note
 
 
+def _classification_unavailable(dataframe: pd.DataFrame, error: ValueError) -> pd.DataFrame:
+    """Return explicit interpretation status without hiding a valid structural formula."""
+    result = dataframe.copy()
+    result[SPECIES_COL] = ""
+    result[FIELD_COL] = "Автоматическая классификация недоступна для этих входных данных"
+    result[LEVEL_COL] = "insufficient classification inputs"
+    result[METHOD_COL] = ""
+    result[NOTE_COL] = str(error)
+    return result
+
+
 def calculate_formula_safe(
     dataframe: pd.DataFrame,
     mineral_key: str,
     method_id: str | None = None,
 ) -> CalculationResult:
-    """Calculate a formula while keeping temporary reporting-basis conversions internal."""
+    """Calculate formula + source-aware classification while hiding temporary conversions."""
     prepared, preparation_note = prepare_formula_input(dataframe)
     result = calculate_formula(prepared, mineral_key, method_id)
 
-    # Present exactly the original source columns plus genuinely calculated fields. Temporary
-    # FeOt created from Fe2O3t must never look like a second measured laboratory column.
     final = dataframe.copy()
     for column in result.data.columns:
         if column not in prepared.columns:
             final[column] = result.data[column].to_numpy(copy=False)
+
+    try:
+        final = attach_mineral_classification(final, mineral_key, method_id)
+        if str(mineral_key) == "garnet":
+            final = apply_strict_grew_figure5(final)
+    except ValueError as exc:
+        final = _classification_unavailable(final, exc)
 
     notes = [text for text in (preparation_note, result.note_ru) if text]
     return CalculationResult(final, "\n\n".join(notes))

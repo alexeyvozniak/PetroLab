@@ -210,6 +210,30 @@ GARNET_PRP_ALM_SPS_DOMINANCE = TernaryOverlay(
 )
 
 
+GARNET_TI_GREW_2013_FIG5 = TernaryOverlay(
+    overlay_id="garnet_ti_grew2013_fig5",
+    title_ru="Ti-rich garnets · Grew et al. (2013), Fig. 5",
+    source_citation=(
+        "Grew E.S., Locock A.J., Mills S.J., Galuskina I.O., Galuskin E.V., Hålenius U. (2013). "
+        "Nomenclature of the garnet supergroup. American Mineralogist 98, 785–811, Fig. 5."
+    ),
+    source_doi="10.2138/am.2013.4201",
+    lines=_dominant_component_lines(),
+    labels=(
+        OverlayLabel("Morimotoite\nfield", TernaryVertex(68.0, 16.0, 16.0)),
+        OverlayLabel("Andradite\nfield", TernaryVertex(16.0, 68.0, 16.0)),
+        OverlayLabel("Schorlomite\nfield", TernaryVertex(16.0, 16.0, 68.0)),
+    ),
+    note_ru=(
+        "Figure 5 is a diagnostic projection of Y-site contents for natural Ti-rich garnets "
+        "with TiO2 > 12 wt.% and Ti > Zr. Grew et al. state that it can help distinguish "
+        "schorlomite and morimotoite without structural/spectroscopic data if borderline cases "
+        "are treated with appropriate uncertainty. PetroLab therefore reports a compositional "
+        "field, not an unconditional formal species name."
+    ),
+)
+
+
 TERNARY_OVERLAYS: dict[str, TernaryOverlay] = {
     overlay.overlay_id: overlay
     for overlay in (
@@ -217,6 +241,7 @@ TERNARY_OVERLAYS: dict[str, TernaryOverlay] = {
         FELDSPAR_GUNDUZ_ASAN_2023,
         GARNET_PRP_ALM_GRS_DOMINANCE,
         GARNET_PRP_ALM_SPS_DOMINANCE,
+        GARNET_TI_GREW_2013_FIG5,
     )
 }
 
@@ -316,11 +341,27 @@ def classify_garnet_prp_alm_sps(row: pd.Series) -> str:
     return _classify_dominant_projection(row, ("Prp", "Alm", "Sps"))
 
 
+def classify_garnet_ti_grew2013(row: pd.Series) -> str:
+    values = np.asarray(
+        [row.get(TERNARY_A, np.nan), row.get(TERNARY_B, np.nan), row.get(TERNARY_C, np.nan)],
+        dtype=float,
+    )
+    if not np.all(np.isfinite(values)):
+        return "unclassified"
+    labels = ("Morimotoite field", "Andradite field", "Schorlomite field")
+    maximum = float(np.max(values))
+    winners = [labels[index] for index, value in enumerate(values) if np.isclose(value, maximum, atol=1e-8)]
+    if len(winners) > 1:
+        return " / ".join(winners) + " · boundary"
+    return winners[0]
+
+
 _CLASSIFIERS: dict[str, Callable[[pd.Series], str]] = {
     "pyroxene_morimoto_1988": classify_pyroxene_morimoto,
     "feldspar_gunduz_asan_2023": classify_feldspar_gunduz_asan,
     "garnet_prp_alm_grs_dominance": classify_garnet_prp_alm_grs,
     "garnet_prp_alm_sps_dominance": classify_garnet_prp_alm_sps,
+    "garnet_ti_grew2013_fig5": classify_garnet_ti_grew2013,
 }
 
 
