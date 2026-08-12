@@ -203,5 +203,48 @@ except ValueError:
 else:
     raise AssertionError("Unsupported image suffix must be rejected")
 
+# A dataset without Sample/Grain/Point normally has only positional fallback after
+# a chemistry edit. Once an image is attached, that guess becomes unsafe and must be
+# disabled: the edited row receives a new ID and the old image link is detached.
+protected_workbook = root / "protected_identity.xlsx"
+with pd.ExcelWriter(protected_workbook, engine="openpyxl") as writer:
+    pd.DataFrame({"SiO2": [50.0, 51.0], "MgO": [10.0, 11.0]}).to_excel(
+        writer, sheet_name="Data", index=False
+    )
+protected_dataset = import_linked_sheets(
+    project_id=project_id,
+    path=protected_workbook,
+    sheet_names=["Data"],
+    mineral_key="generic",
+    dataset_name="Protected identity",
+    header_row=1,
+).dataset_ids[0]
+protected_before = load_dataset_dataframe(protected_dataset, include_meta=True)
+protected_old_id = str(protected_before.iloc[0]["_analysis_id"])
+protected_asset = create_image_assets(
+    project_id=project_id,
+    dataset_id=protected_dataset,
+    images=[ImagePayload("protected.png", image_bytes("PNG"))],
+    scope=ImageScope(SCOPE_ANALYSIS, analysis_ids=(protected_old_id,)),
+    kind="BSE",
+    title="protected",
+).asset_ids[0]
+protected_path = Path(get_image_record(protected_asset)["stored_path"])
+with pd.ExcelWriter(protected_workbook, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+    pd.DataFrame({"SiO2": [50.5, 51.0], "MgO": [10.0, 11.0]}).to_excel(
+        writer, sheet_name="Data", index=False
+    )
+protected_refresh = refresh_dataset_from_source(protected_dataset)
+assert protected_refresh.positional_fallback_disabled
+assert protected_refresh.positional_reused_count == 0
+assert protected_refresh.reused_count == 1
+assert protected_refresh.new_count == 1
+assert protected_refresh.removed_count == 1
+assert protected_refresh.detached_image_count == 1
+protected_after = load_dataset_dataframe(protected_dataset, include_meta=True)
+assert str(protected_after.iloc[0]["_analysis_id"]) != protected_old_id
+assert get_image_record(protected_asset)["analysis_ids"] == []
+assert protected_path.exists()
+
 print("image service tests: OK")
 _tmp.cleanup()

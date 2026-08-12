@@ -107,6 +107,7 @@ with pd.ExcelWriter(positional_path, engine="openpyxl", mode="a", if_sheet_exist
 positional_refresh = refresh_dataset_from_source(positional_id)
 assert positional_refresh.reused_count == 2
 assert positional_refresh.positional_reused_count == 1
+assert not positional_refresh.positional_fallback_disabled
 assert not positional_refresh.moved_rows_detected
 positional_after = load_dataset_dataframe(positional_id, include_meta=True)
 assert positional_after["_analysis_id"].tolist() == positional_before["_analysis_id"].tolist()

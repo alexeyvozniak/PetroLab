@@ -66,6 +66,7 @@ class RefreshResult:
     recovered_roles: tuple[str, ...] = ()
     detached_image_count: int = 0
     positional_reused_count: int = 0
+    positional_fallback_disabled: bool = False
 
 
 def validate_source_path(path: str | Path) -> Path:
@@ -263,6 +264,7 @@ def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
         recovered_roles=recovered_roles,
         detached_image_count=persistence.detached_image_count,
         positional_reused_count=persistence.positional_reused_count,
+        positional_fallback_disabled=persistence.positional_fallback_disabled,
     )
 
 
