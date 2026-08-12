@@ -32,7 +32,7 @@ from petrolab.minerals.formulae import calculate_formula, methods_for
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
-from petrolab.services.image_service import list_all_images
+from petrolab.services.image_service import image_export_records
 from petrolab.ui.components import collect_related_images, render_asset_gallery, render_project_selector
 from petrolab.ui.pages import render_analyses_page, render_home_page, render_images_page, render_projects_page, render_sources_page
 
@@ -296,7 +296,7 @@ elif page == "Экспорт":
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Все анализы")
-        pd.DataFrame(list_all_images()).to_excel(writer, index=False, sheet_name="Изображения")
+        pd.DataFrame(image_export_records()).to_excel(writer, index=False, sheet_name="Изображения")
         recipes = list_plot_recipes()
         if recipes:
             pd.DataFrame([{"id": r["id"], "project_id": r["project_id"], "name": r["name"], "created_at": r["created_at"], "updated_at": r["updated_at"], "config": json.dumps(r["config"], ensure_ascii=False)} for r in recipes]).to_excel(writer, index=False, sheet_name="Рецепты графиков")
