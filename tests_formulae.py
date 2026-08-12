@@ -27,8 +27,37 @@ r_feot = calculate_formula(ol_feot, "olivine", "ol_4o_fe2").data.iloc[0]
 near(r_feot["apfu_Fe2"], float(r_feo["apfu_Fe2"]), 1e-8)
 near(r_feot["Fo"], float(r_feo["Fo"]), 1e-8)
 
-# Total Fe plus a separate Fe2O3 column but no FeO split is ambiguous: the
-# engine must refuse to double-count/guess ferric iron.
+# Historical merged datasets may use FeO in some rows and FeOt in others.
+# Each row must use its own available source instead of globally preferring FeO.
+mixed_fe = pd.DataFrame([
+    {"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0, "FeOt": None},
+    {"SiO2": 40.0, "MgO": 50.0, "FeO": None, "FeOt": 10.0},
+])
+mixed_result = calculate_formula(mixed_fe, "olivine", "ol_4o_fe2").data
+near(mixed_result.iloc[0]["apfu_Fe2"], float(r_feo["apfu_Fe2"]), 1e-8)
+near(mixed_result.iloc[1]["apfu_Fe2"], float(r_feo["apfu_Fe2"]), 1e-8)
+near(mixed_result.iloc[0]["Fo"], float(r_feo["Fo"]), 1e-8)
+near(mixed_result.iloc[1]["Fo"], float(r_feo["Fo"]), 1e-8)
+
+mixed_base = MineralModule("test", "test", "test", "test").calculate(mixed_fe)
+assert mixed_base["Mg#"].notna().all()
+assert mixed_base["Mg#_Fe_basis"].tolist() == ["FeO", "FeOt (total Fe as FeO)"]
+
+# Both FeO and FeOt populated in the same analysis is ambiguous even if both columns
+# are legitimate elsewhere in the dataset.
+overlap_fe = pd.DataFrame([
+    {"SiO2": 40.0, "MgO": 50.0, "FeO": 9.0, "FeOt": 10.0},
+])
+try:
+    calculate_formula(overlap_fe, "olivine", "ol_4o_fe2")
+except ValueError as exc:
+    assert "FeO" in str(exc) and "FeOt" in str(exc)
+else:
+    raise AssertionError("A row containing both FeO and FeOt must be rejected")
+
+# Total Fe plus a separately supplied Fe2O3 value but no FeO split is ambiguous:
+# the engine must refuse to double-count/guess ferric iron. Even an explicit zero
+# is semantically a supplied Fe2O3 value and requires an explicit interpretation.
 ambiguous_fe = pd.DataFrame([{"SiO2": 40.0, "MgO": 48.0, "FeOt": 10.0, "Fe2O3": 2.0}])
 try:
     calculate_formula(ambiguous_fe, "olivine", "ol_4o_fe2")
@@ -36,6 +65,14 @@ except ValueError as exc:
     assert "FeOt" in str(exc) and "Fe2O3" in str(exc)
 else:
     raise AssertionError("FeOt + Fe2O3 without FeO must be rejected")
+
+ambiguous_zero_fe3 = pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "FeOt": 10.0, "Fe2O3": 0.0}])
+try:
+    calculate_formula(ambiguous_zero_fe3, "olivine", "ol_4o_fe2")
+except ValueError as exc:
+    assert "FeOt" in str(exc) and "Fe2O3" in str(exc)
+else:
+    raise AssertionError("Explicit Fe2O3 alongside FeOt requires an explicit Fe interpretation")
 
 # Import intentionally preserves duplicate chemical inputs as technical __2 columns.
 # Formulae and base Mg# must not silently choose the first one.
