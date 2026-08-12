@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import (
     apply_quick_filter,
     compute_changes,
@@ -20,7 +21,7 @@ from petrolab.ui.components import (
 )
 
 
-PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {"Σ оксидов", "QC суммы"}
+PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {"Σ оксидов", "QC суммы", WORK_GROUP_COLUMN}
 
 
 def _render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
@@ -50,7 +51,7 @@ def _render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
 
 
 def render_analyses_page() -> None:
-    """Render source and current derived values in one user-facing analysis table."""
+    """Render source, working-group and current derived values in one analysis table."""
     st.title("Единая база анализов")
 
     if not list_projects():
@@ -76,7 +77,7 @@ def render_analyses_page() -> None:
     if not selected_ids:
         st.stop()
 
-    dataframe = load_unified_with_derived(project_id, selected_ids)
+    dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
     if dataframe.empty:
         st.info("В выбранных наборах нет аналитических строк.")
         st.stop()
@@ -86,6 +87,11 @@ def render_analyses_page() -> None:
         st.caption(
             "Расчётные поля уже включены в таблицу. Они защищены от ручного редактирования и "
             "никогда не записываются обратно в исходный Excel; обновить их можно через «Расчёты и формулы»."
+        )
+    if dataframe[WORK_GROUP_COLUMN].astype(str).str.strip().ne("").any():
+        st.caption(
+            "«Рабочая группа» — локальная классификация PetroLab, назначаемая через интерактивный "
+            "выбор в «Диаграммах». Она не записывается в исходный Excel."
         )
 
     query = st.text_input("Поиск по всей выбранной базе", key="db_search")
