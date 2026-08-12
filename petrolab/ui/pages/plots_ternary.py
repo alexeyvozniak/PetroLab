@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, clear_work_group, list_work_groups, set_work_group
-from petrolab.db import list_plot_recipes, list_style_profiles, save_plot_recipe
+from petrolab.db import list_style_profiles, save_plot_recipe
 from petrolab.interactive_plotting import selected_analysis_ids
 from petrolab.io_utils import numeric_candidates
 from petrolab.outliers import exclude_analysis_ids, robust_outliers
@@ -18,13 +18,13 @@ from petrolab.ternary_data import (
     TERNARY_B,
     TERNARY_C,
     TERNARY_REASON,
-    TERNARY_SUM,
     invalid_reason_counts,
     prepare_ternary,
 )
+from petrolab.ternary_overlays import attach_ternary_classification
 from petrolab.ternary_plotting import build_interactive_ternary, build_publication_ternary
-from petrolab.ternary_presets import TERNARY_PRESETS, available_ternary_presets
 from petrolab.ui.components import collect_related_images, render_asset_gallery
+from petrolab.ui.ternary_controls import render_ternary_selection
 
 
 _NORMALIZATION_LABELS = {
@@ -56,8 +56,18 @@ def _render_selected_points(
     summary_columns = [
         column
         for column in [
-            "Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN,
-            TERNARY_A, TERNARY_B, TERNARY_C, "Набор", "Источник", "_source_row",
+            "Sample",
+            "Grain",
+            "Point",
+            "Generation",
+            WORK_GROUP_COLUMN,
+            "Классификационное поле",
+            TERNARY_A,
+            TERNARY_B,
+            TERNARY_C,
+            "Набор",
+            "Источник",
+            "_source_row",
         ]
         if column in selected.columns
     ]
@@ -86,80 +96,20 @@ def _render_selected_points(
             st.caption("Для этой точки пока нет связанных изображений.")
 
 
-def _preset_controls(dataframe: pd.DataFrame, recipe: dict) -> tuple[str, str, str, str, str, str, str, str]:
-    numeric = numeric_candidates(dataframe)
-    if len(numeric) < 3:
-        raise ValueError("Для треугольной диаграммы нужны минимум три числовые колонки")
-
-    mode_default = recipe.get("ternary_mode", "Шаблон")
-    mode = st.radio(
-        "Режим ternary",
-        ["Шаблон", "Своя диаграмма"],
-        horizontal=True,
-        index=0 if mode_default == "Шаблон" else 1,
-        key="ternary_mode",
-    )
-
-    if mode == "Шаблон":
-        available = available_ternary_presets(dataframe.columns)
-        if not available:
-            st.warning(
-                "В текущих данных нет полного набора компонентов готового шаблона. "
-                "Для Wo–En–Fs / Ab–An–Or сначала сохраните соответствующий пересчёт формулы, "
-                "либо выберите «Своя диаграмма»."
-            )
-            mode = "Своя диаграмма"
-        else:
-            labels = {preset.title_ru: preset for preset in available}
-            saved_id = recipe.get("ternary_preset_id")
-            default_label = next(
-                (label for label, preset in labels.items() if preset.preset_id == saved_id),
-                next(iter(labels)),
-            )
-            chosen = st.selectbox(
-                "Минералогический шаблон",
-                list(labels),
-                index=list(labels).index(default_label),
-                key="ternary_preset",
-            )
-            preset = labels[chosen]
-            st.caption(preset.description_ru)
-            return (
-                mode,
-                preset.preset_id,
-                preset.a_col,
-                preset.b_col,
-                preset.c_col,
-                preset.a_label,
-                preset.b_label,
-                preset.c_label,
-            )
-
-    saved = recipe.get("ternary_components", {}) if isinstance(recipe.get("ternary_components", {}), dict) else {}
-    c1, c2, c3 = st.columns(3)
-    a_default = saved.get("a") if saved.get("a") in numeric else numeric[0]
-    b_default = saved.get("b") if saved.get("b") in numeric and saved.get("b") != a_default else numeric[1]
-    c_default = saved.get("c") if saved.get("c") in numeric and saved.get("c") not in {a_default, b_default} else numeric[2]
-    a_col = c1.selectbox("Компонент A · левая вершина", numeric, index=numeric.index(a_default), key="ternary_a")
-    b_col = c2.selectbox("Компонент B · правая вершина", numeric, index=numeric.index(b_default), key="ternary_b")
-    c_col = c3.selectbox("Компонент C · верхняя вершина", numeric, index=numeric.index(c_default), key="ternary_c")
-    l1, l2, l3 = st.columns(3)
-    a_label = l1.text_input("Подпись A", value=str(saved.get("a_label", a_col)), key="ternary_a_label")
-    b_label = l2.text_input("Подпись B", value=str(saved.get("b_label", b_col)), key="ternary_b_label")
-    c_label = l3.text_input("Подпись C", value=str(saved.get("c_label", c_col)), key="ternary_c_label")
-    return mode, "", a_col, b_col, c_col, a_label, b_label, c_label
-
-
 def _style_profile(group_col: str | None, project_id: int | None) -> dict:
     if not group_col:
         return {}
     records = [
-        record for record in list_style_profiles(project_id)
+        record
+        for record in list_style_profiles(project_id)
         if not record["grouping_column"] or record["grouping_column"] == group_col
     ]
     if not records:
         return {}
-    labels = {f"{record['name']} · {record['grouping_column'] or 'общий'}": record for record in records}
+    labels = {
+        f"{record['name']} · {record['grouping_column'] or 'общий'}": record
+        for record in records
+    }
     chosen = st.selectbox("Профиль маркеров", ["Авто"] + list(labels), key="ternary_style_profile")
     return {} if chosen == "Авто" else labels[chosen]["styles"]
 
@@ -176,10 +126,18 @@ def render_ternary_workspace(
 ) -> None:
     st.subheader("Треугольная диаграмма")
     try:
-        mode, preset_id, a_col, b_col, c_col, a_label, b_label, c_label = _preset_controls(dataframe, recipe)
+        selection = render_ternary_selection(dataframe, recipe)
     except ValueError as exc:
         st.error(str(exc))
         return
+
+    dataframe = selection.dataframe
+    mode = selection.mode
+    preset_id = selection.preset_id
+    a_col, b_col, c_col = selection.a_col, selection.b_col, selection.c_col
+    a_label, b_label, c_label = selection.a_label, selection.b_label, selection.c_label
+    classification_overlay = selection.overlay
+    render_overlay = classification_overlay if selection.show_overlay else None
 
     normalization_default = recipe.get("ternary_normalization", "auto")
     reverse_norm = {value: label for label, value in _NORMALIZATION_LABELS.items()}
@@ -192,15 +150,27 @@ def render_ternary_workspace(
     normalization = _NORMALIZATION_LABELS[norm_label]
 
     categorical = [
-        column for column in dataframe.columns
+        column
+        for column in dataframe.columns
         if not str(column).startswith("_")
         and dataframe[column].nunique(dropna=True) <= 80
         and column not in numeric_candidates(dataframe)
     ]
-    preferred = [column for column in [WORK_GROUP_COLUMN, "Набор", "Generation", "Group", "Sample"] if column in categorical]
-    group_options = ["Без группировки"] + preferred + [column for column in categorical if column not in preferred]
+    preferred = [
+        column
+        for column in [WORK_GROUP_COLUMN, "Набор", "Generation", "Group", "Sample"]
+        if column in categorical
+    ]
+    group_options = ["Без группировки"] + preferred + [
+        column for column in categorical if column not in preferred
+    ]
     saved_group = recipe.get("group_col") if recipe.get("group_col") in group_options else "Без группировки"
-    group = st.selectbox("Группировка", group_options, index=group_options.index(saved_group), key="ternary_group")
+    group = st.selectbox(
+        "Группировка",
+        group_options,
+        index=group_options.index(saved_group),
+        key="ternary_group",
+    )
     group_col = None if group == "Без группировки" else group
     style_map = _style_profile(group_col, project_id)
 
@@ -219,12 +189,15 @@ def render_ternary_workspace(
             st.dataframe(invalid_reason_counts(preparation), width="stretch", hide_index=True)
             preview = preparation.invalid.copy()
             columns = [
-                column for column in ["Sample", "Grain", "Point", a_col, b_col, c_col, TERNARY_REASON]
+                column
+                for column in ["Sample", "Grain", "Point", a_col, b_col, c_col, TERNARY_REASON]
                 if column in preview.columns
             ]
             st.dataframe(preview[columns].head(300), width="stretch", hide_index=True, height=240)
 
     plot_data = preparation.valid.copy()
+    if classification_overlay is not None:
+        plot_data = attach_ternary_classification(plot_data, classification_overlay.overlay_id)
     if plot_data.empty:
         st.warning("После проверки не осталось валидных точек.")
         return
@@ -263,7 +236,16 @@ def render_ternary_workspace(
             )
             if not flagged.empty:
                 columns = [
-                    column for column in ["Sample", "Grain", "Point", a_col, b_col, c_col]
+                    column
+                    for column in [
+                        "Sample",
+                        "Grain",
+                        "Point",
+                        "Классификационное поле",
+                        a_col,
+                        b_col,
+                        c_col,
+                    ]
                     if column in flagged.columns
                 ]
                 st.dataframe(flagged[columns].head(300), width="stretch", hide_index=True, height=220)
@@ -296,6 +278,7 @@ def render_ternary_workspace(
         group_col=group_col,
         title=title,
         style_map=style_map,
+        overlay=render_overlay,
     )
     st.markdown("#### Интерактивный отбор")
     st.caption("Кликните точку; выбор привязан к immutable `_analysis_id`. Для XY по-прежнему доступны box/lasso.")
@@ -347,14 +330,23 @@ def render_ternary_workspace(
 
     st.markdown("#### Публикационная фигура")
     f1, f2, f3, f4 = st.columns(4)
-    marker_size = f1.slider("Размер маркеров", 10, 180, int(recipe.get("marker_size", 48)), 2, key="ternary_marker_size")
+    marker_size = f1.slider(
+        "Размер маркеров",
+        10,
+        180,
+        int(recipe.get("marker_size", 48)),
+        2,
+        key="ternary_marker_size",
+    )
     show_grid = f2.checkbox("Сетка", value=bool(recipe.get("show_grid", True)), key="ternary_grid")
     show_legend = f3.checkbox("Легенда", value=bool(recipe.get("show_legend", True)), key="ternary_legend")
     annotate = f4.checkbox("Подписывать точки", value=bool(recipe.get("annotate", False)), key="ternary_annotate")
 
     label_candidates = [
-        column for column in plot_data.columns
-        if not str(column).startswith("_") and plot_data[column].nunique(dropna=True) <= max(200, len(plot_data))
+        column
+        for column in plot_data.columns
+        if not str(column).startswith("_")
+        and plot_data[column].nunique(dropna=True) <= max(200, len(plot_data))
     ]
     label_col = None
     annotate_top_n = 0
@@ -362,7 +354,13 @@ def render_ternary_workspace(
         l1, l2 = st.columns(2)
         label_choice = l1.selectbox("Поле подписи", ["—"] + label_candidates, key="ternary_label_col")
         label_col = None if label_choice == "—" else label_choice
-        annotate_top_n = l2.slider("Сколько подписывать", 1, 1000, int(recipe.get("annotate_top_n", 25)), key="ternary_annotate_n")
+        annotate_top_n = l2.slider(
+            "Сколько подписывать",
+            1,
+            1000,
+            int(recipe.get("annotate_top_n", 25)),
+            key="ternary_annotate_n",
+        )
 
     figure = build_publication_ternary(
         plot_data,
@@ -378,6 +376,7 @@ def render_ternary_workspace(
         annotate=annotate,
         label_col=label_col,
         annotate_top_n=annotate_top_n,
+        overlay=render_overlay,
     )
     st.pyplot(figure, width="content")
     png = figure_png_bytes(figure, dpi=600)
@@ -385,7 +384,13 @@ def render_ternary_workspace(
     plt.close(figure)
 
     export_data = plot_data.copy()
-    export_data = export_data.rename(columns={TERNARY_A: f"{a_label} [%]", TERNARY_B: f"{b_label} [%]", TERNARY_C: f"{c_label} [%]"})
+    export_data = export_data.rename(
+        columns={
+            TERNARY_A: f"{a_label} [%]",
+            TERNARY_B: f"{b_label} [%]",
+            TERNARY_C: f"{c_label} [%]",
+        }
+    )
     settings = {
         "chart_type": "ternary",
         "ternary_mode": mode,
@@ -400,6 +405,10 @@ def render_ternary_workspace(
         "normalization_applied": preparation.normalization_applied,
         "group_col": group_col or "",
         "title": title,
+        "classification_overlay_id": classification_overlay.overlay_id if classification_overlay else "",
+        "show_classification_overlay": bool(selection.show_overlay),
+        "classification_source": classification_overlay.source_citation if classification_overlay else "",
+        "classification_doi": classification_overlay.source_doi if classification_overlay else "",
         "auto_outlier_method": method_label,
         "auto_outlier_threshold": threshold,
         "interactive_excluded_ids": json.dumps(sorted(interactive_ids), ensure_ascii=False),
@@ -412,8 +421,20 @@ def render_ternary_workspace(
         pd.DataFrame([settings]).to_excel(writer, index=False, sheet_name="Настройки")
 
     d1, d2, d3 = st.columns(3)
-    d1.download_button("PNG · 600 dpi", png, file_name="petrolab_ternary.png", mime="image/png", width="stretch")
-    d2.download_button("SVG", svg, file_name="petrolab_ternary.svg", mime="image/svg+xml", width="stretch")
+    d1.download_button(
+        "PNG · 600 dpi",
+        png,
+        file_name="petrolab_ternary.png",
+        mime="image/png",
+        width="stretch",
+    )
+    d2.download_button(
+        "SVG",
+        svg,
+        file_name="petrolab_ternary.svg",
+        mime="image/svg+xml",
+        width="stretch",
+    )
     d3.download_button(
         "Данные ternary · Excel",
         excel.getvalue(),
@@ -431,14 +452,20 @@ def render_ternary_workspace(
         "ternary_mode": mode,
         "ternary_preset_id": preset_id,
         "ternary_components": {
-            "a": a_col, "b": b_col, "c": c_col,
-            "a_label": a_label, "b_label": b_label, "c_label": c_label,
+            "a": a_col,
+            "b": b_col,
+            "c": c_col,
+            "a_label": a_label,
+            "b_label": b_label,
+            "c_label": c_label,
         },
         "ternary_normalization": normalization,
         "ternary_outlier_method": method_label,
         "ternary_outlier_threshold": threshold,
         "ternary_exclude_auto": exclude_flagged,
         "ternary_interactive_excluded_ids": sorted(interactive_ids),
+        "show_classification_overlay": bool(selection.show_overlay),
+        "classification_overlay_id": classification_overlay.overlay_id if classification_overlay else "",
         "group_col": group_col,
         "title": title,
         "marker_size": marker_size,
