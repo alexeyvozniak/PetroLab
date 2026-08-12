@@ -281,6 +281,11 @@ def _render_source_statuses(project_id: int) -> None:
                             st.info("Обнаружена перестановка/вставка строк: позиционный fallback был отключён для безопасности.")
                         if result.recovered_roles:
                             st.info("После переименования колонок восстановлены роли: " + ", ".join(result.recovered_roles))
+                        if result.detached_image_count:
+                            st.warning(
+                                f"Из-за исчезнувших или ненадёжно сопоставленных точек затронуто изображений: "
+                                f"{result.detached_image_count}. Сами файлы сохранены; проверьте их связи в галерее."
+                            )
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Не удалось обновить источник: {exc}")
