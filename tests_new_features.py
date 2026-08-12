@@ -14,6 +14,12 @@ os.environ["PETROLAB_DATA_DIR"] = str(_ROOT / "data")
 
 import pandas as pd
 
+from petrolab.analysis_groups import (
+    WORK_GROUP_COLUMN,
+    attach_work_groups,
+    clear_work_group,
+    set_work_group,
+)
 from petrolab.db import (
     _utcnow,
     add_dataset,
@@ -24,6 +30,7 @@ from petrolab.db import (
     replace_dataset_rows,
 )
 from petrolab.derived import formula_status, load_unified_with_derived, save_formula_results
+from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.services.formula_service import FE2O3T_TO_FEOT, calculate_formula_safe
 
@@ -126,6 +133,42 @@ assert unified["apfu_AlIV"].notna().all()
 assert "Rb [µg/g]" in unified.columns
 
 first_id = str(source.iloc[0]["_analysis_id"])
+second_id = str(source.iloc[1]["_analysis_id"])
+
+# Local working groups are keyed by immutable analysis ID and never alter source data_json.
+assert set_work_group([first_id], "xenocryst candidate") == 1
+grouped = attach_work_groups(unified)
+assert grouped.loc[grouped["_analysis_id"].astype(str) == first_id, WORK_GROUP_COLUMN].iloc[0] == "xenocryst candidate"
+assert grouped.loc[grouped["_analysis_id"].astype(str) == second_id, WORK_GROUP_COLUMN].iloc[0] == ""
+
+# Plotly diagnostic figures carry analysis IDs in customdata, so lasso/click selection
+# survives sorting/grouping and can be translated back to the exact analytical row.
+interactive = build_interactive_scatter(
+    grouped,
+    "Rb [µg/g]",
+    "apfu_AlIV",
+    WORK_GROUP_COLUMN,
+    x_label="Rb, ppm",
+    y_label="AlIV, apfu",
+)
+custom_ids = {
+    str(point[0])
+    for trace in interactive.data
+    for point in trace.customdata
+}
+assert {first_id, second_id}.issubset(custom_ids)
+selection_event = {
+    "selection": {
+        "points": [
+            {"customdata": [first_id, "M1"]},
+            {"customdata": [second_id, "M2"]},
+        ]
+    }
+}
+assert selected_analysis_ids(selection_event) == [first_id, second_id]
+assert clear_work_group([first_id]) == 1
+assert attach_work_groups(unified)[WORK_GROUP_COLUMN].eq("").all()
+
 with connect() as con:
     row = con.execute(
         "SELECT data_json FROM analysis_rows WHERE analysis_id=?", (first_id,)
