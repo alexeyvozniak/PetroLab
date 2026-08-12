@@ -61,9 +61,14 @@ near(y[2], math.sqrt(3.0) / 2.0)
 near(x[3], 0.5)
 near(y[3], math.sqrt(3.0) / 6.0)
 
-# Ready-to-use mineral presets are exposed only when all required derived columns exist.
-preset_ids = {preset.preset_id for preset in available_ternary_presets({"Wo", "En", "Fs", "Ab"})}
+# Ready-to-use mineral presets are exposed only when their scientific source inputs exist.
+preset_ids = {
+    preset.preset_id
+    for preset in available_ternary_presets({"apfu_Ca", "apfu_Mg", "apfu_Fe2", "Q", "J"})
+}
 assert preset_ids == {"pyroxene_wo_en_fs"}
+preset_ids = {preset.preset_id for preset in available_ternary_presets({"Wo", "En", "Fs"})}
+assert "pyroxene_wo_en_fs" not in preset_ids
 preset_ids = {preset.preset_id for preset in available_ternary_presets({"Ab", "An", "Or"})}
 assert preset_ids == {"feldspar_ab_an_or"}
 
