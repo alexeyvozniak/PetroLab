@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from petrolab.column_schema import canonicalize_header
+from petrolab.column_schema import describe_header
 
 COMMON_OXIDES = {
-    "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "FeO", "MnO", "MgO",
+    "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "FeO", "FeOt", "MnO", "MgO",
     "CaO", "Na2O", "K2O", "P2O5", "NiO", "BaO", "SrO", "ZnO", "V2O3",
     "F", "Cl", "H2O", "ZrO2", "HfO2", "Nb2O5", "Ta2O5", "La2O3", "Ce2O3",
     "Nd2O3", "Y2O3", "ThO2", "UO2", "V2O5", "SO3",
@@ -29,26 +29,43 @@ def sha256_file(path: str | Path) -> str:
 
 
 def normalize_column_name(value: object) -> str:
-    """Normalize a known scientific header while preserving unknown user columns."""
-    return canonicalize_header(value)
+    return describe_header(value).canonical_name
 
 
 def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, dict]]:
-    """Normalize headers and retain the exact source column/index for Excel round-trips."""
+    """Normalize scientific headers, units, and retain reversible Excel provenance."""
     out = df.copy()
     normalized: list[str] = []
+    descriptors = []
     mapping: dict[str, dict] = {}
     seen: dict[str, int] = {}
+
     for column_index, original in enumerate(df.columns, start=1):
-        base = normalize_column_name(original)
+        descriptor = describe_header(original)
+        base = descriptor.canonical_name
         seen[base] = seen.get(base, 0) + 1
         name = base if seen[base] == 1 else f"{base}__{seen[base]}"
         normalized.append(name)
+        descriptors.append((name, descriptor))
         mapping[name] = {
             "original": str(original),
             "column_index": column_index,
+            "quantity_kind": descriptor.quantity_kind,
+            "source_unit": descriptor.source_unit,
+            "canonical_unit": descriptor.canonical_unit,
+            "to_canonical_factor": descriptor.to_canonical_factor,
+            "to_source_factor": descriptor.to_source_factor,
+            "warning": descriptor.warning,
         }
+
     out.columns = normalized
+    for name, descriptor in descriptors:
+        if descriptor.quantity_kind in {"oxide", "trace_element", "element_concentration"}:
+            numeric = pd.to_numeric(out[name], errors="coerce")
+            if descriptor.to_canonical_factor != 1.0:
+                numeric = numeric * descriptor.to_canonical_factor
+            out[name] = numeric
+
     return out, mapping
 
 
@@ -56,21 +73,45 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return normalize_columns_with_map(df)[0]
 
 
-def numericize_oxide_columns(df: pd.DataFrame) -> pd.DataFrame:
+def numericize_scientific_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for column in out.columns:
-        if column in COMMON_OXIDES:
+        name = str(column)
+        if name in COMMON_OXIDES or name.endswith("[µg/g]") or name.endswith("[wt%]"):
             out[column] = pd.to_numeric(out[column], errors="coerce")
     return out
+
+
+def numericize_oxide_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return numericize_scientific_columns(df)
 
 
 def oxide_columns(df: pd.DataFrame) -> list[str]:
     return [column for column in df.columns if column in COMMON_OXIDES]
 
 
+def trace_element_columns(df: pd.DataFrame) -> list[str]:
+    return [column for column in df.columns if str(column).endswith("[µg/g]")]
+
+
 def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
-    out = numericize_oxide_columns(df)
-    oxides = [column for column in oxide_columns(out) if column not in {"F", "Cl", "H2O"}]
+    out = numericize_scientific_columns(df)
+    oxides = [
+        column for column in oxide_columns(out)
+        if column not in {"F", "Cl", "H2O", "FeO", "FeOt", "Fe2O3"}
+    ]
+
+    # Iron requires special handling to avoid silently double-counting total Fe.
+    if "FeOt" in out.columns:
+        oxides.append("FeOt")
+        if "FeO" in out.columns or "Fe2O3" in out.columns:
+            out["QC железа"] = "Проверьте: FeOt присутствует вместе с раздельными формами Fe"
+    else:
+        if "FeO" in out.columns:
+            oxides.append("FeO")
+        if "Fe2O3" in out.columns:
+            oxides.append("Fe2O3")
+
     if oxides:
         out["Σ оксидов"] = out[oxides].sum(axis=1, min_count=1)
         out["QC суммы"] = pd.cut(
