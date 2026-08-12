@@ -80,8 +80,11 @@ def _render_batch_wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame
         entries.append((index, file.name, data, f"{index}_{digest}"))
 
     index_key = f"image_wizard_index_{dataset['id']}"
+    review_key = f"image_wizard_review_{dataset['id']}"
     if index_key not in st.session_state:
         st.session_state[index_key] = 0
+    if review_key not in st.session_state:
+        st.session_state[review_key] = False
     st.session_state[index_key] = min(int(st.session_state[index_key]), len(entries) - 1)
     current_index = int(st.session_state[index_key])
     _, filename, data, token = entries[current_index]
@@ -117,6 +120,7 @@ def _render_batch_wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame
     nav1, nav2, nav3 = st.columns([1, 1, 2])
     if nav1.button("← Предыдущее", disabled=current_index == 0, key=f"{prefix}_prev"):
         st.session_state[index_key] = current_index - 1
+        st.session_state[review_key] = False
         st.rerun()
     if nav2.button("Следующее →", disabled=current_index >= len(entries) - 1, key=f"{prefix}_next"):
         error = _assignment_error(prefix, scope_type)
@@ -124,13 +128,19 @@ def _render_batch_wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame
             st.error(error)
         else:
             st.session_state[index_key] = current_index + 1
+            st.session_state[review_key] = False
             st.rerun()
     if nav3.button("Перейти к проверке всей пачки", key=f"{prefix}_review"):
-        st.session_state[index_key] = len(entries) - 1
+        st.session_state[review_key] = True
         st.rerun()
 
     st.divider()
-    _render_batch_summary(project_id, dataset, dataframe, entries)
+    _render_batch_summary(
+        project_id,
+        dataset,
+        entries,
+        expanded=bool(st.session_state.get(review_key, False)),
+    )
 
 
 def _render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
@@ -147,10 +157,13 @@ def _render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
     valid_previous = [value for value in previous if value in full_labels]
     option_ids = list(dict.fromkeys(valid_previous + filtered_ids))
 
+    # Initialize/sanitize state before creating the widget. Passing both a default and an
+    # already populated session_state key can produce Streamlit state warnings.
+    if selected_key not in st.session_state or valid_previous != previous:
+        st.session_state[selected_key] = valid_previous
     st.multiselect(
         "Точки, видимые на этой фотографии",
         option_ids,
-        default=valid_previous,
         format_func=lambda analysis_id: full_labels.get(analysis_id, analysis_id[:8]),
         key=selected_key,
     )
@@ -169,8 +182,14 @@ def _render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
         return
     column = st.selectbox("Поле", candidates, key=f"{prefix}_field_column")
     values = sorted(dataframe[column].dropna().astype(str).unique().tolist())
-    if values:
-        st.selectbox("Значение", values, key=f"{prefix}_field_value")
+    value_key = f"{prefix}_field_value"
+    if not values:
+        st.session_state.pop(value_key, None)
+        st.warning("В выбранном поле нет непустых значений.")
+        return
+    if st.session_state.get(value_key) not in values:
+        st.session_state[value_key] = values[0]
+    st.selectbox("Значение", values, key=value_key)
 
 
 def _analysis_id_labels(dataframe: pd.DataFrame) -> dict[str, str]:
@@ -199,8 +218,9 @@ def _assignment_error(prefix: str, scope_type: str) -> str | None:
 def _render_batch_summary(
     project_id: int,
     dataset: dict,
-    dataframe: pd.DataFrame,
     entries: list[tuple[int, str, bytes, str]],
+    *,
+    expanded: bool,
 ) -> None:
     rows = []
     assignments: list[ImageAssignment] = []
@@ -238,7 +258,7 @@ def _render_batch_summary(
         assignments.append(ImageAssignment(ImagePayload(filename, data), scope, kind, title))
         rows.append({"Файл": filename, "Тип": kind, "Связь": link_text, "Готово": "да"})
 
-    with st.expander("Проверка всей пачки", expanded=False):
+    with st.expander("Проверка всей пачки", expanded=expanded):
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         if errors:
             st.warning("Нужно закончить настройку: " + " | ".join(errors))
@@ -264,7 +284,10 @@ def _render_batch_summary(
 def _clear_wizard_state(dataset_id: int) -> None:
     wizard_prefix = f"imgwiz_{dataset_id}_"
     for key in list(st.session_state):
-        if str(key).startswith(wizard_prefix) or key == f"image_wizard_index_{dataset_id}":
+        if str(key).startswith(wizard_prefix) or key in {
+            f"image_wizard_index_{dataset_id}",
+            f"image_wizard_review_{dataset_id}",
+        }:
             del st.session_state[key]
     epoch_key = f"image_upload_epoch_{dataset_id}"
     st.session_state[epoch_key] = int(st.session_state.get(epoch_key, 0)) + 1
