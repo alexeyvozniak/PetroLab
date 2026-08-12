@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
+from PIL import Image
 
 
 def main() -> None:
@@ -22,12 +24,19 @@ def main() -> None:
             create_rock,
             get_composition,
             get_isotopes,
+            list_rocks,
             replace_composition,
             replace_isotopes,
         )
         from petrolab.rock_plotting import build_tas_figure, figure_bytes
         from petrolab.scientific_overlays import XY_OVERLAYS, classify_grutter_g10
-        from petrolab.services.rock_service import rhodes_equilibrium_fo, whole_rock_mg_number
+        from petrolab.services.rock_image_service import list_rock_images, save_rock_image
+        from petrolab.services.rock_service import (
+            delete_rock_with_assets,
+            import_rocks_wide,
+            rhodes_equilibrium_fo,
+            whole_rock_mg_number,
+        )
         from petrolab.statistics import prepare_matrix, run_clustering, run_pca
         from petrolab.visualization_presets import FIGURE_PRESETS, POINT_STYLE_PRESETS, TABLE_PRESETS
 
@@ -54,6 +63,47 @@ def main() -> None:
         replace_isotopes(rock_id, isotopes)
         assert len(get_isotopes(rock_id)) == 1
 
+        # Existing-name policies are preflighted and explicit.
+        incoming = pd.DataFrame({"Rock": ["R1", "R2"], "SiO2": [50.0, 48.0], "MgO": [9.0, 11.0]})
+        skipped = import_rocks_wide(incoming, project_id=project_id, name_column="Rock", on_conflict="skip")
+        assert skipped.skipped_names == ("R1",)
+        assert len(skipped.created_ids) == 1
+        r2_id = skipped.created_ids[0]
+        updated = import_rocks_wide(
+            pd.DataFrame({"Rock": ["R1"], "SiO2": [52.0], "MgO": [8.0]}),
+            project_id=project_id,
+            name_column="Rock",
+            on_conflict="update",
+        )
+        assert updated.updated_ids == (rock_id,)
+        r1_comp = get_composition(rock_id).set_index("analyte")
+        assert float(r1_comp.loc["SiO2", "value"]) == 52.0
+        before_duplicate = len(list_rocks(project_id))
+        try:
+            import_rocks_wide(
+                pd.DataFrame({"Rock": ["R3", "R3"], "SiO2": [45.0, 46.0]}),
+                project_id=project_id,
+                name_column="Rock",
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("duplicate names inside one whole-rock import must fail preflight")
+        assert len(list_rocks(project_id)) == before_duplicate
+
+        # Rock deletion must remove stored image bytes, not only SQLite metadata.
+        image_buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), "white").save(image_buffer, format="PNG")
+        save_rock_image(r2_id, "rock.png", image_buffer.getvalue())
+        rock_assets = list_rock_images(r2_id)
+        assert len(rock_assets) == 1
+        image_path = Path(rock_assets[0]["stored_path"])
+        assert image_path.exists()
+        delete_rock_with_assets(r2_id)
+        assert not image_path.exists()
+        assert all(int(rock["id"]) != r2_id for rock in list_rocks(project_id))
+
+        wide = composition_wide(project_id)
         fig = build_tas_figure(wide)
         assert len(figure_bytes(fig, "png", 150)) > 1000
 
@@ -72,7 +122,10 @@ def main() -> None:
         clusters = run_clustering(prepared, method="kmeans", n_clusters=2)
         assert clusters.labels.nunique() == 2
 
-        table = format_dataframe_for_article(pd.DataFrame({"SiO2": [40.1234], "Rb [µg/g]": [123.456]}), preset_name="Lithos")
+        table = format_dataframe_for_article(
+            pd.DataFrame({"SiO2": [40.1234], "Rb [µg/g]": [123.456]}),
+            preset_name="Lithos",
+        )
         assert float(table.loc[0, "SiO2"]) == 40.12
         payload = article_table_xlsx_bytes(table, preset_name="Lithos", title="Test")
         path = root / "table.xlsx"
