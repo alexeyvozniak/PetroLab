@@ -33,6 +33,8 @@ if "%PETROLAB_CI%"=="1" (
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_dataframe_utils.py
     if errorlevel 1 goto fail
+    "%VENV_PY%" tests_import_service.py
+    if errorlevel 1 goto fail
     "%VENV_PY%" tests_smoke.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_streamlit.py
