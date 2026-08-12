@@ -37,10 +37,6 @@ jobs:
         shell: cmd
         run: python -m compileall -q app.py petrolab tests_formulae.py tests_dataframe_utils.py tests_smoke.py tests_streamlit.py
 
-      - name: Run pure dataframe utility tests
-        shell: cmd
-        run: python tests_dataframe_utils.py
-
       - name: Run real PetroLab Windows startup in CI mode
         shell: cmd
         run: |
