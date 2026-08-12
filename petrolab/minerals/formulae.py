@@ -123,6 +123,18 @@ def oxygen_normalized_apfu(
             + ". Сначала выберите правильный исходный столбец."
         )
 
+    # Fe2O3t is total Fe expressed as Fe2O3, not measured ferric iron. Ignoring it
+    # would silently calculate an iron-poor formula; converting it requires an explicit
+    # reporting-basis conversion and, where needed, a Fe2+/Fe3+ allocation method.
+    if "Fe2O3t" in df.columns:
+        total_fe2o3 = pd.to_numeric(df["Fe2O3t"], errors="coerce")
+        if total_fe2o3.notna().any():
+            raise ValueError(
+                "Обнаружен Fe2O3t (total Fe as Fe2O3). Структурная формула не может "
+                "автоматически считать его измеренным Fe2O3 или игнорировать. "
+                "Сначала выберите явный способ преобразования total Fe."
+            )
+
     cats: dict[str, pd.Series] = {}
     oxygen_moles = pd.Series(0.0, index=df.index, dtype=float)
 
