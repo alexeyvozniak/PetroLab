@@ -147,6 +147,16 @@ def list_all_images() -> list[dict]:
     return list_image_records()
 
 
+def image_export_records() -> list[dict]:
+    """Return flat, Excel-safe image metadata without mutating service records."""
+    exported: list[dict] = []
+    for record in list_image_records():
+        row = dict(record)
+        row["analysis_ids"] = "; ".join(str(value) for value in (row.get("analysis_ids") or []))
+        exported.append(row)
+    return exported
+
+
 def related_images_for_row(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
     dataset_id = int(selected_row.get("_dataset_id"))
     assets = list_image_records(project_id=project_id, dataset_id=dataset_id)
