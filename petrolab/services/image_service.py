@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
+from PIL import Image, UnidentifiedImageError
 
 from petrolab.db import ASSETS_DIR, get_analysis_record, get_dataset, load_dataset_dataframe
 from petrolab.repositories.image_repository import (
@@ -236,6 +238,15 @@ def _validate_payload(image: ImagePayload) -> None:
         raise ValueError(f"Неподдерживаемый формат изображения: {suffix}")
     if not image.data:
         raise ValueError(f"Файл {filename} пустой")
+
+    # Do not trust the extension alone. A truncated or renamed non-image file should fail
+    # before any part of the batch is written to disk/database. Pillow.verify() checks the
+    # container structure without decoding the full raster into memory.
+    try:
+        with Image.open(io.BytesIO(image.data)) as opened:
+            opened.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError) as exc:
+        raise ValueError(f"Файл {filename} не является читаемым изображением или повреждён") from exc
 
 
 def _write_image_file(asset_dir: Path, image: ImagePayload) -> Path:
