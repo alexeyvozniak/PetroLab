@@ -126,26 +126,56 @@ def oxygen_normalized_apfu(
     cats: dict[str, pd.Series] = {}
     oxygen_moles = pd.Series(0.0, index=df.index, dtype=float)
 
-    # FeOt means total Fe expressed as FeO. It may stand in for FeO only when
-    # separate FeO is absent. FeOt plus a non-zero Fe2O3 column without FeO is
-    # chemically ambiguous and must not be silently double-counted.
-    if "FeOt" in df.columns and "FeO" not in df.columns and "Fe2O3" in df.columns:
-        measured_fe3 = pd.to_numeric(df["Fe2O3"], errors="coerce").fillna(0.0)
-        if (measured_fe3.abs() > 0).any():
-            raise ValueError(
-                "Одновременно заданы FeOt и Fe2O3 без отдельного FeO. "
-                "Нельзя однозначно разделить total Fe и измеренный Fe3+."
-            )
+    # FeO and FeOt can coexist as columns in historical merged datasets while being
+    # mutually exclusive row by row. Preserve NaN so the correct source can be chosen
+    # for every analysis instead of selecting one column globally.
+    feo_raw = (
+        pd.to_numeric(df["FeO"], errors="coerce")
+        if "FeO" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    feot_raw = (
+        pd.to_numeric(df["FeOt"], errors="coerce")
+        if "FeOt" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    fe3_raw = (
+        pd.to_numeric(df["Fe2O3"], errors="coerce")
+        if "Fe2O3" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+
+    both_feo_feot = feo_raw.notna() & feot_raw.notna()
+    if both_feo_feot.any():
+        rows = ", ".join(str(int(i) + 1) for i in df.index[both_feo_feot][:10])
+        raise ValueError(
+            "В одной или нескольких строках одновременно заданы FeO и FeOt "
+            f"(строки данных: {rows}). Нельзя выбрать источник Fe автоматически."
+        )
+
+    # FeOt is total Fe expressed as FeO. If a row also contains a separately supplied
+    # Fe2O3 value but no FeO, deriving Fe2+/Fe3+ would require an explicit method; do
+    # not double-count or infer it implicitly. Zero is still an explicit supplied value.
+    ambiguous_total_fe = feot_raw.notna() & feo_raw.isna() & fe3_raw.notna()
+    if ambiguous_total_fe.any():
+        rows = ", ".join(str(int(i) + 1) for i in df.index[ambiguous_total_fe][:10])
+        raise ValueError(
+            "Одновременно заданы FeOt и Fe2O3 без отдельного FeO "
+            f"(строки данных: {rows}). Нельзя однозначно разделить total Fe и Fe3+."
+        )
 
     for oxide, spec in OXIDES.items():
         if oxide not in allowed:
             continue
-        source_column = oxide
-        if oxide == "FeO" and "FeO" not in df.columns and "FeOt" in df.columns:
-            source_column = "FeOt"
-        if source_column not in df.columns:
-            continue
-        moles_oxide = _num(df, source_column) / spec.molar_mass
+        if oxide == "FeO":
+            if "FeO" not in df.columns and "FeOt" not in df.columns:
+                continue
+            values = feo_raw.combine_first(feot_raw).fillna(0.0)
+        else:
+            if oxide not in df.columns:
+                continue
+            values = _num(df, oxide)
+        moles_oxide = values / spec.molar_mass
         oxygen_moles = oxygen_moles + moles_oxide * spec.n_oxygen
         cat_moles = moles_oxide * spec.n_cation
         cats[spec.cation] = cats.get(spec.cation, pd.Series(0.0, index=df.index)) + cat_moles
