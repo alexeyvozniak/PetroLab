@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,31 +12,25 @@ import streamlit as st
 from petrolab import __version__
 from petrolab.db import (
     ASSETS_DIR,
-    META_COLUMNS,
     add_image_asset,
     delete_image_asset,
     delete_plot_recipe,
     delete_style_profile,
     ensure_storage,
-    get_dataset,
     list_change_log,
     list_datasets,
     list_image_assets,
     list_plot_recipes,
-    list_projects,
     list_style_profiles,
     load_dataset_dataframe,
     load_unified_analyses,
     save_plot_recipe,
     save_style_profile,
-    update_analysis_values,
 )
 from petrolab.dataframe_utils import (
     apply_column_filters,
     apply_quick_filter,
-    compute_changes,
     dataset_label,
-    display_value,
     row_identity,
 )
 from petrolab.io_utils import numeric_candidates
@@ -43,8 +38,8 @@ from petrolab.minerals.formulae import calculate_formula, methods_for
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
-from petrolab.sources import sync_cell_changes
-from petrolab.ui.pages import render_home_page, render_projects_page, render_sources_page
+from petrolab.ui.components import collect_related_images, render_asset_gallery, render_project_selector
+from petrolab.ui.pages import render_analyses_page, render_home_page, render_projects_page, render_sources_page
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
@@ -68,44 +63,6 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
-
-def project_selector(key: str = "project_select"):
-    projects = list_projects()
-    if not projects:
-        st.info("Создайте первый проект.")
-        return None
-    mapping = {p["name"]: p for p in projects}
-    selected_name = st.selectbox("Текущий проект", list(mapping), key=key)
-    return mapping[selected_name]
-
-
-def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
-    assets = list_image_assets(project_id=project_id, dataset_id=int(selected_row.get("_dataset_id")))
-    related = []
-    selected_aid = str(selected_row.get("_analysis_id"))
-    for asset in assets:
-        if asset.get("analysis_id") == selected_aid:
-            related.append(asset)
-        elif asset.get("scope_type") == "Набор данных":
-            related.append(asset)
-        elif asset.get("scope_type") == "Значение поля" and asset.get("scope_column") in selected_row.index:
-            if str(selected_row.get(asset["scope_column"])) == str(asset.get("scope_value")):
-                related.append(asset)
-    return related
-
-
-def render_asset_gallery(assets: list[dict], max_items: int = 20, width: int = 650):
-    if not assets:
-        st.caption("Связанных изображений нет.")
-        return
-    for asset in assets[:max_items]:
-        path = Path(asset["stored_path"])
-        if path.exists():
-            try:
-                st.image(str(path), caption=asset["title"] or asset["original_filename"], width=width)
-            except Exception:
-                st.caption(asset["original_filename"])
-
 
 def style_df_from_groups(groups: list[str], existing: dict | None = None) -> pd.DataFrame:
     existing = existing or {}
@@ -139,86 +96,11 @@ elif page == "Источники и импорт":
     render_sources_page()
 
 elif page == "Единая база":
-    st.title("Единая база анализов")
-    all_projects = list_projects()
-    if not all_projects:
-        st.info("Сначала создайте проект и импортируйте данные.")
-        st.stop()
-    scope = st.radio("Область", ["Один проект", "Все проекты"], horizontal=True)
-    selected_project_id = None
-    if scope == "Один проект":
-        project = project_selector("db_project")
-        if project is None:
-            st.stop()
-        selected_project_id = project["id"]
-    datasets = list_datasets(selected_project_id)
-    if not datasets:
-        st.info("В выбранной области нет данных.")
-        st.stop()
-    labels = {dataset_label(d): int(d["id"]) for d in datasets}
-    selected_labels = st.multiselect("Наборы данных", list(labels), default=list(labels))
-    selected_ids = [labels[x] for x in selected_labels]
-    if not selected_ids:
-        st.stop()
-    db_df = load_unified_analyses(selected_project_id, selected_ids)
-    if db_df.empty:
-        st.stop()
-    query = st.text_input("Поиск по всей выбранной базе", key="db_search")
-    shown = apply_quick_filter(db_df, query).copy()
-    disabled_cols = [c for c in shown.columns if c in META_COLUMNS or str(c).startswith("_") or c in {"Σ оксидов", "QC суммы"}]
-    edited = st.data_editor(shown, width="stretch", hide_index=True, height=650, disabled=disabled_cols, num_rows="fixed", key="unified_editor")
-    changes = compute_changes(
-        shown,
-        edited,
-        protected_columns=META_COLUMNS | {"Σ оксидов", "QC суммы"},
-    )
-    b1, b2 = st.columns(2)
-    if b1.button("Сохранить изменения в базе", type="primary", disabled=not changes, width="stretch"):
-        update_analysis_values(changes, synced_to_source=False)
-        st.success("Изменения сохранены в базе.")
-        st.rerun()
-    if b2.button("Сохранить в базе и записать в Excel", disabled=not changes, width="stretch"):
-        grouped = {}
-        for ch in changes:
-            grouped.setdefault(int(ch["dataset_id"]), []).append(ch)
-        successful, failures = 0, []
-        for dataset_id, ds_changes in grouped.items():
-            d = get_dataset(dataset_id)
-            try:
-                if not d.get("sync_enabled"):
-                    raise ValueError("обратная запись для этого источника отключена")
-                mapping = json.loads(d.get("column_map_json") or "{}")
-                writable = [ch for ch in ds_changes if ch["column_name"] in mapping]
-                backup = sync_cell_changes(d, writable)
-                update_analysis_values(ds_changes, synced_to_source=True, source_backup=backup)
-                successful += 1
-            except Exception as exc:
-                failures.append(f"{d['name']}: {exc}")
-        if successful:
-            st.success(f"Синхронизировано источников: {successful}")
-        for text in failures:
-            st.error(text)
-        if successful and not failures:
-            st.rerun()
-    with st.expander("Карточка точки и связанные изображения"):
-        if not shown.empty:
-            point_map = {f"{row_identity(row)} · {row.get('Источник', '')} · строка {row.get('_source_row', '—')} · {str(row['_analysis_id'])[:8]}": str(row["_analysis_id"]) for _, row in shown.head(3000).iterrows()}
-            selected_point_label = st.selectbox("Точка", list(point_map), key="db_point_card")
-            selected_aid = point_map[selected_point_label]
-            selected_row = shown[shown["_analysis_id"].astype(str) == selected_aid].iloc[0]
-            visible_columns = [c for c in shown.columns if not str(c).startswith("_")]
-            point_properties = pd.DataFrame(
-                {
-                    "Параметр": visible_columns,
-                    "Значение": [display_value(selected_row.get(c)) for c in visible_columns],
-                }
-            )
-            st.dataframe(point_properties, width="stretch", hide_index=True, height=360)
-            render_asset_gallery(collect_related_images(selected_row, project_id=selected_project_id))
+    render_analyses_page()
 
 elif page == "Изображения":
     st.title("Изображения и аналитические точки")
-    project = project_selector("images_project")
+    project = render_project_selector("images_project")
     if project is None:
         st.stop()
     datasets = list_datasets(project["id"])
@@ -268,7 +150,7 @@ elif page == "Изображения":
 
 elif page == "Пересчёт формул":
     st.title("Пересчёт структурных формул")
-    project = project_selector("formula_project")
+    project = render_project_selector("formula_project")
     if project is None:
         st.stop()
     datasets = list_datasets(project["id"])
@@ -299,7 +181,7 @@ elif page == "Диаграммы":
     scope = st.radio("Область данных", ["Один проект", "Все проекты"], horizontal=True, key="plot_scope")
     project_id = None
     if scope == "Один проект":
-        current_project = project_selector("plot_project")
+        current_project = render_project_selector("plot_project")
         if current_project is None:
             st.stop()
         project_id = current_project["id"]
