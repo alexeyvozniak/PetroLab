@@ -8,67 +8,36 @@ app_path = ROOT / "app.py"
 app_text = app_path.read_text(encoding="utf-8")
 pages_dir = ROOT / "petrolab" / "ui" / "pages"
 
-# app.py is now deliberately only navigation/integration, not a workspace implementation.
 for forbidden in [
-    "import pandas",
-    "import matplotlib",
-    "def compute_changes",
-    "def apply_quick_filter",
-    "def build_scatter",
-    "calculate_formula(",
-    "load_unified_analyses(",
-    "st.data_editor(",
-    "st.file_uploader(",
-    "sync_cell_changes",
-    "uuid4()",
+    "import pandas", "import matplotlib", "def compute_changes", "def apply_quick_filter",
+    "def build_scatter", "calculate_formula(", "load_unified_analyses(", "st.data_editor(",
+    "st.file_uploader(", "sync_cell_changes", "uuid4()",
 ]:
     assert forbidden not in app_text, f"{forbidden} leaked back into app.py"
 
 for renderer in [
-    "render_home_page",
-    "render_projects_page",
-    "render_sources_page",
-    "render_analyses_page",
-    "render_formulae_page",
-    "render_plots_page",
-    "render_ternary_page",
-    "render_images_page",
-    "render_minerals_page",
-    "render_export_page",
-    "render_change_log_page",
+    "render_home_page", "render_projects_page", "render_sources_page", "render_analyses_page",
+    "render_formulae_page", "render_plots_page", "render_ternary_page", "render_images_page",
+    "render_minerals_page", "render_export_page", "render_change_log_page",
 ]:
     assert renderer in app_text
 
 for page_name in [
-    "home.py",
-    "projects.py",
-    "sources.py",
-    "analyses.py",
-    "formulae.py",
-    "plots.py",
-    "ternary.py",
-    "plots_ternary.py",
-    "images.py",
-    "minerals.py",
-    "export.py",
-    "change_log.py",
+    "home.py", "projects.py", "sources.py", "analyses.py", "formulae.py", "plots.py",
+    "ternary.py", "plots_ternary.py", "images.py", "minerals.py", "export.py", "change_log.py",
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
-# Shared UI helpers stay in focused component modules.
 components = ROOT / "petrolab" / "ui" / "components.py"
 components_text = components.read_text(encoding="utf-8")
 for function_name in [
-    "def render_project_selector(",
-    "def collect_related_images(",
-    "def render_asset_gallery(",
+    "def render_project_selector(", "def collect_related_images(", "def render_asset_gallery(",
 ]:
     assert function_name in components_text
 ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
 assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
 
-# Service/data/scientific rendering layers remain usable independently from Streamlit.
 pure_files = [
     ROOT / "petrolab" / "column_schema.py",
     ROOT / "petrolab" / "measurement_semantics.py",
@@ -97,44 +66,39 @@ for path in pure_files:
     assert "import streamlit" not in text, f"Streamlit dependency leaked into {path}"
     assert "from streamlit" not in text, f"Streamlit dependency leaked into {path}"
 
-# Scientific classification geometry belongs to the sourced overlay registry, not renderers/UI.
+# Scientific classification geometry/thresholds belong to source-aware registries/classifiers,
+# never to the generic renderer or Streamlit page.
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
 preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
 plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
+classification_text = (ROOT / "petrolab" / "minerals" / "classification.py").read_text(encoding="utf-8")
 for scientific_name in [
-    "Pigeonite",
-    "Augite",
-    "Diopside",
-    "Hedenbergite",
-    "Oligoclase",
-    "Andesine",
-    "Labradorite",
-    "Bytownite",
-    "Prp-dominant",
-    "Alm-dominant",
-    "Grs-dominant",
-    "Sps-dominant",
+    "Pigeonite", "Augite", "Diopside", "Hedenbergite", "Oligoclase", "Andesine",
+    "Labradorite", "Bytownite", "Prp-dominant", "Alm-dominant", "Grs-dominant",
+    "Sps-dominant", "Schorlomite", "Morimotoite",
 ]:
-    assert scientific_name in overlay_text
+    assert scientific_name in overlay_text or scientific_name in classification_text
     assert scientific_name not in plotting_text, f"{scientific_name} leaked into generic renderer"
 for overlay_id in [
-    "pyroxene_morimoto_1988",
-    "feldspar_gunduz_asan_2023",
-    "garnet_prp_alm_grs_dominance",
-    "garnet_prp_alm_sps_dominance",
+    "pyroxene_morimoto_1988", "feldspar_gunduz_asan_2023",
+    "garnet_prp_alm_grs_dominance", "garnet_prp_alm_sps_dominance",
+    "garnet_ti_grew2013_fig5",
 ]:
     assert overlay_id in overlay_text
     assert f'field_overlay_id="{overlay_id}"' in preset_text
 assert "source_citation" in overlay_text
 assert "source_doi" in overlay_text
-assert "не формальное IMA" in preset_text
+assert "TiO2 > 12" in preset_text
+assert "def attach_mineral_classification(" in classification_text
+assert "def attach_garnet_ima_diagnostics(" in classification_text
 
-# Key workflows must be represented explicitly in the right layer.
+formula_service = (ROOT / "petrolab" / "services" / "formula_service.py").read_text(encoding="utf-8")
+assert "attach_mineral_classification" in formula_service
+assert "final = attach_mineral_classification(" in formula_service
+
 import_service = (ROOT / "petrolab" / "services" / "import_service.py").read_text(encoding="utf-8")
 for function_name in [
-    "def import_linked_sheets(",
-    "def import_uploaded_sheets(",
-    "def refresh_dataset_from_source(",
+    "def import_linked_sheets(", "def import_uploaded_sheets(", "def refresh_dataset_from_source(",
 ]:
     assert function_name in import_service
 assert "apply_measurement_overrides" in import_service
@@ -144,37 +108,31 @@ assert "save_formula_results" in formula_page
 assert "calculate_formula_safe" in formula_page
 
 plots_page = (pages_dir / "plots.py").read_text(encoding="utf-8")
-assert "load_unified_with_derived" in plots_page
-assert "robust_outliers" in plots_page
-assert "manual_outlier_exclusions" in plots_page
-assert "build_interactive_scatter" in plots_page
-assert "selected_analysis_ids" in plots_page
-assert "set_work_group" in plots_page
-assert "st.plotly_chart" in plots_page
+for marker in [
+    "load_unified_with_derived", "robust_outliers", "manual_outlier_exclusions",
+    "build_interactive_scatter", "selected_analysis_ids", "set_work_group", "st.plotly_chart",
+]:
+    assert marker in plots_page
 
 ternary_page = (pages_dir / "ternary.py").read_text(encoding="utf-8")
 ternary_workspace = (pages_dir / "plots_ternary.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in ternary_page
 assert "render_ternary_workspace" in ternary_page
-assert "prepare_ternary" in ternary_workspace
-assert "render_ternary_selection" in ternary_workspace
-assert "attach_ternary_classification" in ternary_workspace
-assert "build_interactive_ternary" in ternary_workspace
-assert "build_publication_ternary" in ternary_workspace
-assert "selected_analysis_ids" in ternary_workspace
-assert "save_plot_recipe" in ternary_workspace
+for marker in [
+    "prepare_ternary", "render_ternary_selection", "attach_ternary_classification",
+    "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe",
+]:
+    assert marker in ternary_workspace
 
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in analyses_page
 assert "active_derived_columns" in analyses_page
 assert "attach_work_groups" in analyses_page
 
-# Empty exception handlers make scientific/data failures impossible to diagnose.
 for path in [app_path, *sorted((ROOT / "petrolab").rglob("*.py"))]:
     text = path.read_text(encoding="utf-8")
     assert re.search(r"^\s*except\s*:\s*$", text, flags=re.MULTILINE) is None, f"bare except in {path}"
 
-# Temporary patch/workflow machinery must not survive into a production refactor.
 for path in (ROOT / "tools").glob("patch_*.py") if (ROOT / "tools").exists() else []:
     raise AssertionError(f"temporary patch script remains: {path.name}")
 for path in (ROOT / ".github" / "workflows").glob("apply-*.yml"):
@@ -186,7 +144,6 @@ for path in (ROOT / ".github" / "workflows").glob("pr-final-verification*.yml"):
 
 app_lines = len(app_text.splitlines())
 assert app_lines <= 120, f"app.py grew to {app_lines} lines; keep workspace code in page modules"
-
 assert (ROOT / "CONTRIBUTING.md").exists()
 assert (ROOT / "ARCHITECTURE.md").exists()
 print(f"architecture tests: OK; app.py = {app_lines} lines")
