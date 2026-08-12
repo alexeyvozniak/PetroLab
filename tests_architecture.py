@@ -55,7 +55,7 @@ for page_name in [
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
-# Shared UI helpers stay in one component module.
+# Shared UI helpers stay in focused component modules.
 components = ROOT / "petrolab" / "ui" / "components.py"
 components_text = components.read_text(encoding="utf-8")
 for function_name in [
@@ -64,8 +64,11 @@ for function_name in [
     "def render_asset_gallery(",
 ]:
     assert function_name in components_text
+ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
+assert ternary_controls.exists()
+assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
 
-# Service/data layers remain usable independently from Streamlit.
+# Service/data/scientific rendering layers remain usable independently from Streamlit.
 pure_files = [
     ROOT / "petrolab" / "column_schema.py",
     ROOT / "petrolab" / "measurement_semantics.py",
@@ -77,6 +80,7 @@ pure_files = [
     ROOT / "petrolab" / "plot_presets.py",
     ROOT / "petrolab" / "ternary_data.py",
     ROOT / "petrolab" / "ternary_presets.py",
+    ROOT / "petrolab" / "ternary_overlays.py",
     ROOT / "petrolab" / "ternary_plotting.py",
     ROOT / "petrolab" / "analysis_identity.py",
     ROOT / "petrolab" / "services" / "import_service.py",
@@ -92,6 +96,15 @@ for path in pure_files:
     text = path.read_text(encoding="utf-8")
     assert "import streamlit" not in text, f"Streamlit dependency leaked into {path}"
     assert "from streamlit" not in text, f"Streamlit dependency leaked into {path}"
+
+# Scientific classification geometry belongs to the sourced overlay registry, not renderers/UI.
+overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
+plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
+for scientific_name in ["Pigeonite", "Augite", "Diopside", "Hedenbergite", "Oligoclase", "Labradorite"]:
+    assert scientific_name in overlay_text
+    assert scientific_name not in plotting_text, f"{scientific_name} leaked into generic renderer"
+assert "source_citation" in overlay_text
+assert "source_doi" in overlay_text
 
 # Key workflows must be represented explicitly in the right layer.
 import_service = (ROOT / "petrolab" / "services" / "import_service.py").read_text(encoding="utf-8")
@@ -121,6 +134,8 @@ ternary_workspace = (pages_dir / "plots_ternary.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in ternary_page
 assert "render_ternary_workspace" in ternary_page
 assert "prepare_ternary" in ternary_workspace
+assert "render_ternary_selection" in ternary_workspace
+assert "attach_ternary_classification" in ternary_workspace
 assert "build_interactive_ternary" in ternary_workspace
 assert "build_publication_ternary" in ternary_workspace
 assert "selected_analysis_ids" in ternary_workspace
