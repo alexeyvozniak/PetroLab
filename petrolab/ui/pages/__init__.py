@@ -10,6 +10,7 @@ from .minerals import render_minerals_page
 from .plots import render_plots_page
 from .projects import render_projects_page
 from .sources import render_sources_page
+from .ternary import render_ternary_page
 
 __all__ = [
     "render_analyses_page",
@@ -22,4 +23,5 @@ __all__ = [
     "render_plots_page",
     "render_projects_page",
     "render_sources_page",
+    "render_ternary_page",
 ]
