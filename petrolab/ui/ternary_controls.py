@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 import streamlit as st
 
 from petrolab.io_utils import numeric_candidates
-from petrolab.ternary_overlays import TernaryOverlay, get_ternary_overlay
+from petrolab.ternary_overlays import OverlayLabel, TernaryOverlay, get_ternary_overlay
 from petrolab.ternary_presets import (
     TernaryPreset,
     apply_preset_projection,
@@ -79,6 +79,34 @@ def _render_overlay_reference(overlay: TernaryOverlay) -> None:
         st.info(overlay.note_ru)
 
 
+def _editable_overlay_labels(overlay: TernaryOverlay, recipe: dict) -> TernaryOverlay:
+    if not overlay.labels:
+        return overlay
+    show_labels = st.checkbox(
+        "Показывать подписи классификационных полей",
+        value=bool(recipe.get("show_classification_labels", True)),
+        key="ternary_show_field_labels",
+    )
+    if not show_labels:
+        return replace(overlay, labels=())
+
+    saved = recipe.get("classification_label_overrides", {})
+    if not isinstance(saved, dict):
+        saved = {}
+    edited: list[OverlayLabel] = []
+    with st.expander("Подписи классификационных полей", expanded=False):
+        st.caption("Меняется только текст подписи; координаты и границы литературной схемы остаются неизменными.")
+        for index, label in enumerate(overlay.labels):
+            value = str(saved.get(str(index), label.text))
+            text = st.text_input(
+                f"Поле {index + 1}",
+                value=value,
+                key=f"ternary_field_label_{overlay.overlay_id}_{index}",
+            )
+            edited.append(replace(label, text=text))
+    return replace(overlay, labels=tuple(edited))
+
+
 def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection | None:
     available = available_ternary_presets(dataframe.columns)
     if not available:
@@ -100,6 +128,25 @@ def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection
     st.caption(preset.description_ru)
 
     projected, components = apply_preset_projection(dataframe, preset)
+    saved = recipe.get("ternary_components", {}) if isinstance(recipe.get("ternary_components", {}), dict) else {}
+    with st.expander("Подписи вершин", expanded=False):
+        l1, l2, l3 = st.columns(3)
+        a_label = l1.text_input(
+            "Левая вершина",
+            value=str(saved.get("a_label", preset.a_label)),
+            key="ternary_preset_a_label",
+        )
+        b_label = l2.text_input(
+            "Правая вершина",
+            value=str(saved.get("b_label", preset.b_label)),
+            key="ternary_preset_b_label",
+        )
+        c_label = l3.text_input(
+            "Верхняя вершина",
+            value=str(saved.get("c_label", preset.c_label)),
+            key="ternary_preset_c_label",
+        )
+
     overlay = get_ternary_overlay(preset.field_overlay_id)
     show_overlay = False
     if overlay is not None:
@@ -108,6 +155,8 @@ def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection
             value=bool(recipe.get("show_classification_overlay", True)),
             key="ternary_show_overlay",
         )
+        if show_overlay:
+            overlay = _editable_overlay_labels(overlay, recipe)
         with st.expander("Источник классификационной схемы", expanded=False):
             _render_overlay_reference(overlay)
 
@@ -118,9 +167,9 @@ def _preset_selection(dataframe: pd.DataFrame, recipe: dict) -> TernarySelection
         a_col=components[0],
         b_col=components[1],
         c_col=components[2],
-        a_label=preset.a_label,
-        b_label=preset.b_label,
-        c_label=preset.c_label,
+        a_label=a_label,
+        b_label=b_label,
+        c_label=c_label,
         overlay=overlay,
         show_overlay=show_overlay,
     )
