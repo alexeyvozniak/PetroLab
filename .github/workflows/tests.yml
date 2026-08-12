@@ -39,7 +39,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_dataframe_utils.py tests_new_features.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -48,6 +48,10 @@ jobs:
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
         run: python tests_new_features.py
+
+      - name: Run ternary math and plotting regression tests
+        shell: cmd
+        run: python tests_ternary.py
 
       - name: Run real PetroLab Windows startup in CI mode
         shell: cmd
