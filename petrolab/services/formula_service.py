@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from petrolab.minerals.classification import attach_mineral_classification
 from petrolab.minerals.formulae import CalculationResult, OXIDES, calculate_formula
 
 
@@ -61,7 +62,7 @@ def calculate_formula_safe(
     mineral_key: str,
     method_id: str | None = None,
 ) -> CalculationResult:
-    """Calculate a formula while keeping temporary reporting-basis conversions internal."""
+    """Calculate formula + source-aware classification while hiding temporary conversions."""
     prepared, preparation_note = prepare_formula_input(dataframe)
     result = calculate_formula(prepared, mineral_key, method_id)
 
@@ -71,6 +72,10 @@ def calculate_formula_safe(
     for column in result.data.columns:
         if column not in prepared.columns:
             final[column] = result.data[column].to_numpy(copy=False)
+
+    # Classification is a derived interpretation layer. It may add site-allocation/QC columns
+    # (notably for garnet) and never writes anything back into the analytical source columns.
+    final = attach_mineral_classification(final, mineral_key, method_id)
 
     notes = [text for text in (preparation_note, result.note_ru) if text]
     return CalculationResult(final, "\n\n".join(notes))
