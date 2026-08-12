@@ -10,7 +10,8 @@ from petrolab.dataframe_utils import (
     display_value,
     row_identity,
 )
-from petrolab.db import META_COLUMNS, list_datasets, list_projects, load_unified_analyses
+from petrolab.db import META_COLUMNS, list_datasets, list_projects
+from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
 from petrolab.ui.components import (
     collect_related_images,
@@ -49,7 +50,7 @@ def _render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
 
 
 def render_analyses_page() -> None:
-    """Render the unified editable analysis database."""
+    """Render source and current derived values in one user-facing analysis table."""
     st.title("Единая база анализов")
 
     if not list_projects():
@@ -75,18 +76,26 @@ def render_analyses_page() -> None:
     if not selected_ids:
         st.stop()
 
-    dataframe = load_unified_analyses(project_id, selected_ids)
+    dataframe = load_unified_with_derived(project_id, selected_ids)
     if dataframe.empty:
         st.info("В выбранных наборах нет аналитических строк.")
         st.stop()
 
+    derived_columns = active_derived_columns(selected_ids)
+    if derived_columns:
+        st.caption(
+            "Расчётные поля уже включены в таблицу. Они защищены от ручного редактирования и "
+            "никогда не записываются обратно в исходный Excel; обновить их можно через «Расчёты и формулы»."
+        )
+
     query = st.text_input("Поиск по всей выбранной базе", key="db_search")
     shown = apply_quick_filter(dataframe, query).copy()
 
+    protected_columns = PROTECTED_ANALYSIS_COLUMNS | set(derived_columns)
     disabled_columns = [
         column
         for column in shown.columns
-        if column in PROTECTED_ANALYSIS_COLUMNS or str(column).startswith("_")
+        if column in protected_columns or str(column).startswith("_")
     ]
     edited = st.data_editor(
         shown,
@@ -100,7 +109,7 @@ def render_analyses_page() -> None:
     changes = compute_changes(
         shown,
         edited,
-        protected_columns=PROTECTED_ANALYSIS_COLUMNS,
+        protected_columns=protected_columns,
     )
 
     if changes:
