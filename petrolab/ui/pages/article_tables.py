@@ -5,8 +5,9 @@ import streamlit as st
 
 from petrolab.article_tables import article_table_xlsx_bytes, format_dataframe_for_article
 from petrolab.repositories.rock_repository import composition_wide
-from petrolab.ui.data_scope import render_analysis_scope
+from petrolab.settings_service import load_settings
 from petrolab.ui.components import render_project_selector
+from petrolab.ui.data_scope import render_analysis_scope
 from petrolab.visualization_presets import TABLE_PRESETS
 
 
@@ -31,8 +32,16 @@ def _render_table(dataframe: pd.DataFrame, key_prefix: str, default_title: str) 
     columns = _column_selector(dataframe, f"{key_prefix}_columns")
     if not columns:
         return
+    settings = load_settings()
+    preset_names = list(TABLE_PRESETS)
+    preferred = str(settings.get("default_table_preset", "Lithos"))
     c1, c2 = st.columns(2)
-    preset = c1.selectbox("Журнальный preset", list(TABLE_PRESETS), key=f"{key_prefix}_preset")
+    preset = c1.selectbox(
+        "Журнальный preset",
+        preset_names,
+        index=preset_names.index(preferred) if preferred in preset_names else 0,
+        key=f"{key_prefix}_preset",
+    )
     title = c2.text_input("Название таблицы", value=default_title, key=f"{key_prefix}_title")
     note = st.text_area("Примечание под таблицей", key=f"{key_prefix}_note", height=80)
     formatted = format_dataframe_for_article(dataframe, preset_name=preset, columns=columns)
@@ -54,7 +63,12 @@ def render_article_tables_page() -> None:
         "Конструктор публикационных таблиц с одинаковой логикой для минералов и валовых составов. "
         "Preset отвечает за оформление, а выбор строк и колонок остаётся полностью ручным."
     )
-    mode = st.segmented_control("Данные", ["Минеральные анализы", "Валовые составы пород"], default="Минеральные анализы", key="article_table_mode")
+    mode = st.segmented_control(
+        "Данные",
+        ["Минеральные анализы", "Валовые составы пород"],
+        default="Минеральные анализы",
+        key="article_table_mode",
+    )
     if mode == "Минеральные анализы":
         scope = render_analysis_scope("article_table")
         if scope is None:
