@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,12 +9,14 @@ import pandas as pd
 from petrolab.column_schema import describe_header
 from petrolab.repositories.rock_repository import (
     create_rock,
+    delete_rock,
     get_composition,
-    get_rock,
     list_mineral_links,
     list_rocks,
     replace_composition,
+    update_rock,
 )
+from petrolab.services.rock_image_service import list_rock_images
 
 
 MAJOR_OXIDES = {
@@ -25,6 +28,8 @@ MAJOR_OXIDES = {
 @dataclass(frozen=True)
 class RockImportResult:
     created_ids: tuple[int, ...]
+    updated_ids: tuple[int, ...]
+    skipped_names: tuple[str, ...]
     warnings: tuple[str, ...]
 
 
@@ -59,6 +64,28 @@ def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = No
     return composition, units, warnings
 
 
+def _clean_import_names(dataframe: pd.DataFrame, name_column: str) -> list[str]:
+    names: list[str] = []
+    for raw in dataframe[name_column].tolist():
+        if raw is None:
+            continue
+        try:
+            if pd.isna(raw):
+                continue
+        except (TypeError, ValueError):
+            pass
+        name = str(raw).strip()
+        if name:
+            names.append(name)
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(
+            "В импортируемой таблице повторяются названия пород/образцов: " + ", ".join(duplicates[:20]) +
+            ". Сделайте названия уникальными до импорта, чтобы строки нельзя было перепутать."
+        )
+    return names
+
+
 def import_rocks_wide(
     dataframe: pd.DataFrame,
     *,
@@ -68,26 +95,87 @@ def import_rocks_wide(
     chemistry_method: str = "",
     laboratory: str = "",
     source: str = "",
+    on_conflict: str = "update",
 ) -> RockImportResult:
     if name_column not in dataframe.columns:
         raise ValueError(f"Колонка названия породы «{name_column}» отсутствует.")
+    if on_conflict not in {"update", "skip", "error"}:
+        raise ValueError("Неизвестная политика совпадающих названий пород")
+
+    names = _clean_import_names(dataframe, name_column)
+    existing = {str(rock["name"]): rock for rock in list_rocks(project_id)}
+    conflicts = sorted(name for name in names if name in existing)
+    if conflicts and on_conflict == "error":
+        raise ValueError(
+            "Такие породы уже есть в проекте: " + ", ".join(conflicts[:20]) +
+            ". Выберите «обновить» или «пропустить»."
+        )
+
     metadata_columns = metadata_columns or {}
     created: list[int] = []
+    updated: list[int] = []
+    skipped: list[str] = []
     warnings: list[str] = []
     excluded = {name_column, *metadata_columns.values()}
+
     for _, row in dataframe.iterrows():
-        name = str(row.get(name_column, "")).strip()
-        if not name or name.lower() == "nan":
+        raw_name = row.get(name_column, "")
+        try:
+            if pd.isna(raw_name):
+                continue
+        except (TypeError, ValueError):
+            pass
+        name = str(raw_name).strip()
+        if not name:
             continue
-        metadata = {key: row.get(column, "") for key, column in metadata_columns.items() if column in dataframe.columns}
+        if name in existing and on_conflict == "skip":
+            skipped.append(name)
+            continue
+
+        metadata = {
+            key: row.get(column, "")
+            for key, column in metadata_columns.items()
+            if column in dataframe.columns
+        }
         metadata["chemistry_method"] = chemistry_method
         metadata["laboratory"] = laboratory
-        rock_id = create_rock(project_id, name, **metadata)
         composition, units, row_warnings = canonicalize_rock_row(row, excluded)
-        replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
-        created.append(rock_id)
+
+        if name in existing:
+            rock_id = int(existing[name]["id"])
+            update_rock(rock_id, **metadata)
+            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
+            updated.append(rock_id)
+        else:
+            rock_id = create_rock(project_id, name, **metadata)
+            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
+            created.append(rock_id)
+            existing[name] = {"id": rock_id, "name": name}
         warnings.extend(f"{name}: {message}" for message in row_warnings)
-    return RockImportResult(tuple(created), tuple(warnings))
+
+    return RockImportResult(tuple(created), tuple(updated), tuple(skipped), tuple(warnings))
+
+
+def delete_rock_with_assets(rock_id: int) -> None:
+    """Delete one rock and its stored image files without leaving orphan assets."""
+    assets = list_rock_images(int(rock_id))
+    paths = [Path(str(asset["stored_path"])) for asset in assets]
+    temporary_paths: list[tuple[Path, Path]] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        temporary = path.with_suffix(path.suffix + ".deleting")
+        path.replace(temporary)
+        temporary_paths.append((path, temporary))
+    try:
+        delete_rock(int(rock_id))
+    except Exception:
+        for original, temporary in temporary_paths:
+            if temporary.exists():
+                temporary.replace(original)
+        raise
+    for _, temporary in temporary_paths:
+        temporary.unlink(missing_ok=True)
 
 
 def composition_dict(rock_id: int) -> dict[str, float]:
@@ -108,7 +196,6 @@ def whole_rock_mg_number(composition: dict[str, float], fe3_fraction: float = 0.
     elif np.isfinite(float(composition.get("FeOt", np.nan))):
         feo = float(composition["FeOt"])
     elif np.isfinite(float(composition.get("Fe2O3t", np.nan))):
-        # Convert total Fe as Fe2O3 to FeO-equivalent while conserving Fe atoms.
         feo = float(composition["Fe2O3t"]) * (2.0 * 71.844 / 159.688)
     else:
         return np.nan
