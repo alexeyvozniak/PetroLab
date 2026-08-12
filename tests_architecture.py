@@ -16,12 +16,21 @@ assert "def apply_column_filters" not in app_text
 assert "def row_identity" not in app_text
 assert "JOURNAL_PRESETS = {" not in app_text
 
+# Extracted pages stay outside the entrypoint.
+assert "from petrolab.ui.pages import render_home_page, render_projects_page" in app_text
+assert "render_home_page()" in app_text
+assert "render_projects_page()" in app_text
+assert 'with st.form("new_project"' not in app_text
+assert 'st.subheader("Новая графическая логика")' not in app_text
+assert (ROOT / "petrolab" / "ui" / "pages" / "home.py").exists()
+assert (ROOT / "petrolab" / "ui" / "pages" / "projects.py").exists()
+
 # Streamlit 1.60 has removed the old width API from the supported path.
 assert "use_container_width" not in app_text
 
-# Intermediate guardrail: app.py should get smaller, never silently grow past the old monolith.
+# Intermediate guardrail: app.py must continue shrinking as pages are extracted.
 app_lines = len(app_text.splitlines())
-assert app_lines <= 700, f"app.py grew to {app_lines} lines; split pages/helpers before adding more UI"
+assert app_lines <= 620, f"app.py grew to {app_lines} lines; split pages/helpers before adding more UI"
 
 # Empty exception handlers make scientific/data failures impossible to diagnose.
 for path in [ROOT / "app.py", *sorted((ROOT / "petrolab").rglob("*.py"))]:
