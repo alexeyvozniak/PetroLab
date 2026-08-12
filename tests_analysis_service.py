@@ -43,6 +43,7 @@ def main() -> None:
                 "SiO2": [40.0, 41.0],
                 "MgO": [20.0, 19.0],
                 "FeO": [8.0, 9.0],
+                "Ba ppb": [1200.0, 1300.0],
             }
         )
         frame_b = pd.DataFrame(
@@ -79,13 +80,11 @@ def main() -> None:
         unified = load_unified_analyses(project_id, [ds_a, ds_b])
         row_a = unified[unified["_dataset_id"] == ds_a].iloc[0]
         row_b = unified[unified["_dataset_id"] == ds_b].iloc[0]
+        assert float(row_a["Ba [µg/g]"]) == 1.2
 
         # Full preflight: one unmapped derived column must prevent every workbook write.
         invalid_result = save_changes_and_sync(
-            [
-                _change(row_a, "SiO2", 55.0),
-                _change(row_b, "Mg#", 0.777),
-            ]
+            [_change(row_a, "SiO2", 55.0), _change(row_b, "Mg#", 0.777)]
         )
         assert not invalid_result.ok
         wb = openpyxl.load_workbook(file_a, data_only=True)
@@ -97,12 +96,8 @@ def main() -> None:
         unchanged = load_unified_analyses(project_id, [ds_a, ds_b])
         assert float(unchanged[unchanged["_dataset_id"] == ds_a].iloc[0]["SiO2"]) == 40.0
 
-        # Two physical workbooks: both files and SQLite must move together.
         valid_result = save_changes_and_sync(
-            [
-                _change(row_a, "SiO2", 44.4),
-                _change(row_b, "SiO2", 46.6),
-            ]
+            [_change(row_a, "SiO2", 44.4), _change(row_b, "SiO2", 46.6)]
         )
         assert valid_result.ok, valid_result.errors
         assert valid_result.synced_files == 2
@@ -119,12 +114,23 @@ def main() -> None:
         assert float(updated[updated["_dataset_id"] == ds_a].iloc[0]["SiO2"]) == 44.4
         assert float(updated[updated["_dataset_id"] == ds_b].iloc[0]["SiO2"]) == 46.6
 
+        # Canonical µg/g values must be converted back to the original ppb source unit.
+        trace_row = updated[updated["_dataset_id"] == ds_a].iloc[0]
+        trace_result = save_changes_and_sync([_change(trace_row, "Ba [µg/g]", 2.5)])
+        assert trace_result.ok, trace_result.errors
+        wb = openpyxl.load_workbook(file_a, data_only=True)
+        headers = [cell.value for cell in wb["Mica"][1]]
+        ba_col = headers.index("Ba ppb") + 1
+        assert wb["Mica"].cell(row=2, column=ba_col).value == 2500.0
+        wb.close()
+        trace_updated = load_unified_analyses(project_id, [ds_a])
+        assert float(trace_updated.iloc[0]["Ba [µg/g]"]) == 2.5
+
         logged = list_change_log(limit=20)
         synced_rows = [row for row in logged if int(row["synced_to_source"]) == 1]
-        assert len(synced_rows) >= 2
-        assert all(row["source_backup"] for row in synced_rows[:2])
+        assert len(synced_rows) >= 3
+        assert all(row["source_backup"] for row in synced_rows[:3])
 
-        # Two datasets/sheets from one workbook: one backup and one workbook save.
         multi = base / "multi.xlsx"
         _write_workbook(multi, {"Core": frame_a, "Rim": frame_b})
         multi_result = import_linked_sheets(
@@ -139,10 +145,7 @@ def main() -> None:
         core = multi_df[multi_df["Лист"] == "Core"].iloc[0]
         rim = multi_df[multi_df["Лист"] == "Rim"].iloc[0]
         one_file_result = save_changes_and_sync(
-            [
-                _change(core, "SiO2", 48.1),
-                _change(rim, "SiO2", 49.2),
-            ]
+            [_change(core, "SiO2", 48.1), _change(rim, "SiO2", 49.2)]
         )
         assert one_file_result.ok, one_file_result.errors
         assert one_file_result.synced_files == 1
