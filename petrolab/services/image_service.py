@@ -111,6 +111,11 @@ def list_dataset_images(dataset_id: int) -> list[dict]:
     return list_image_records(dataset_id=int(dataset_id))
 
 
+def list_all_images() -> list[dict]:
+    """Return all image metadata for unified project export."""
+    return list_image_records()
+
+
 def related_images_for_row(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
     """Resolve direct, dataset-level, and field-value image links for one analysis row."""
     dataset_id = int(selected_row.get("_dataset_id"))
