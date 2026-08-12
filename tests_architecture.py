@@ -17,20 +17,33 @@ assert "def row_identity" not in app_text
 assert "JOURNAL_PRESETS = {" not in app_text
 
 # Extracted pages stay outside the entrypoint.
-assert "from petrolab.ui.pages import render_home_page, render_projects_page" in app_text
 assert "render_home_page()" in app_text
 assert "render_projects_page()" in app_text
+assert "render_sources_page()" in app_text
 assert 'with st.form("new_project"' not in app_text
 assert 'st.subheader("Новая графическая логика")' not in app_text
-assert (ROOT / "petrolab" / "ui" / "pages" / "home.py").exists()
-assert (ROOT / "petrolab" / "ui" / "pages" / "projects.py").exists()
+assert 'st.subheader("Локальный Excel с двусторонней синхронизацией")' not in app_text
+assert "def save_dataset(" not in app_text
+assert "def safe_copy_upload(" not in app_text
+for page_name in ["home.py", "projects.py", "sources.py"]:
+    assert (ROOT / "petrolab" / "ui" / "pages" / page_name).exists()
+
+# Import/data workflows belong to the service layer and must remain usable without Streamlit.
+import_service = ROOT / "petrolab" / "services" / "import_service.py"
+assert import_service.exists()
+import_service_text = import_service.read_text(encoding="utf-8")
+assert "import streamlit" not in import_service_text
+assert "from streamlit" not in import_service_text
+assert "def import_linked_sheets(" in import_service_text
+assert "def import_uploaded_sheets(" in import_service_text
+assert "def refresh_dataset_from_source(" in import_service_text
 
 # Streamlit 1.60 has removed the old width API from the supported path.
 assert "use_container_width" not in app_text
 
 # Intermediate guardrail: app.py must continue shrinking as pages are extracted.
 app_lines = len(app_text.splitlines())
-assert app_lines <= 620, f"app.py grew to {app_lines} lines; split pages/helpers before adding more UI"
+assert app_lines <= 500, f"app.py grew to {app_lines} lines; split pages/helpers before adding more UI"
 
 # Empty exception handlers make scientific/data failures impossible to diagnose.
 for path in [ROOT / "app.py", *sorted((ROOT / "petrolab").rglob("*.py"))]:

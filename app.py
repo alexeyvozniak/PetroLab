@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
-from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,9 +11,7 @@ import streamlit as st
 from petrolab import __version__
 from petrolab.db import (
     ASSETS_DIR,
-    DATA_DIR,
     META_COLUMNS,
-    add_dataset,
     add_image_asset,
     delete_image_asset,
     delete_plot_recipe,
@@ -29,11 +26,9 @@ from petrolab.db import (
     list_style_profiles,
     load_dataset_dataframe,
     load_unified_analyses,
-    replace_dataset_rows,
     save_plot_recipe,
     save_style_profile,
     update_analysis_values,
-    update_dataset_metadata,
 )
 from petrolab.dataframe_utils import (
     apply_column_filters,
@@ -43,21 +38,13 @@ from petrolab.dataframe_utils import (
     display_value,
     row_identity,
 )
-from petrolab.io_utils import (
-    list_excel_sheets,
-    list_excel_sheets_path,
-    numeric_candidates,
-    read_tabular_path,
-    read_tabular_with_map,
-    sha256_bytes,
-    sha256_file,
-)
+from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.formulae import calculate_formula, methods_for
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
-from petrolab.sources import reload_linked_source, source_status, sync_cell_changes
-from petrolab.ui.pages import render_home_page, render_projects_page
+from petrolab.sources import sync_cell_changes
+from petrolab.ui.pages import render_home_page, render_projects_page, render_sources_page
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
@@ -90,25 +77,6 @@ def project_selector(key: str = "project_select"):
     mapping = {p["name"]: p for p in projects}
     selected_name = st.selectbox("Текущий проект", list(mapping), key=key)
     return mapping[selected_name]
-
-
-def save_dataset(project_id: int, df: pd.DataFrame, dataset_name: str, mineral_key: str, source_filename: str, source_sheet: str, source_hash: str, column_map: dict, source_rows: list[int], source_path: str = "", source_kind: str = "upload", header_row: int = 1, sync_enabled: bool = False) -> int:
-    project_dir = DATA_DIR / f"project_{project_id}"
-    project_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = project_dir / f"dataset_{uuid4().hex}.csv"
-    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    dataset_id = add_dataset(project_id=project_id, name=dataset_name, mineral_key=mineral_key, source_filename=source_filename, source_sheet=source_sheet, source_sha256=source_hash, csv_path=str(csv_path), row_count=len(df), source_path=source_path, source_kind=source_kind, header_row=header_row, column_map=column_map, sync_enabled=sync_enabled)
-    replace_dataset_rows(dataset_id, df, source_rows=source_rows)
-    return dataset_id
-
-
-def safe_copy_upload(project_id: int, filename: str, data: bytes) -> Path:
-    source_dir = DATA_DIR / f"project_{project_id}" / "managed_sources"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    clean_name = Path(filename).name
-    target = source_dir / f"{uuid4().hex[:10]}_{clean_name}"
-    target.write_bytes(data)
-    return target
 
 
 def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
@@ -168,100 +136,7 @@ elif page == "Проекты":
     render_projects_page()
 
 elif page == "Источники и импорт":
-    st.title("Источники и импорт")
-    project = project_selector("import_project")
-    if project is None:
-        st.stop()
-    tab_linked, tab_upload, tab_sources = st.tabs(["Связать локальный файл", "Загрузить копию", "Связанные источники"])
-    with tab_linked:
-        st.subheader("Локальный Excel с двусторонней синхронизацией")
-        st.info("Укажите полный путь к XLSX/XLSM/CSV. Тогда изменения из «Единой базы» можно записывать обратно в этот файл с резервной копией.")
-        local_path_text = st.text_input("Полный путь к Excel/CSV", key="local_source_path")
-        header_row = st.number_input("Строка заголовков", min_value=1, max_value=200, value=1, step=1, key="local_header_row")
-        local_path = Path(local_path_text).expanduser() if local_path_text.strip() else None
-        if local_path is not None:
-            if not local_path.exists():
-                st.error("Файл по указанному пути не найден.")
-            elif local_path.suffix.lower() not in {".xlsx", ".xlsm", ".xls", ".csv"}:
-                st.error("Поддерживаются XLSX, XLSM, XLS и CSV.")
-            else:
-                try:
-                    if local_path.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
-                        sheets = list_excel_sheets_path(local_path)
-                        selected_sheets = st.multiselect("Листы для импорта", sheets, default=sheets[:1])
-                    else:
-                        selected_sheets = [""]
-                    mineral_key = st.selectbox("Минерал", list(MINERALS), format_func=lambda k: MINERALS[k].name_ru, key="linked_mineral")
-                    base_name = st.text_input("Название набора", value=local_path.stem, key="linked_dataset_name")
-                    if selected_sheets:
-                        preview_df, _, _ = read_tabular_path(local_path, selected_sheets[0] or None, int(header_row))
-                        preview_df = MINERALS[mineral_key].calculate(preview_df)
-                        st.dataframe(preview_df.head(50), width="stretch", hide_index=True)
-                    if st.button("Связать и импортировать выбранные листы", type="primary", key="link_local"):
-                        created = []
-                        for sheet in selected_sheets:
-                            df, col_map, source_rows = read_tabular_path(local_path, sheet or None, int(header_row))
-                            df = MINERALS[mineral_key].calculate(df)
-                            name = base_name.strip() or local_path.stem
-                            if len(selected_sheets) > 1:
-                                name = f"{name} · {sheet}"
-                            dataset_id = save_dataset(project["id"], df, name, mineral_key, local_path.name, sheet or "", sha256_file(local_path), col_map, source_rows, source_path=str(local_path.resolve()), source_kind="linked", header_row=int(header_row), sync_enabled=local_path.suffix.lower() in {".xlsx", ".xlsm"})
-                            created.append(dataset_id)
-                        st.success(f"Импортировано наборов: {len(created)}.")
-                        st.rerun()
-                except Exception as exc:
-                    st.error(f"Не удалось прочитать источник: {exc}")
-    with tab_upload:
-        st.subheader("Импорт через браузер")
-        uploaded = st.file_uploader("Excel или CSV", type=["xlsx", "xlsm", "xls", "csv"], key="upload_source")
-        if uploaded is not None:
-            file_bytes = uploaded.getvalue()
-            upload_header_row = st.number_input("Строка заголовков", min_value=1, max_value=200, value=1, step=1, key="upload_header_row")
-            if Path(uploaded.name).suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
-                sheets = list_excel_sheets(file_bytes)
-                selected_sheets = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="upload_sheets")
-            else:
-                selected_sheets = [""]
-            mineral_key = st.selectbox("Минерал", list(MINERALS), format_func=lambda k: MINERALS[k].name_ru, key="upload_mineral")
-            base_name = st.text_input("Название набора", value=Path(uploaded.name).stem, key="upload_dataset_name")
-            if selected_sheets:
-                preview, _, _ = read_tabular_with_map(file_bytes, uploaded.name, selected_sheets[0] or None, int(upload_header_row))
-                preview = MINERALS[mineral_key].calculate(preview)
-                st.dataframe(preview.head(50), width="stretch", hide_index=True)
-            if st.button("Импортировать рабочую копию", type="primary", key="upload_import"):
-                managed_path = safe_copy_upload(project["id"], uploaded.name, file_bytes)
-                created = []
-                for sheet in selected_sheets:
-                    df, col_map, source_rows = read_tabular_with_map(file_bytes, uploaded.name, sheet or None, int(upload_header_row))
-                    df = MINERALS[mineral_key].calculate(df)
-                    name = base_name.strip() or Path(uploaded.name).stem
-                    if len(selected_sheets) > 1:
-                        name = f"{name} · {sheet}"
-                    dataset_id = save_dataset(project["id"], df, name, mineral_key, uploaded.name, sheet or "", sha256_bytes(file_bytes), col_map, source_rows, source_path=str(managed_path), source_kind="managed_copy", header_row=int(upload_header_row), sync_enabled=managed_path.suffix.lower() in {".xlsx", ".xlsm"})
-                    created.append(dataset_id)
-                st.success(f"Импортировано наборов: {len(created)}.")
-                st.rerun()
-    with tab_sources:
-        datasets = list_datasets(project["id"])
-        if not datasets:
-            st.info("В проекте пока нет источников.")
-        for d in datasets:
-            status, detail = source_status(d)
-            icon = {"актуален": "✓", "изменён вне ПетроЛаба": "↻", "не найден": "!", "несвязанный": "·"}.get(status, "·")
-            with st.expander(f"{icon} {d['name']} · {d['source_filename']} · {d['source_sheet'] or 'CSV/активный лист'}"):
-                st.write(f"**Статус:** {status}")
-                st.code(detail)
-                if status == "изменён вне ПетроЛаба":
-                    if st.button("Обновить базу из этого Excel", key=f"reload_{d['id']}"):
-                        try:
-                            df, mapping, source_rows, new_hash = reload_linked_source(int(d["id"]))
-                            df = MINERALS.get(d["mineral_key"], MINERALS["generic"]).calculate(df)
-                            replace_dataset_rows(int(d["id"]), df, source_rows=source_rows, preserve_ids_by_source_row=True)
-                            update_dataset_metadata(int(d["id"]), source_sha256=new_hash, column_map_json=mapping, row_count=len(df))
-                            st.success("База обновлена из источника.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(str(exc))
+    render_sources_page()
 
 elif page == "Единая база":
     st.title("Единая база анализов")
