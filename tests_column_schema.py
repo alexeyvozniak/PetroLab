@@ -81,6 +81,14 @@ assert list(collision.columns) == ["Rb [µg/g]", "Rb [µg/g]__2"]
 assert collision_map["Rb [µg/g]"]["column_index"] == 1
 assert collision_map["Rb [µg/g]__2"]["column_index"] == 2
 
+# Pandas may mangle a repeated Excel header as `.1`; recover the scientific meaning
+# so that the conflict remains visible instead of silently becoming an unknown column.
+mangled = pd.DataFrame([[1.0, 2.0, 3.0, 4.0]], columns=["FeO", "FeO.1", "Rb ppm", "Rb ppm.1"])
+mangled_norm, mangled_map = normalize_columns_with_map(mangled)
+assert list(mangled_norm.columns) == ["FeO", "FeO__2", "Rb [µg/g]", "Rb [µg/g]__2"]
+assert "Повторяющийся" in mangled_map["FeO__2"]["warning"]
+assert "Повторяющийся" in mangled_map["Rb [µg/g]__2"]["warning"]
+
 # FeO and FeOt remain semantically distinct.
 iron_raw = pd.DataFrame({"FeO": [1.0], "FeOt": [2.0]})
 iron, _ = normalize_columns_with_map(iron_raw)
