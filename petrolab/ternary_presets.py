@@ -66,12 +66,12 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         c_label="Or",
         normalization="auto",
         description_ru=(
-            "Ab слева, An справа, Or сверху. Сам Ab–An–Or состав строится напрямую. "
-            "Литературные границы полей пока не накладываются автоматически: текст источника "
-            "подтверждает схему Deer et al. (1992), но точная геометрия полей дана на рисунке "
-            "и не заменяется эвристическим порогом Or."
+            "Ab слева, An справа, Or сверху. Классификационная подложка показывает "
+            "композиционные поля плагиоклазов и общее поле щелочного полевого шпата по "
+            "опубликованной Ab–An–Or схеме. Sanidine, orthoclase и microcline автоматически "
+            "не назначаются: одной химии недостаточно для определения структурного состояния."
         ),
-        field_overlay_id=None,
+        field_overlay_id="feldspar_gunduz_asan_2023",
     ),
     "garnet_prp_alm_grs": TernaryPreset(
         preset_id="garnet_prp_alm_grs",
@@ -85,9 +85,11 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         c_label="Grs",
         normalization="normalize",
         description_ru=(
-            "Проекция Prp–Alm–Grs по сохранённым end-member компонентам. Остальные компоненты "
-            "граната исключаются из этой трёхкомпонентной проекции нормировкой."
+            "Проекция Prp–Alm–Grs по сохранённым end-member компонентам. Подложка показывает "
+            "только доминирующий компонент внутри этой перенормированной трёхкомпонентной "
+            "проекции; это не формальное IMA-наименование вида граната."
         ),
+        field_overlay_id="garnet_prp_alm_grs_dominance",
     ),
     "garnet_prp_alm_sps": TernaryPreset(
         preset_id="garnet_prp_alm_sps",
@@ -101,9 +103,12 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         c_label="Sps",
         normalization="normalize",
         description_ru=(
-            "Проекция Prp–Alm–Sps по сохранённым end-member компонентам; компоненты Ca и Cr/Fe³⁺ "
-            "не входят в эту конкретную трёхкомпонентную проекцию."
+            "Проекция Prp–Alm–Sps по сохранённым end-member компонентам. Подложка показывает "
+            "только доминирующий компонент внутри этой перенормированной трёхкомпонентной "
+            "проекции; Ca-, Cr- и Fe³⁺-содержащие компоненты здесь не участвуют, поэтому это "
+            "не формальное IMA-наименование вида граната."
         ),
+        field_overlay_id="garnet_prp_alm_sps_dominance",
     ),
 }
 
