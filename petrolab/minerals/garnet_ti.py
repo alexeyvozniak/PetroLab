@@ -13,13 +13,13 @@ def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
 def apply_strict_grew_figure5(dataframe: pd.DataFrame) -> pd.DataFrame:
     """Recalculate Grew et al. (2013) Fig. 5 components using Y(Ti + Zr) literally.
 
-    The site-allocation layer may track other tetravalent Y-site cations (e.g. Hf) for QC,
-    but the published Figure-5 diagnostic explicitly uses Ti + Zr. Those other cations must
-    therefore not move the Schorlomite–Morimotoite–Andradite plot coordinates.
+    Zero-valued site occupancies are intentionally allowed to be absent as columns: the
+    site allocator stores only occupied site-element pairs and `_numeric` supplies zero for
+    the rest. Other tetravalent Y-site cations (e.g. Hf) remain visible in QC but do not
+    move the published Ti+Zr diagnostic coordinates.
     """
     result = dataframe.copy()
-    required = {"grt_Y_Ti", "grt_Z_Al", "grt_Z_Fe3", "grt_Y_Al", "grt_Y_Fe3"}
-    if not required.issubset(result.columns):
+    if "grt_Y_Ti" not in result.columns:
         return result
 
     y_ti = _numeric(result, "grt_Y_Ti")
@@ -54,6 +54,8 @@ def apply_strict_grew_figure5(dataframe: pd.DataFrame) -> pd.DataFrame:
     result["TiGrt_Y_R3"] = y_r3
     result["TiGrt_Y_R2"] = y_r2
 
+    y_mg = _numeric(result, "grt_Y_Mg")
+    y_fe2 = _numeric(result, "grt_Y_Fe2")
     fields: list[str] = []
     mg_flags: list[bool] = []
     for index in result.index:
@@ -62,14 +64,18 @@ def apply_strict_grew_figure5(dataframe: pd.DataFrame) -> pd.DataFrame:
             "Morimotoite": result.at[index, "TiGrt_Mor"],
             "Andradite": result.at[index, "TiGrt_Adr"],
         }
-        finite = {name: float(value) for name, value in values.items() if pd.notna(value) and np.isfinite(float(value))}
+        finite = {
+            name: float(value)
+            for name, value in values.items()
+            if pd.notna(value) and np.isfinite(float(value))
+        }
         dominant = max(finite, key=finite.get) if finite else ""
         fields.append(dominant)
         applicable = bool(result.at[index, "TiGrt_Fig5_applicable"]) if "TiGrt_Fig5_applicable" in result else False
         mg_flags.append(
             applicable
             and dominant == "Morimotoite"
-            and float(_numeric(result, "grt_Y_Mg").loc[index]) > float(_numeric(result, "grt_Y_Fe2").loc[index])
+            and float(y_mg.loc[index]) > float(y_fe2.loc[index])
         )
     result["TiGrt_field"] = fields
     result["TiGrt_Mg_morimotoite_analog_flag"] = mg_flags
@@ -77,7 +83,8 @@ def apply_strict_grew_figure5(dataframe: pd.DataFrame) -> pd.DataFrame:
     if "grt_site_QC" in result.columns:
         hf_material = y_hf > 0.05
         for index in result.index[hf_material]:
-            old = str(result.at[index, "grt_site_QC"] or "").strip()
+            old_value = result.at[index, "grt_site_QC"]
+            old = "" if pd.isna(old_value) else str(old_value).strip()
             message = "Hf tracked in Y-site QC but excluded from Grew Fig. 5 Ti+Zr coordinates"
             if message not in old:
                 result.at[index, "grt_site_QC"] = f"{old}; {message}".strip("; ")
