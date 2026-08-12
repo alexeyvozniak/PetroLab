@@ -1,6 +1,7 @@
 import math
 import pandas as pd
 
+from petrolab.minerals.base import MineralModule
 from petrolab.minerals.formulae import calculate_formula
 
 
@@ -35,6 +36,23 @@ except ValueError as exc:
     assert "FeOt" in str(exc) and "Fe2O3" in str(exc)
 else:
     raise AssertionError("FeOt + Fe2O3 without FeO must be rejected")
+
+# Import intentionally preserves duplicate chemical inputs as technical __2 columns.
+# Formulae and base Mg# must not silently choose the first one.
+duplicate_chemistry = pd.DataFrame([
+    {"SiO2": 40.0, "MgO": 48.0, "FeO": 10.0, "FeO__2": 11.0}
+])
+try:
+    calculate_formula(duplicate_chemistry, "olivine", "ol_4o_fe2")
+except ValueError as exc:
+    assert "FeO__2" in str(exc)
+else:
+    raise AssertionError("Duplicate formula inputs must block structural recalculation")
+
+base_module = MineralModule("test", "test", "test", "test")
+base_duplicate = base_module.calculate(duplicate_chemistry)
+assert "Mg#" not in base_duplicate.columns
+assert "QC Mg#" in base_duplicate.columns
 
 fsp = pd.DataFrame([{"SiO2": 68.74, "Al2O3": 19.44, "Na2O": 11.82}])
 r = calculate_formula(fsp, "feldspar", "fsp_8o").data.iloc[0]
