@@ -9,7 +9,7 @@ from petrolab.column_schema import (
     inspect_sheet_schema,
     resolve_semantic_mapping,
 )
-from petrolab.io_utils import normalize_columns_with_map
+from petrolab.io_utils import add_qc_columns, normalize_columns_with_map
 
 assert canonicalize_header("SiO₂") == "SiO2"
 assert canonicalize_header(" SiO2 (wt. %) ") == "SiO2"
@@ -83,11 +83,18 @@ assert collision_map["Rb [µg/g]__2"]["column_index"] == 2
 
 # Pandas may mangle a repeated Excel header as `.1`; recover the scientific meaning
 # so that the conflict remains visible instead of silently becoming an unknown column.
-mangled = pd.DataFrame([[1.0, 2.0, 3.0, 4.0]], columns=["FeO", "FeO.1", "Rb ppm", "Rb ppm.1"])
+mangled = pd.DataFrame([[50.0, 51.0, 3.0, 4.0]], columns=["FeO", "FeO.1", "Rb ppm", "Rb ppm.1"])
 mangled_norm, mangled_map = normalize_columns_with_map(mangled)
 assert list(mangled_norm.columns) == ["FeO", "FeO__2", "Rb [µg/g]", "Rb [µg/g]__2"]
 assert "Повторяющийся" in mangled_map["FeO__2"]["warning"]
 assert "Повторяющийся" in mangled_map["Rb [µg/g]__2"]["warning"]
+
+# A duplicate oxide makes an apparently plausible sum unsafe. QC must not label it normal.
+qc_conflict = add_qc_columns(
+    pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0, "FeO__2": 11.0}])
+)
+assert qc_conflict.loc[0, "QC суммы"] == "конфликт колонок"
+assert "FeO__2" in qc_conflict.loc[0, "QC химии"]
 
 # FeO and FeOt remain semantically distinct.
 iron_raw = pd.DataFrame({"FeO": [1.0], "FeOt": [2.0]})
