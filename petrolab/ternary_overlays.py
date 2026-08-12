@@ -60,15 +60,6 @@ def _constant_c(c: float) -> OverlayLine:
     return OverlayLine((TernaryVertex(remainder, 0.0, c), TernaryVertex(0.0, remainder, c)))
 
 
-def _constant_b_between_c(b: float, c_low: float, c_high: float) -> OverlayLine:
-    return OverlayLine(
-        (
-            TernaryVertex(100.0 - b - c_low, b, c_low),
-            TernaryVertex(100.0 - b - c_high, b, c_high),
-        )
-    )
-
-
 def _a_equals_b_between_c(c_low: float, c_high: float) -> OverlayLine:
     low_side = (100.0 - c_low) / 2.0
     high_side = (100.0 - c_high) / 2.0
@@ -115,47 +106,8 @@ PYROXENE_MORIMOTO_1988 = TernaryOverlay(
 )
 
 
-FELDSPAR_DEER_1992 = TernaryOverlay(
-    overlay_id="feldspar_deer_1992",
-    title_ru="Ab–An–Or · схема по Deer et al. (1992)",
-    source_citation=(
-        "Deer W.A., Howie R.A., Zussman J. (1992). An Introduction to the Rock-Forming "
-        "Minerals, 2nd ed."
-    ),
-    verification_citation=(
-        "Gündüz M., Asan K. (2023). MagMin_PT: an Excel VBA program for the calculation "
-        "of pressure-temperature conditions of magmatic rocks from mineral compositions. "
-        "Mineralogical Magazine 87, 1–9; feldspar Ab–An–Or classification follows Deer et al. (1992)."
-    ),
-    verification_doi="10.1180/mgm.2022.113",
-    lines=(
-        _constant_c(10.0),
-        _constant_b_between_c(10.0, 0.0, 10.0),
-        _constant_b_between_c(30.0, 0.0, 10.0),
-        _constant_b_between_c(50.0, 0.0, 10.0),
-        _constant_b_between_c(70.0, 0.0, 10.0),
-        _constant_b_between_c(90.0, 0.0, 10.0),
-    ),
-    labels=(
-        OverlayLabel("Albite", TernaryVertex(94.0, 3.0, 3.0)),
-        OverlayLabel("Oligoclase", TernaryVertex(77.0, 20.0, 3.0)),
-        OverlayLabel("Andesine", TernaryVertex(57.0, 40.0, 3.0)),
-        OverlayLabel("Labradorite", TernaryVertex(37.0, 60.0, 3.0)),
-        OverlayLabel("Bytownite", TernaryVertex(17.0, 80.0, 3.0)),
-        OverlayLabel("Anorthite", TernaryVertex(3.0, 94.0, 3.0)),
-        OverlayLabel("Alkali feldspar\n(structure-dependent)", TernaryVertex(45.0, 5.0, 50.0)),
-    ),
-    note_ru=(
-        "Plagioclase subdivisions are shown in the low-Or band. Sanidine, orthoclase and "
-        "microcline are not assigned from chemistry alone because structural state is required. "
-        "The overlay intentionally does not approximate curved solvus/miscibility boundaries."
-    ),
-)
-
-
 TERNARY_OVERLAYS: dict[str, TernaryOverlay] = {
-    overlay.overlay_id: overlay
-    for overlay in (PYROXENE_MORIMOTO_1988, FELDSPAR_DEER_1992)
+    PYROXENE_MORIMOTO_1988.overlay_id: PYROXENE_MORIMOTO_1988,
 }
 
 
@@ -208,33 +160,8 @@ def classify_pyroxene_morimoto(row: pd.Series) -> str:
     return "unclassified"
 
 
-def classify_feldspar_deer(row: pd.Series) -> str:
-    ab = float(row.get(TERNARY_A, np.nan))
-    an = float(row.get(TERNARY_B, np.nan))
-    or_value = float(row.get(TERNARY_C, np.nan))
-    if not all(np.isfinite(value) for value in (ab, an, or_value)):
-        return "unclassified"
-
-    if or_value <= 10.0 + 1e-9:
-        if an < 10.0:
-            return "Albite"
-        if an < 30.0:
-            return "Oligoclase"
-        if an < 50.0:
-            return "Andesine"
-        if an < 70.0:
-            return "Labradorite"
-        if an < 90.0:
-            return "Bytownite"
-        return "Anorthite"
-    if an <= 10.0 + 1e-9:
-        return "Alkali feldspar (structural state required)"
-    return "Intermediate Ab–An–Or composition"
-
-
 _CLASSIFIERS: dict[str, Callable[[pd.Series], str]] = {
     "pyroxene_morimoto_1988": classify_pyroxene_morimoto,
-    "feldspar_deer_1992": classify_feldspar_deer,
 }
 
 
