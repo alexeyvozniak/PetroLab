@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
+from PIL import Image
 
 _tmp = tempfile.TemporaryDirectory()
 os.environ["PETROLAB_DATA_DIR"] = str(Path(_tmp.name) / "petrolab_data")
@@ -27,6 +28,15 @@ from petrolab.services.image_service import (
     related_images_for_row,
 )
 from petrolab.services.import_service import import_linked_sheets, refresh_dataset_from_source
+
+
+def image_bytes(format_name: str) -> bytes:
+    """Return a tiny, structurally valid raster for positive image-service tests."""
+    buffer = io.BytesIO()
+    image = Image.new("RGB", (3, 2), (120, 130, 140))
+    image.save(buffer, format=format_name)
+    return buffer.getvalue()
+
 
 root = Path(_tmp.name)
 workbook = root / "images.xlsx"
@@ -58,7 +68,7 @@ second = dataframe.iloc[1]
 first_id = str(first["_analysis_id"])
 second_id = str(second["_analysis_id"])
 
-payload = ImagePayload("bse.png", b"fake-image-bytes")
+payload = ImagePayload("bse.png", image_bytes("PNG"))
 dataset_result = create_image_assets(
     project_id=project_id,
     dataset_id=dataset_id,
@@ -70,7 +80,7 @@ dataset_result = create_image_assets(
 field_result = create_image_assets(
     project_id=project_id,
     dataset_id=dataset_id,
-    images=[ImagePayload("grain.jpg", b"field-image")],
+    images=[ImagePayload("grain.jpg", image_bytes("JPEG"))],
     scope=ImageScope(SCOPE_FIELD, scope_column="Grain", scope_value="1"),
     kind="Оптическая микрофотография",
     title="grain",
@@ -78,7 +88,7 @@ field_result = create_image_assets(
 point_result = create_image_assets(
     project_id=project_id,
     dataset_id=dataset_id,
-    images=[ImagePayload("points.tif", b"point-image")],
+    images=[ImagePayload("points.tif", image_bytes("TIFF"))],
     scope=ImageScope(SCOPE_ANALYSIS, analysis_ids=(first_id, second_id)),
     kind="EDS",
     title="two-points",
@@ -112,13 +122,13 @@ batch = create_assigned_image_batch(
     dataset_id=dataset_id,
     assignments=[
         ImageAssignment(
-            ImagePayload("sample.webp", b"sample"),
+            ImagePayload("sample.webp", image_bytes("WEBP")),
             ImageScope(SCOPE_FIELD, scope_column="Sample", scope_value="B"),
             "Фото образца",
             "sample-B",
         ),
         ImageAssignment(
-            ImagePayload("point2.jpeg", b"point2"),
+            ImagePayload("point2.jpeg", image_bytes("JPEG")),
             ImageScope(SCOPE_ANALYSIS, analysis_ids=(second_id,)),
             "BSE",
             "single-point",
@@ -177,16 +187,17 @@ delete_image_asset(point_result.asset_ids[0])
 assert not point_path.exists()
 assert len(list_dataset_images(dataset_id)) == 4
 
+# Scope validation is tested with a valid image so image-content validation cannot mask it.
 try:
     create_image_assets(
         project_id=project_id,
         dataset_id=dataset_id,
-        images=[ImagePayload("bad.png", b"x")],
+        images=[ImagePayload("bad-field.png", image_bytes("PNG"))],
         scope=ImageScope(SCOPE_FIELD, scope_column="Missing", scope_value="X"),
         kind="BSE",
     )
-except ValueError:
-    pass
+except ValueError as exc:
+    assert "Missing" in str(exc)
 else:
     raise AssertionError("Unknown field must be rejected")
 
@@ -194,7 +205,7 @@ try:
     create_image_assets(
         project_id=project_id,
         dataset_id=dataset_id,
-        images=[ImagePayload("bad.exe", b"x")],
+        images=[ImagePayload("bad.exe", b"not-an-image")],
         scope=ImageScope(SCOPE_DATASET),
         kind="BSE",
     )
@@ -202,6 +213,20 @@ except ValueError:
     pass
 else:
     raise AssertionError("Unsupported image suffix must be rejected")
+
+# A supported suffix with corrupt/non-image contents must also be rejected.
+try:
+    create_image_assets(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        images=[ImagePayload("corrupt.png", b"not-a-png")],
+        scope=ImageScope(SCOPE_DATASET),
+        kind="BSE",
+    )
+except ValueError as exc:
+    assert "изображением" in str(exc) or "поврежд" in str(exc)
+else:
+    raise AssertionError("Corrupt image contents must be rejected")
 
 # A dataset without Sample/Grain/Point normally has only positional fallback after
 # a chemistry edit. Once an image is attached, that guess becomes unsafe and must be
