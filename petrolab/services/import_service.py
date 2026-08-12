@@ -64,6 +64,7 @@ class RefreshResult:
     removed_count: int
     moved_rows_detected: bool
     recovered_roles: tuple[str, ...] = ()
+    detached_image_count: int = 0
 
 
 def validate_source_path(path: str | Path) -> Path:
@@ -259,6 +260,7 @@ def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
         removed_count=persistence.removed_count,
         moved_rows_detected=persistence.moved_rows_detected,
         recovered_roles=recovered_roles,
+        detached_image_count=persistence.detached_image_count,
     )
 
 
