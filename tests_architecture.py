@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+app_text = (ROOT / "app.py").read_text(encoding="utf-8")
+
+# app.py remains an integration/UI layer rather than becoming a utility dumping ground again.
+assert "from petrolab.dataframe_utils import (" in app_text
+assert "from petrolab.plot_presets import JOURNAL_PRESETS" in app_text
+assert "def compute_changes" not in app_text
+assert "def apply_quick_filter" not in app_text
+assert "def apply_column_filters" not in app_text
+assert "def row_identity" not in app_text
+assert "JOURNAL_PRESETS = {" not in app_text
+
+# Streamlit 1.60 has removed the old width API from the supported path.
+assert "use_container_width" not in app_text
+
+# Intermediate guardrail: app.py should get smaller, never silently grow past the old monolith.
+app_lines = len(app_text.splitlines())
+assert app_lines <= 700, f"app.py grew to {app_lines} lines; split pages/helpers before adding more UI"
+
+# Empty exception handlers make scientific/data failures impossible to diagnose.
+for path in [ROOT / "app.py", *sorted((ROOT / "petrolab").rglob("*.py"))]:
+    text = path.read_text(encoding="utf-8")
+    assert re.search(r"^\s*except\s*:\s*$", text, flags=re.MULTILINE) is None, f"bare except in {path}"
+
+# Scientific domain and pure dataframe helpers must stay independent of Streamlit.
+pure_paths = [
+    ROOT / "petrolab" / "dataframe_utils.py",
+    ROOT / "petrolab" / "plot_presets.py",
+    *sorted((ROOT / "petrolab" / "minerals").rglob("*.py")),
+]
+for path in pure_paths:
+    text = path.read_text(encoding="utf-8")
+    assert "import streamlit" not in text, f"Streamlit dependency leaked into {path}"
+    assert "from streamlit" not in text, f"Streamlit dependency leaked into {path}"
+
+assert (ROOT / "CONTRIBUTING.md").exists()
+assert (ROOT / "ARCHITECTURE.md").exists()
+
+print(f"architecture tests: OK; app.py = {app_lines} lines")
