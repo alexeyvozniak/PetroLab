@@ -1,4 +1,4 @@
-__version__ = "0.9.2"
+__version__ = "0.10.0"
 
 # Keep the established database API while replacing only the bootstrap
 # storage initializer with a Windows-safe implementation that closes SQLite
