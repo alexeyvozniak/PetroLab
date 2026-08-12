@@ -1,0 +1,43 @@
+name: Apply images refactor
+
+on:
+  push:
+    branches:
+      - refactor/import-schema-images
+    paths:
+      - tools/refactor_images_page.py
+      - .github/workflows/apply-images-refactor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply deterministic extraction
+        run: python tools/refactor_images_page.py
+      - name: Validate entrypoint
+        run: |
+          python -m py_compile app.py petrolab/ui/pages/images.py petrolab/services/image_service.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app.py').read_text(encoding='utf-8')
+          assert 'render_images_page()' in text
+          assert 'asset_dir = ASSETS_DIR' not in text
+          assert 'uuid4()' not in text
+          print(f'Images extraction: OK; app.py = {len(text.splitlines())} lines')
+          PY
+      - name: Commit extraction and remove one-shot tooling
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add app.py
+          git rm tools/refactor_images_page.py .github/workflows/apply-images-refactor.yml
+          git commit -m "Extract images workflow"
+          git push
