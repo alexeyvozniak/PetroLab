@@ -46,6 +46,7 @@ class PatternResult:
     elements: tuple[str, ...]
     excluded_rows: int
     missing_elements: tuple[str, ...]
+    source_columns: Mapping[str, str]
 
 
 def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
@@ -54,8 +55,26 @@ def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(dataframe[column], errors="coerce")
 
 
+def resolve_element_column(dataframe: pd.DataFrame, element: str) -> str | None:
+    """Resolve an element without silently mixing unknown and known units.
+
+    Canonical trace columns (e.g. ``La [µg/g]``) are preferred. A bare ``La`` is
+    accepted only when no canonical-unit column exists.
+    """
+    canonical_candidates = [
+        column for column in dataframe.columns
+        if str(column).startswith(f"{element} [") and "µg/g" in str(column)
+    ]
+    for column in canonical_candidates:
+        if _numeric(dataframe, str(column)).notna().any():
+            return str(column)
+    if element in dataframe.columns and _numeric(dataframe, element).notna().any():
+        return element
+    return None
+
+
 def available_elements(dataframe: pd.DataFrame, preferred: Iterable[str]) -> list[str]:
-    return [element for element in preferred if element in dataframe.columns and _numeric(dataframe, element).notna().any()]
+    return [element for element in preferred if resolve_element_column(dataframe, element) is not None]
 
 
 def prepare_pattern(
@@ -63,21 +82,25 @@ def prepare_pattern(
     elements: Iterable[str],
     reference: Mapping[str, float] | None = None,
 ) -> PatternResult:
-    elements = tuple(elements)
-    missing = tuple(element for element in elements if element not in dataframe.columns)
-    usable = tuple(element for element in elements if element in dataframe.columns)
+    requested = tuple(elements)
+    resolved = {element: resolve_element_column(dataframe, element) for element in requested}
+    missing = tuple(element for element, column in resolved.items() if column is None)
+    usable = tuple(element for element, column in resolved.items() if column is not None)
+    source_columns = {element: str(resolved[element]) for element in usable}
     if not usable:
-        return PatternResult(pd.DataFrame(index=dataframe.index), (), len(dataframe), missing)
+        return PatternResult(pd.DataFrame(index=dataframe.index), (), len(dataframe), missing, {})
 
     out = pd.DataFrame(index=dataframe.index)
     for element in usable:
-        values = _numeric(dataframe, element)
+        values = _numeric(dataframe, source_columns[element])
         if reference is not None:
             divisor = float(reference.get(element, np.nan))
             values = values / divisor if np.isfinite(divisor) and divisor > 0 else np.nan
         out[element] = values
+    # Log patterns require positive concentrations; zero/negative values are retained as NaN.
+    out = out.where(out > 0)
     valid = out.notna().any(axis=1)
-    return PatternResult(out.loc[valid].copy(), usable, int((~valid).sum()), missing)
+    return PatternResult(out.loc[valid].copy(), usable, int((~valid).sum()), missing, source_columns)
 
 
 def build_pattern_figure(
@@ -91,34 +114,43 @@ def build_pattern_figure(
     show_legend: bool = True,
     linewidth: float = 1.0,
     alpha: float = 0.75,
+    marker: str = "o",
+    marker_size: float = 3.5,
+    grid: bool = True,
+    font_family: str = "Arial",
+    font_size: float = 9.0,
     figure_size: tuple[float, float] = (8.0, 5.2),
 ):
-    fig, ax = plt.subplots(figsize=figure_size)
-    x = np.arange(len(pattern.elements))
-    if pattern.data.empty:
-        ax.text(0.5, 0.5, "Нет подходящих данных", ha="center", va="center", transform=ax.transAxes)
-    else:
-        group_series = group.reindex(pattern.data.index).astype(str) if group is not None else None
-        for idx, row in pattern.data.iterrows():
-            label = str(labels.get(idx, idx)) if labels is not None else str(idx)
-            if group_series is not None:
-                label = str(group_series.get(idx, ""))
-            ax.plot(x, row[list(pattern.elements)].to_numpy(dtype=float), marker="o", ms=3.5,
-                    lw=linewidth, alpha=alpha, label=label)
-    ax.set_xticks(x, pattern.elements, rotation=0)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    if log_y:
-        ax.set_yscale("log")
-    ax.grid(True, axis="y", alpha=0.22)
-    if show_legend and not pattern.data.empty and len(pattern.data) <= 30:
-        handles, labels_ = ax.get_legend_handles_labels()
-        unique: dict[str, object] = {}
-        for handle, label in zip(handles, labels_):
-            unique.setdefault(label, handle)
-        ax.legend(unique.values(), unique.keys(), frameon=False, fontsize=8, loc="best")
-    fig.tight_layout()
-    return fig
+    with plt.rc_context({"font.family": font_family, "font.size": font_size}):
+        fig, ax = plt.subplots(figsize=figure_size)
+        x = np.arange(len(pattern.elements))
+        if pattern.data.empty:
+            ax.text(0.5, 0.5, "Нет подходящих данных", ha="center", va="center", transform=ax.transAxes)
+        else:
+            group_series = group.reindex(pattern.data.index).astype(str) if group is not None else None
+            for idx, row in pattern.data.iterrows():
+                label = str(labels.get(idx, idx)) if labels is not None else str(idx)
+                if group_series is not None:
+                    label = str(group_series.get(idx, ""))
+                ax.plot(
+                    x, row[list(pattern.elements)].to_numpy(dtype=float), marker=marker,
+                    ms=marker_size, lw=linewidth, alpha=alpha, label=label,
+                )
+        ax.set_xticks(x, pattern.elements, rotation=0)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        if log_y:
+            ax.set_yscale("log")
+        if grid:
+            ax.grid(True, axis="y", alpha=0.22)
+        if show_legend and not pattern.data.empty and len(pattern.data) <= 30:
+            handles, labels_ = ax.get_legend_handles_labels()
+            unique: dict[str, object] = {}
+            for handle, label in zip(handles, labels_):
+                unique.setdefault(label, handle)
+            ax.legend(unique.values(), unique.keys(), frameon=False, fontsize=max(6, font_size - 1), loc="best")
+        fig.tight_layout()
+        return fig
 
 
 def build_histogram_figure(
@@ -128,25 +160,30 @@ def build_histogram_figure(
     bins: int = 20,
     group_column: str | None = None,
     density: bool = False,
+    grid: bool = True,
+    font_family: str = "Arial",
+    font_size: float = 9.0,
     figure_size: tuple[float, float] = (7.0, 4.8),
 ):
-    fig, ax = plt.subplots(figsize=figure_size)
-    values = _numeric(dataframe, column)
-    if group_column and group_column in dataframe.columns:
-        for group_name, subset in dataframe.assign(_value=values).groupby(group_column, dropna=False):
-            sample = pd.to_numeric(subset["_value"], errors="coerce").dropna()
+    with plt.rc_context({"font.family": font_family, "font.size": font_size}):
+        fig, ax = plt.subplots(figsize=figure_size)
+        values = _numeric(dataframe, column)
+        if group_column and group_column in dataframe.columns:
+            for group_name, subset in dataframe.assign(_value=values).groupby(group_column, dropna=False):
+                sample = pd.to_numeric(subset["_value"], errors="coerce").dropna()
+                if not sample.empty:
+                    ax.hist(sample, bins=bins, alpha=0.55, density=density, label=str(group_name))
+            ax.legend(frameon=False, fontsize=max(6, font_size - 1))
+        else:
+            sample = values.dropna()
             if not sample.empty:
-                ax.hist(sample, bins=bins, alpha=0.55, density=density, label=str(group_name))
-        ax.legend(frameon=False, fontsize=8)
-    else:
-        sample = values.dropna()
-        if not sample.empty:
-            ax.hist(sample, bins=bins, density=density, alpha=0.8)
-    ax.set_xlabel(column)
-    ax.set_ylabel("Плотность" if density else "Количество")
-    ax.grid(True, axis="y", alpha=0.2)
-    fig.tight_layout()
-    return fig
+                ax.hist(sample, bins=bins, density=density, alpha=0.8)
+        ax.set_xlabel(column)
+        ax.set_ylabel("Плотность" if density else "Количество")
+        if grid:
+            ax.grid(True, axis="y", alpha=0.2)
+        fig.tight_layout()
+        return fig
 
 
 def build_boxplot_figure(
@@ -155,29 +192,34 @@ def build_boxplot_figure(
     *,
     group_column: str | None = None,
     show_fliers: bool = True,
+    grid: bool = True,
+    font_family: str = "Arial",
+    font_size: float = 9.0,
     figure_size: tuple[float, float] = (8.0, 5.0),
 ):
-    fig, ax = plt.subplots(figsize=figure_size)
-    if group_column and group_column in dataframe.columns and len(value_columns) == 1:
-        value = value_columns[0]
-        groups: list[np.ndarray] = []
-        names: list[str] = []
-        for group_name, subset in dataframe.groupby(group_column, dropna=False):
-            arr = _numeric(subset, value).dropna().to_numpy(dtype=float)
-            if arr.size:
-                groups.append(arr)
-                names.append(str(group_name))
-        if groups:
-            ax.boxplot(groups, labels=names, showfliers=show_fliers)
-            ax.set_ylabel(value)
-    else:
-        arrays = [_numeric(dataframe, column).dropna().to_numpy(dtype=float) for column in value_columns]
-        good = [(column, array) for column, array in zip(value_columns, arrays) if array.size]
-        if good:
-            ax.boxplot([array for _, array in good], labels=[column for column, _ in good], showfliers=show_fliers)
-    ax.grid(True, axis="y", alpha=0.2)
-    fig.tight_layout()
-    return fig
+    with plt.rc_context({"font.family": font_family, "font.size": font_size}):
+        fig, ax = plt.subplots(figsize=figure_size)
+        if group_column and group_column in dataframe.columns and len(value_columns) == 1:
+            value = value_columns[0]
+            groups: list[np.ndarray] = []
+            names: list[str] = []
+            for group_name, subset in dataframe.groupby(group_column, dropna=False):
+                arr = _numeric(subset, value).dropna().to_numpy(dtype=float)
+                if arr.size:
+                    groups.append(arr)
+                    names.append(str(group_name))
+            if groups:
+                ax.boxplot(groups, tick_labels=names, showfliers=show_fliers)
+                ax.set_ylabel(value)
+        else:
+            arrays = [_numeric(dataframe, column).dropna().to_numpy(dtype=float) for column in value_columns]
+            good = [(column, array) for column, array in zip(value_columns, arrays) if array.size]
+            if good:
+                ax.boxplot([array for _, array in good], tick_labels=[column for column, _ in good], showfliers=show_fliers)
+        if grid:
+            ax.grid(True, axis="y", alpha=0.2)
+        fig.tight_layout()
+        return fig
 
 
 def figure_bytes(fig, fmt: str = "png", dpi: int = 600) -> bytes:
