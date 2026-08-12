@@ -61,7 +61,16 @@ def calculate_formula_safe(
     mineral_key: str,
     method_id: str | None = None,
 ) -> CalculationResult:
+    """Calculate a formula while keeping temporary reporting-basis conversions internal."""
     prepared, preparation_note = prepare_formula_input(dataframe)
     result = calculate_formula(prepared, mineral_key, method_id)
+
+    # Present exactly the original source columns plus genuinely calculated fields. Temporary
+    # FeOt created from Fe2O3t must never look like a second measured laboratory column.
+    final = dataframe.copy()
+    for column in result.data.columns:
+        if column not in prepared.columns:
+            final[column] = result.data[column].to_numpy(copy=False)
+
     notes = [text for text in (preparation_note, result.note_ru) if text]
-    return CalculationResult(result.data, "\n\n".join(notes))
+    return CalculationResult(final, "\n\n".join(notes))
