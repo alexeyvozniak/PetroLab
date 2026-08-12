@@ -55,11 +55,12 @@ def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(dataframe[column], errors="coerce")
 
 
-def resolve_element_column(dataframe: pd.DataFrame, element: str) -> str | None:
-    """Resolve an element without silently mixing unknown and known units.
+def resolve_element_column(dataframe: pd.DataFrame, element: str, *, allow_bare: bool = True) -> str | None:
+    """Resolve a trace element while preserving unit semantics.
 
-    Canonical trace columns (e.g. ``La [µg/g]``) are preferred. A bare ``La`` is
-    accepted only when no canonical-unit column exists.
+    Canonical concentration columns (``La [µg/g]``) are preferred. Bare ``La`` is
+    permitted only for unnormalised plots; a reference-normalised pattern requires a
+    known concentration unit so an unknown-unit column can never be treated as ppm.
     """
     canonical_candidates = [
         column for column in dataframe.columns
@@ -68,13 +69,16 @@ def resolve_element_column(dataframe: pd.DataFrame, element: str) -> str | None:
     for column in canonical_candidates:
         if _numeric(dataframe, str(column)).notna().any():
             return str(column)
-    if element in dataframe.columns and _numeric(dataframe, element).notna().any():
+    if allow_bare and element in dataframe.columns and _numeric(dataframe, element).notna().any():
         return element
     return None
 
 
-def available_elements(dataframe: pd.DataFrame, preferred: Iterable[str]) -> list[str]:
-    return [element for element in preferred if resolve_element_column(dataframe, element) is not None]
+def available_elements(dataframe: pd.DataFrame, preferred: Iterable[str], *, require_known_units: bool = False) -> list[str]:
+    return [
+        element for element in preferred
+        if resolve_element_column(dataframe, element, allow_bare=not require_known_units) is not None
+    ]
 
 
 def prepare_pattern(
@@ -83,7 +87,10 @@ def prepare_pattern(
     reference: Mapping[str, float] | None = None,
 ) -> PatternResult:
     requested = tuple(elements)
-    resolved = {element: resolve_element_column(dataframe, element) for element in requested}
+    resolved = {
+        element: resolve_element_column(dataframe, element, allow_bare=reference is None)
+        for element in requested
+    }
     missing = tuple(element for element, column in resolved.items() if column is None)
     usable = tuple(element for element, column in resolved.items() if column is not None)
     source_columns = {element: str(resolved[element]) for element in usable}
@@ -97,7 +104,6 @@ def prepare_pattern(
             divisor = float(reference.get(element, np.nan))
             values = values / divisor if np.isfinite(divisor) and divisor > 0 else np.nan
         out[element] = values
-    # Log patterns require positive concentrations; zero/negative values are retained as NaN.
     out = out.where(out > 0)
     valid = out.notna().any(axis=1)
     return PatternResult(out.loc[valid].copy(), usable, int((~valid).sum()), missing, source_columns)
