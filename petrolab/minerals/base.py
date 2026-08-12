@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-# Молярные массы, г/моль. Используются только для прозрачных простых индексов.
 MOLAR_MASS = {
     "FeO": 71.844,
     "MgO": 40.3044,
@@ -24,11 +23,19 @@ class MineralModule:
     typical_oxides: tuple[str, ...] = field(default_factory=tuple)
 
     def calculate(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Базовые воспроизводимые индексы без предположений о Fe3+/Fe2+ и H2O."""
+        """Базовые индексы; FeOt допускается только как явно помеченный total Fe as FeO."""
         out = df.copy()
-        if "MgO" in out.columns and "FeO" in out.columns:
+        iron_column = None
+        if "FeO" in out.columns:
+            iron_column = "FeO"
+        elif "FeOt" in out.columns:
+            iron_column = "FeOt"
+
+        if "MgO" in out.columns and iron_column:
             mg = pd.to_numeric(out["MgO"], errors="coerce") / MOLAR_MASS["MgO"]
-            fe = pd.to_numeric(out["FeO"], errors="coerce") / MOLAR_MASS["FeO"]
+            fe = pd.to_numeric(out[iron_column], errors="coerce") / MOLAR_MASS["FeO"]
             denom = mg + fe
             out["Mg#"] = np.where(denom > 0, mg / denom, np.nan)
+            if iron_column == "FeOt":
+                out["Mg#_Fe_basis"] = "FeOt (total Fe as FeO)"
         return out
