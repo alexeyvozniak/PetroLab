@@ -17,6 +17,7 @@ class RefreshPersistenceResult:
     new_count: int
     removed_count: int
     moved_rows_detected: bool
+    detached_image_count: int = 0
 
 
 def replace_dataset_rows_stable(
@@ -29,6 +30,7 @@ def replace_dataset_rows_stable(
         raise ValueError("Количество source_rows не совпадает с числом строк")
 
     now = _utcnow()
+    detached_asset_ids: set[int] = set()
     with connect() as con:
         old_rows = con.execute(
             "SELECT analysis_id, source_row, data_json FROM analysis_rows WHERE dataset_id=?",
@@ -54,15 +56,33 @@ def replace_dataset_rows_stable(
         removed_ids = set(match.unmatched_existing_ids)
         if removed_ids:
             marks = ",".join("?" for _ in removed_ids)
-            # Keep image assets themselves. Only point-specific legacy links to rows that no
-            # longer exist are cleared; many-to-many link rows cascade when available.
+            params = list(removed_ids)
+
+            legacy_assets = con.execute(
+                f"SELECT id FROM image_assets WHERE analysis_id IN ({marks})",
+                params,
+            ).fetchall()
+            detached_asset_ids.update(int(row["id"]) for row in legacy_assets)
+
+            has_link_table = con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='image_analysis_links'"
+            ).fetchone()
+            if has_link_table:
+                linked_assets = con.execute(
+                    f"SELECT DISTINCT asset_id FROM image_analysis_links WHERE analysis_id IN ({marks})",
+                    params,
+                ).fetchall()
+                detached_asset_ids.update(int(row["asset_id"]) for row in linked_assets)
+
+            # Keep physical image assets. Links to analyses that no longer exist are detached;
+            # many-to-many rows cascade on analysis deletion when that table exists.
             con.execute(
                 f"UPDATE image_assets SET analysis_id=NULL WHERE analysis_id IN ({marks})",
-                list(removed_ids),
+                params,
             )
             con.execute(
                 f"DELETE FROM analysis_rows WHERE analysis_id IN ({marks})",
-                list(removed_ids),
+                params,
             )
 
         # Avoid transient UNIQUE(dataset_id, row_index) collisions while rows move.
@@ -105,4 +125,5 @@ def replace_dataset_rows_stable(
         new_count=len(dataframe) - reused_count,
         removed_count=len(match.unmatched_existing_ids),
         moved_rows_detected=match.moved_rows_detected,
+        detached_image_count=len(detached_asset_ids),
     )
