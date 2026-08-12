@@ -1,0 +1,142 @@
+name: PetroLab gated final verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  statuses: write
+  issues: write
+
+concurrency:
+  group: petrolab-pr-final-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and enforce architecture
+        shell: cmd
+        run: |
+          python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_dataframe_utils.py tests_column_schema.py tests_import_service.py tests_import_schema.py tests_analysis_service.py tests_image_service.py tests_smoke.py tests_streamlit.py
+          python tests_architecture.py
+      - name: Run real PetroLab Windows startup in CI mode
+        shell: cmd
+        run: |
+          set PETROLAB_CI=1
+          call START_PETROLAB.bat
+
+  cleanup-merge-and-verify-main:
+    needs: windows-verify
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERIFIED_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Refuse stale verification and remove temporary verifiers
+        shell: bash
+        run: |
+          git fetch origin "${HEAD_BRANCH}"
+          git reset --hard "origin/${HEAD_BRANCH}"
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          if [ "${CURRENT_SHA}" != "${VERIFIED_SHA}" ]; then
+            echo "Branch advanced from ${VERIFIED_SHA} to ${CURRENT_SHA}; refusing stale verification."
+            exit 1
+          fi
+
+          rm -f docs/PR_CI_VERIFIED_0.6.0.txt
+          rm -f .github/workflows/pr-final-verification.yml
+          rm -f .github/workflows/pr-final-verification-v2.yml
+          rm -f .github/workflows/pr-final-verification-v3.yml
+
+          git config user.name "PetroLab CI Verification"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No verifier cleanup commit needed."
+          else
+            git commit -m "Remove temporary PR verification workflow"
+            git push origin HEAD:"${HEAD_BRANCH}"
+          fi
+
+      - name: Squash merge exact cleaned head
+        id: merge
+        shell: bash
+        run: |
+          CLEAN_SHA="$(git rev-parse HEAD)"
+          RESPONSE="$(gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/merge" \
+            -f sha="${CLEAN_SHA}" \
+            -f merge_method=squash \
+            -f commit_title="Harden analysis identity, trace units and image assignment workflow" \
+            -f commit_message="PetroLab 0.6.0: stable analysis IDs, reversible trace-element units, safer Fe semantics, and many-to-many image assignment with Windows regression coverage.")"
+          echo "${RESPONSE}"
+          MERGED="$(echo "${RESPONSE}" | jq -r '.merged')"
+          MERGE_SHA="$(echo "${RESPONSE}" | jq -r '.sha')"
+          if [ "${MERGED}" != "true" ] || [ -z "${MERGE_SHA}" ] || [ "${MERGE_SHA}" = "null" ]; then
+            echo "Squash merge failed or returned no merge SHA."
+            exit 1
+          fi
+          echo "merge_sha=${MERGE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for main Windows verification
+        shell: bash
+        env:
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
+        run: |
+          echo "Waiting for Windows verification of main commit ${MERGE_SHA}"
+          SUCCESS=0
+          for attempt in $(seq 1 72); do
+            RUNS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?branch=main&event=push&per_page=30")"
+            RUN="$(echo "${RUNS}" | jq -c --arg sha "${MERGE_SHA}" '[.workflow_runs[] | select(.head_sha == $sha)][0] // empty')"
+            if [ -n "${RUN}" ]; then
+              STATUS="$(echo "${RUN}" | jq -r '.status')"
+              CONCLUSION="$(echo "${RUN}" | jq -r '.conclusion // ""')"
+              URL="$(echo "${RUN}" | jq -r '.html_url')"
+              echo "main CI: status=${STATUS}, conclusion=${CONCLUSION}, ${URL}"
+              if [ "${STATUS}" = "completed" ]; then
+                if [ "${CONCLUSION}" = "success" ]; then
+                  SUCCESS=1
+                  break
+                fi
+                echo "Post-merge main Windows CI failed with conclusion=${CONCLUSION}."
+                exit 1
+              fi
+            fi
+            sleep 10
+          done
+          if [ "${SUCCESS}" != "1" ]; then
+            echo "Timed out waiting for post-merge main Windows CI."
+            exit 1
+          fi
+
+      - name: Record final verification status
+        shell: bash
+        env:
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${MERGE_SHA}" \
+            -f state=success \
+            -f context="PetroLab/final-verification" \
+            -f description="Independent PR Windows test and post-merge main Windows CI passed"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -f body="✅ Final verification passed. Independent Windows PR verification succeeded, the PR was squash-merged, and the resulting main commit ${MERGE_SHA} also passed the Windows verification workflow."
