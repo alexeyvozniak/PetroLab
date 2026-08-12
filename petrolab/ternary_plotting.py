@@ -8,7 +8,15 @@ import pandas as pd
 import plotly.graph_objects as go
 from matplotlib.figure import Figure
 
-from petrolab.ternary_data import TERNARY_A, TERNARY_B, TERNARY_C, TERNARY_X, TERNARY_Y
+from petrolab.ternary_data import (
+    TERNARY_A,
+    TERNARY_B,
+    TERNARY_C,
+    TERNARY_X,
+    TERNARY_Y,
+    ternary_to_cartesian,
+)
+from petrolab.ternary_overlays import TernaryOverlay
 
 _PLOTLY_SYMBOLS = {
     "o": "circle",
@@ -36,6 +44,36 @@ def _group_frames(dataframe: pd.DataFrame, group_col: str | None):
         yield "Все точки", dataframe
 
 
+def _add_plotly_overlay(figure: go.Figure, overlay: TernaryOverlay) -> None:
+    for line in overlay.lines:
+        figure.add_trace(
+            go.Scatterternary(
+                a=[point.a for point in line.points],
+                b=[point.b for point in line.points],
+                c=[point.c for point in line.points],
+                mode="lines",
+                line={"width": line.width, "color": "rgba(80,80,80,0.75)"},
+                hoverinfo="skip",
+                showlegend=False,
+                name="classification boundary",
+            )
+        )
+    if overlay.labels:
+        figure.add_trace(
+            go.Scatterternary(
+                a=[label.position.a for label in overlay.labels],
+                b=[label.position.b for label in overlay.labels],
+                c=[label.position.c for label in overlay.labels],
+                mode="text",
+                text=[label.text for label in overlay.labels],
+                textfont={"size": 11, "color": "rgba(50,50,50,0.9)"},
+                hoverinfo="skip",
+                showlegend=False,
+                name="classification labels",
+            )
+        )
+
+
 def build_interactive_ternary(
     dataframe: pd.DataFrame,
     *,
@@ -45,17 +83,35 @@ def build_interactive_ternary(
     group_col: str | None = None,
     title: str = "",
     style_map: dict | None = None,
+    overlay: TernaryOverlay | None = None,
 ) -> go.Figure:
     """Build a Plotly diagnostic ternary plot keyed by immutable analysis IDs."""
     style_map = style_map or {}
     figure = go.Figure()
-    hover_fields = [column for column in ["Sample", "Grain", "Point", "Generation"] if column in dataframe.columns]
+    if overlay is not None:
+        _add_plotly_overlay(figure, overlay)
+
+    hover_fields = [
+        column
+        for column in [
+            "Sample",
+            "Grain",
+            "Point",
+            "Generation",
+            "Классификационное поле",
+        ]
+        if column in dataframe.columns
+    ]
 
     for group_name, frame in _group_frames(dataframe, group_col):
         style = style_map.get(str(group_name), {})
         custom_columns = ["_analysis_id", *hover_fields]
         customdata = frame[custom_columns].astype(object).where(frame[custom_columns].notna(), "").to_numpy()
-        hover_parts = [f"{a_label}: %{{a:.4g}}", f"{b_label}: %{{b:.4g}}", f"{c_label}: %{{c:.4g}}"]
+        hover_parts = [
+            f"{a_label}: %{{a:.4g}}",
+            f"{b_label}: %{{b:.4g}}",
+            f"{c_label}: %{{c:.4g}}",
+        ]
         for index, field in enumerate(hover_fields, start=1):
             hover_parts.append(f"{field}: %{{customdata[{index}]}}")
         hover_parts.append("ID: %{customdata[0]}")
@@ -97,12 +153,44 @@ def _draw_ternary_grid(ax, step: int = 20) -> None:
     ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=1.0)
     for percent in range(step, 100, step):
         fraction = percent / 100.0
-        # constant C: horizontal
         y = height * fraction
         ax.plot([0.5 * fraction, 1 - 0.5 * fraction], [y, y], linewidth=0.4, alpha=0.35)
-        # constant A and B: two oblique families
-        ax.plot([1 - fraction, 0.5 * (1 - fraction)], [0, height * (1 - fraction)], linewidth=0.4, alpha=0.35)
-        ax.plot([fraction, 0.5 + 0.5 * fraction], [0, height * (1 - fraction)], linewidth=0.4, alpha=0.35)
+        ax.plot(
+            [1 - fraction, 0.5 * (1 - fraction)],
+            [0, height * (1 - fraction)],
+            linewidth=0.4,
+            alpha=0.35,
+        )
+        ax.plot(
+            [fraction, 0.5 + 0.5 * fraction],
+            [0, height * (1 - fraction)],
+            linewidth=0.4,
+            alpha=0.35,
+        )
+
+
+def _draw_matplotlib_overlay(ax, overlay: TernaryOverlay, font_size: float) -> None:
+    for line in overlay.lines:
+        x, y = ternary_to_cartesian(
+            [point.a for point in line.points],
+            [point.b for point in line.points],
+            [point.c for point in line.points],
+        )
+        ax.plot(x, y, linewidth=line.width, linestyle=line.style, alpha=0.8)
+    for label in overlay.labels:
+        x, y = ternary_to_cartesian(
+            [label.position.a],
+            [label.position.b],
+            [label.position.c],
+        )
+        ax.text(
+            float(x[0]),
+            float(y[0]),
+            label.text,
+            ha="center",
+            va="center",
+            fontsize=max(font_size - 1.5, 6.0),
+        )
 
 
 def build_publication_ternary(
@@ -123,6 +211,7 @@ def build_publication_ternary(
     figure_size: tuple[float, float] = (7.0, 6.2),
     font_size: float = 10.0,
     title_size: float = 11.0,
+    overlay: TernaryOverlay | None = None,
 ) -> Figure:
     """Build an editable Matplotlib ternary figure for PNG/SVG publication export."""
     style_map = style_map or {}
@@ -132,6 +221,9 @@ def build_publication_ternary(
         _draw_ternary_grid(ax)
     else:
         ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=1.0)
+
+    if overlay is not None:
+        _draw_matplotlib_overlay(ax, overlay, font_size)
 
     for group_name, frame in _group_frames(dataframe, group_col):
         style = style_map.get(str(group_name), {})
@@ -170,7 +262,12 @@ def build_publication_ternary(
     if title:
         ax.set_title(title, fontsize=title_size)
     if show_legend and (group_col and group_col in dataframe.columns):
-        ax.legend(frameon=False, fontsize=max(font_size - 1.0, 6.0), bbox_to_anchor=(1.02, 1), loc="upper left")
+        ax.legend(
+            frameon=False,
+            fontsize=max(font_size - 1.0, 6.0),
+            bbox_to_anchor=(1.02, 1),
+            loc="upper left",
+        )
 
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(-0.08, 1.08)
