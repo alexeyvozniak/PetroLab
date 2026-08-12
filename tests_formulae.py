@@ -74,6 +74,16 @@ except ValueError as exc:
 else:
     raise AssertionError("Explicit Fe2O3 alongside FeOt requires an explicit Fe interpretation")
 
+# Fe2O3t is total iron expressed as Fe2O3, not measured ferric iron. Until an explicit
+# reporting-basis conversion is chosen, structural formulae must block rather than ignore it.
+total_fe2o3_input = pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "Fe2O3t": 10.0}])
+try:
+    calculate_formula(total_fe2o3_input, "olivine", "ol_4o_fe2")
+except ValueError as exc:
+    assert "Fe2O3t" in str(exc) and "total Fe" in str(exc)
+else:
+    raise AssertionError("Fe2O3t must not be silently ignored in structural formulae")
+
 # Import intentionally preserves duplicate chemical inputs as technical __2 columns.
 # Formulae and base Mg# must not silently choose the first one.
 duplicate_chemistry = pd.DataFrame([
