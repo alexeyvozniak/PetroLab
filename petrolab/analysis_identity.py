@@ -49,8 +49,8 @@ def match_existing_analyses(
     """Match refreshed rows to old analysis IDs without guessing through ambiguity.
 
     Semantic keys are used only when unique on both sides. Exact row fingerprints then
-    recover rows that were sorted without identifiers. Source-row fallback is used only
-    when no evidence of row movement was detected.
+    recover rows that were sorted without identifiers. Source-row fallback is allowed only
+    when row count is unchanged and there is no evidence of row movement.
     """
     old = list(existing)
     if len(source_rows) != len(new_dataframe):
@@ -60,7 +60,9 @@ def match_existing_analyses(
     matched: dict[int, str] = {}
     strategies: dict[int, str] = {}
     used_old: set[str] = set()
-    moved = False
+    # An insertion/deletion alone makes physical row numbers unsafe, even if all values
+    # were edited at the same time and movement cannot be demonstrated by fingerprints.
+    moved = len(old) != len(new_records)
 
     for fields in IDENTITY_STRATEGIES:
         old_keys = [_semantic_key(item.data, fields) for item in old]
@@ -106,8 +108,8 @@ def match_existing_analyses(
         if item.source_row is not None and source_rows[index] is not None and item.source_row != source_rows[index]:
             moved = True
 
-    # Reusing a row number after a detected insertion/sort can silently attach an image to
-    # the wrong analysis. Disable the fallback for the whole refresh once movement is evident.
+    # Reusing a row number after an insertion/sort can silently attach an image to the
+    # wrong analysis. Positional fallback is therefore deliberately conservative.
     if not moved:
         old_by_source = {
             item.source_row: item
@@ -120,7 +122,6 @@ def match_existing_analyses(
             item = old_by_source.get(source_row)
             if item is None or item.analysis_id in used_old:
                 continue
-            # If both rows have a semantic identifier and they disagree, never trust position.
             if _semantic_conflict(item.data, new_records[index]):
                 continue
             matched[index] = item.analysis_id
