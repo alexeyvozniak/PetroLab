@@ -48,10 +48,10 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         description_ru=(
             "Стандартная ориентация: En слева, Fs справа, Wo сверху. Для IMA-проекции "
             "ΣFe = Fe²⁺ + Fe³⁺ + Mn; классификационные поля применяются только к Quad "
-            "пироксенам после Q–J проверки."
+            "пироксенам после обязательной Q–J проверки."
         ),
         field_overlay_id="pyroxene_morimoto_1988",
-        required_columns=("apfu_Ca", "apfu_Mg", "apfu_Fe2"),
+        required_columns=("apfu_Ca", "apfu_Mg", "apfu_Fe2", "Q", "J"),
         projection_id="morimoto_pyroxene_1988",
     ),
     "feldspar_ab_an_or": TernaryPreset(
@@ -66,10 +66,12 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
         c_label="Or",
         normalization="auto",
         description_ru=(
-            "Ab слева, An справа, Or сверху. Plagioclase fields follow the Ab–An subdivisions; "
-            "K-feldspar structural species are not assigned from chemistry alone."
+            "Ab слева, An справа, Or сверху. Сам Ab–An–Or состав строится напрямую. "
+            "Литературные границы полей пока не накладываются автоматически: текст источника "
+            "подтверждает схему Deer et al. (1992), но точная геометрия полей дана на рисунке "
+            "и не заменяется эвристическим порогом Or."
         ),
-        field_overlay_id="feldspar_deer_1992",
+        field_overlay_id=None,
     ),
     "garnet_prp_alm_grs": TernaryPreset(
         preset_id="garnet_prp_alm_grs",
