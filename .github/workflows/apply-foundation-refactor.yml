@@ -1,0 +1,47 @@
+name: Apply foundation refactor
+
+on:
+  push:
+    branches: ["refactor/foundation-v0.5"]
+    paths:
+      - ".github/workflows/apply-foundation-refactor.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply deterministic app refactor
+        run: python tools/refactor_app_foundation.py
+
+      - name: Validate refactored sources
+        run: |
+          python -m py_compile app.py petrolab/dataframe_utils.py petrolab/plot_presets.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app.py').read_text(encoding='utf-8')
+          assert 'use_container_width' not in text
+          assert 'def compute_changes' not in text
+          assert 'JOURNAL_PRESETS = {' not in text
+          assert 'from petrolab.dataframe_utils import (' in text
+          assert 'from petrolab.plot_presets import JOURNAL_PRESETS' in text
+          print('Foundation architecture checks: OK')
+          PY
+
+      - name: Commit refactored app and remove one-shot tooling
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add app.py
+          git rm tools/refactor_app_foundation.py .github/workflows/apply-foundation-refactor.yml
+          git commit -m "Refactor app foundation"
+          git push
