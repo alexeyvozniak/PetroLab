@@ -15,15 +15,22 @@ from petrolab.extended_plotting import (
     build_pattern_figure,
     figure_bytes,
     prepare_pattern,
+    resolve_element_column,
 )
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.io_utils import numeric_candidates
 from petrolab.scientific_overlays import XY_OVERLAYS
 from petrolab.scientific_plotting import build_scientific_xy_figure
+from petrolab.settings_service import load_settings
 from petrolab.ui.components import collect_related_images, render_asset_gallery
 from petrolab.ui.data_scope import render_analysis_scope
 from petrolab.ui.plot_style_controls import render_custom_fields, render_figure_style_controls
 from petrolab.visualization_presets import POINT_STYLE_PRESETS, SCIENTIFIC_PLOT_PRESETS
+
+
+MINERAL_PRESET_ALIASES = {
+    "ilmenite": "fe_ti_oxide",
+}
 
 
 def _categorical_candidates(dataframe: pd.DataFrame) -> list[str]:
@@ -51,28 +58,63 @@ def _style_map(group_values: list[str], preset_name: str) -> dict[str, dict]:
     }
 
 
-def _selected_point_details(dataframe: pd.DataFrame, selected_ids: list[str], key_prefix: str) -> None:
+def _selected_point_details(dataframe: pd.DataFrame, selected_ids: list[str]) -> None:
     if not selected_ids or "_analysis_id" not in dataframe.columns:
         return
     selected = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_ids)].copy()
     st.caption(f"Выбрано интерактивно: {len(selected)}")
-    preview = [column for column in ["Sample", "Grain", "Point", "Generation", "Набор", "Минерал"] if column in selected.columns]
-    st.dataframe(selected[preview].head(200), width="stretch", hide_index=True, height=220)
+    preview = [
+        column for column in ["Sample", "Grain", "Point", "Generation", "Набор", "Минерал"]
+        if column in selected.columns
+    ]
+    if preview:
+        st.dataframe(selected[preview].head(200), width="stretch", hide_index=True, height=220)
     if len(selected) == 1:
         row = selected.iloc[0]
         assets = collect_related_images(row)
         if assets:
-            render_asset_gallery(assets, key_prefix=f"{key_prefix}_assets")
+            render_asset_gallery(assets)
+
+
+def _mineral_filtered_presets(dataframe: pd.DataFrame) -> dict:
+    presets = {key: preset for key, preset in SCIENTIFIC_PLOT_PRESETS.items() if preset.plot_type == "xy"}
+    if "Минерал" not in dataframe.columns:
+        return presets
+    present = set(dataframe["Минерал"].dropna().astype(str))
+    filtered = {
+        key: preset
+        for key, preset in presets.items()
+        if preset.mineral_key is None
+        or MINERAL_PRESET_ALIASES.get(str(preset.mineral_key), str(preset.mineral_key)) in present
+    }
+    return filtered or presets
+
+
+def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]) -> list[str]:
+    candidates: list[str] = []
+    if requested in numeric:
+        candidates.append(requested)
+    if requested == "FeOt" and "FeO" in numeric:
+        candidates.append("FeO")
+    if requested == "Ni":
+        for candidate in ["Ni [µg/g]", "NiO", "Ni"]:
+            if candidate in numeric and candidate not in candidates:
+                candidates.append(candidate)
+    if requested and requested not in candidates:
+        canonical_trace = resolve_element_column(dataframe, requested, allow_bare=True)
+        if canonical_trace and canonical_trace in numeric:
+            candidates.append(canonical_trace)
+    return candidates
 
 
 def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     numeric = numeric_candidates(dataframe)
-    applicable = {
-        key: preset for key, preset in SCIENTIFIC_PLOT_PRESETS.items()
-        if preset.plot_type == "xy"
-    }
+    applicable = _mineral_filtered_presets(dataframe)
     if not applicable:
-        st.info("Научных XY preset'ов пока нет.")
+        st.info("Для выбранных минералов пока нет готовых научных XY preset'ов.")
+        return
+    if not numeric:
+        st.warning("Нет числовых колонок.")
         return
 
     preset_id = st.selectbox(
@@ -86,17 +128,26 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     if preset.note:
         st.info(preset.note)
 
+    x_candidates = _axis_candidates(dataframe, preset.x, numeric)
+    y_candidates = _axis_candidates(dataframe, preset.y, numeric)
+    x_default = x_candidates[0] if x_candidates else numeric[0]
+    y_default = y_candidates[0] if y_candidates else next((column for column in numeric if column != x_default), numeric[0])
+    missing_preferred = not x_candidates or not y_candidates
+    if missing_preferred:
+        missing = [name for name, candidates in [(preset.x, x_candidates), (preset.y, y_candidates)] if not candidates]
+        st.warning(
+            "В выбранных данных нет ожидаемых колонок шаблона: " + ", ".join(missing) +
+            ". Оси можно выбрать вручную; литературную подпись отсутствующей оси ПетроЛаб не подставляет."
+        )
+
     c1, c2 = st.columns(2)
-    x_default = preset.x if preset.x in numeric else (numeric[0] if numeric else "")
-    y_default = preset.y if preset.y in numeric else (numeric[min(1, len(numeric) - 1)] if numeric else "")
-    if not numeric:
-        st.warning("Нет числовых колонок.")
-        return
     x = c1.selectbox("Ось X", numeric, index=numeric.index(x_default), key="science_xy_x")
     y = c2.selectbox("Ось Y", numeric, index=numeric.index(y_default), key="science_xy_y")
     l1, l2 = st.columns(2)
-    x_label = l1.text_input("Подпись X", value=preset.x_label or x, key="science_xy_xlabel")
-    y_label = l2.text_input("Подпись Y", value=preset.y_label or y, key="science_xy_ylabel")
+    x_label_default = preset.x_label if x in x_candidates else x
+    y_label_default = preset.y_label if y in y_candidates else y
+    x_label = l1.text_input("Подпись X", value=x_label_default or x, key="science_xy_xlabel")
+    y_label = l2.text_input("Подпись Y", value=y_label_default or y, key="science_xy_ylabel")
     title = st.text_input("Название рисунка", value=preset.title, key="science_xy_title")
 
     categories = _categorical_candidates(dataframe)
@@ -106,12 +157,16 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     style = render_figure_style_controls(dataframe, key_prefix="science_xy")
     fields = render_custom_fields("science_xy")
     overlay_enabled = False
+    overlay_allowed = x in x_candidates and y in y_candidates
     if preset.overlay_id and preset.overlay_id in XY_OVERLAYS:
-        overlay_enabled = st.checkbox("Показывать литературное поле/линию", value=True, key="science_xy_overlay")
-        overlay = XY_OVERLAYS[preset.overlay_id]
-        st.caption(f"Overlay: {overlay.title} · {overlay.source}")
-        if overlay.note:
-            st.warning(overlay.note)
+        if not overlay_allowed:
+            st.caption("Литературный overlay отключён: выбранные оси отличаются от схемы preset'а.")
+        else:
+            overlay_enabled = st.checkbox("Показывать литературное поле/линию", value=True, key="science_xy_overlay")
+            overlay = XY_OVERLAYS[preset.overlay_id]
+            st.caption(f"Overlay: {overlay.title} · {overlay.source}")
+            if overlay.note:
+                st.warning(overlay.note)
 
     st.subheader("Интерактивный просмотр")
     group_values = (
@@ -135,7 +190,7 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
         selection_mode=("points", "box", "lasso"),
         key="science_xy_interactive",
     )
-    _selected_point_details(dataframe, selected_analysis_ids(event), "science_xy")
+    _selected_point_details(dataframe, selected_analysis_ids(event))
 
     st.subheader("Публикационный вариант")
     publication = build_scientific_xy_figure(
@@ -184,16 +239,30 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
 def _render_pattern(dataframe: pd.DataFrame) -> None:
     mode = st.segmented_control("Тип", ["REE", "Spider / multi-element"], default="REE", key="pattern_mode")
     preferred = REE_ORDER if mode == "REE" else SPIDER_ORDER
-    available = available_elements(dataframe, preferred)
+    settings = load_settings()
+    reference_names = list(NORMALIZATION_REFERENCES)
+    preferred_reference = (
+        str(settings.get("default_ree_reference", reference_names[1]))
+        if mode == "REE" else "Primitive mantle · Sun & McDonough (1989)"
+    )
+    reference_name = st.selectbox(
+        "Нормировка",
+        reference_names,
+        index=reference_names.index(preferred_reference) if preferred_reference in reference_names else (1 if mode == "REE" else 2),
+        key="pattern_ref",
+    )
+    reference = NORMALIZATION_REFERENCES[reference_name]
+    available = available_elements(dataframe, preferred, require_known_units=reference is not None)
     if len(available) < 2:
-        st.info("Недостаточно элементов с числовыми концентрациями для выбранной диаграммы.")
+        st.info(
+            "Недостаточно элементов с подходящими числовыми концентрациями. Для нормированного REE/spider "
+            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent."
+        )
         return
     selected = st.multiselect("Элементы", list(preferred), default=available, key="pattern_elements")
-    reference_name = st.selectbox("Нормировка", list(NORMALIZATION_REFERENCES), index=1 if mode == "REE" else 2, key="pattern_ref")
-    reference = NORMALIZATION_REFERENCES[reference_name]
     pattern = prepare_pattern(dataframe, selected, reference)
     if pattern.missing_elements:
-        st.caption("Нет данных: " + ", ".join(pattern.missing_elements))
+        st.caption("Не использованы: " + ", ".join(pattern.missing_elements))
     st.caption(f"Вошло кривых: {len(pattern.data)} · исключено пустых строк: {pattern.excluded_rows}")
 
     categories = _categorical_candidates(dataframe)
@@ -296,7 +365,9 @@ def render_science_plots_page() -> None:
     scope = render_analysis_scope("science_plots")
     if scope is None:
         return
-    tab_xy, tab_pattern, tab_hist, tab_box = st.tabs(["Классификационные и рабочие XY", "REE / Spider", "Гистограмма", "Boxplot"])
+    tab_xy, tab_pattern, tab_hist, tab_box = st.tabs([
+        "Классификационные и рабочие XY", "REE / Spider", "Гистограмма", "Boxplot",
+    ])
     with tab_xy:
         _render_scientific_xy(scope.dataframe)
     with tab_pattern:
