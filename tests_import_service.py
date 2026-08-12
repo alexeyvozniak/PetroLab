@@ -23,13 +23,15 @@ from petrolab.sources import source_status
 
 def make_workbook(path: Path, value: float = 40.0) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        # The fully empty middle row is a common visual separator in old laboratory tables.
+        # It must not become an analysis, but B must still remember that it lives on Excel row 4.
         pd.DataFrame(
             {
-                "Sample": ["A", "B"],
-                "Point": ["1", "2"],
-                "SiO2": [value, value + 1.0],
-                "MgO": [20.0, 19.0],
-                "FeO": [5.0, 6.0],
+                "Sample": ["A", None, "B"],
+                "Point": ["1", None, "2"],
+                "SiO2": [value, None, value + 1.0],
+                "MgO": [20.0, None, 19.0],
+                "FeO": [5.0, None, 6.0],
             }
         ).to_excel(writer, sheet_name="Analyses", index=False)
         pd.DataFrame({"Note": ["metadata"]}).to_excel(writer, sheet_name="Notes", index=False)
@@ -62,6 +64,7 @@ before = load_dataset_dataframe(linked_id, include_meta=True)
 assert len(before) == 2
 ids_before = before["_analysis_id"].tolist()
 assert before["Sample"].tolist() == ["A", "B"]
+assert before["_source_row"].astype(int).tolist() == [2, 4]
 assert float(before.loc[0, "SiO2"]) == 40.0
 
 make_workbook(linked_path, value=44.0)
@@ -75,6 +78,7 @@ assert refresh.removed_count == 0
 
 after = load_dataset_dataframe(linked_id, include_meta=True)
 assert after["_analysis_id"].tolist() == ids_before
+assert after["_source_row"].astype(int).tolist() == [2, 4]
 assert float(after.loc[0, "SiO2"]) == 44.0
 status, _ = source_status(get_dataset(linked_id))
 assert status == "актуален"
