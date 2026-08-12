@@ -19,6 +19,40 @@ class RefreshPersistenceResult:
     moved_rows_detected: bool
     detached_image_count: int = 0
     positional_reused_count: int = 0
+    positional_fallback_disabled: bool = False
+
+
+def _has_point_specific_metadata(con, dataset_id: int) -> bool:
+    """Return True only when analysis IDs already carry point-specific user metadata."""
+    legacy = con.execute(
+        "SELECT 1 FROM image_assets WHERE dataset_id=? AND analysis_id IS NOT NULL LIMIT 1",
+        (int(dataset_id),),
+    ).fetchone()
+    if legacy:
+        return True
+
+    has_link_table = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='image_analysis_links'"
+    ).fetchone()
+    if has_link_table:
+        linked = con.execute(
+            """
+            SELECT 1
+            FROM image_analysis_links l
+            JOIN image_assets i ON i.id=l.asset_id
+            WHERE i.dataset_id=?
+            LIMIT 1
+            """,
+            (int(dataset_id),),
+        ).fetchone()
+        if linked:
+            return True
+
+    changed = con.execute(
+        "SELECT 1 FROM change_log WHERE dataset_id=? AND analysis_id IS NOT NULL LIMIT 1",
+        (int(dataset_id),),
+    ).fetchone()
+    return bool(changed)
 
 
 def replace_dataset_rows_stable(
@@ -45,7 +79,13 @@ def replace_dataset_rows_stable(
             )
             for row in old_rows
         ]
-        match = match_existing_analyses(existing, dataframe, source_rows)
+        protect_point_metadata = _has_point_specific_metadata(con, int(dataset_id))
+        match = match_existing_analyses(
+            existing,
+            dataframe,
+            source_rows,
+            allow_source_row_fallback=not protect_point_metadata,
+        )
 
         planned: list[tuple[str, int, int | None, str, bool]] = []
         for index, (_, row) in enumerate(dataframe.iterrows()):
@@ -130,4 +170,5 @@ def replace_dataset_rows_stable(
         positional_reused_count=sum(
             1 for strategy in match.strategies.values() if strategy == "source-row"
         ),
+        positional_fallback_disabled=match.positional_fallback_disabled,
     )
