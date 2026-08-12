@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from petrolab.db import get_dataset, update_analysis_values
+from petrolab.db import get_dataset
+from petrolab.repositories.analysis_repository import apply_analysis_changes
 from petrolab.sources import restore_source_backup, sync_workbook_changes, validate_sync_change
 
 
@@ -24,11 +25,16 @@ def save_changes_to_database(changes: list[dict[str, Any]]) -> SaveResult:
     """Save pending analysis edits only to PetroLab's database."""
     if not changes:
         return SaveResult()
-    update_analysis_values(changes, synced_to_source=False)
+    try:
+        apply_analysis_changes(changes, synced_to_source=False)
+    except Exception as exc:
+        return SaveResult(errors=[str(exc)])
     return SaveResult(saved_changes=len(changes))
 
 
-def _group_by_source(changes: list[dict[str, Any]]) -> dict[Path, list[tuple[dict, list[dict[str, Any]]]]]:
+def _group_by_source(
+    changes: list[dict[str, Any]],
+) -> dict[Path, list[tuple[dict, list[dict[str, Any]]]]]:
     by_dataset: dict[int, list[dict[str, Any]]] = {}
     for change in changes:
         by_dataset.setdefault(int(change["dataset_id"]), []).append(change)
@@ -43,13 +49,24 @@ def _group_by_source(changes: list[dict[str, Any]]) -> dict[Path, list[tuple[dic
     return grouped
 
 
-def save_changes_and_sync(changes: list[dict[str, Any]]) -> SaveResult:
-    """Persist edits to all linked workbooks and then to the PetroLab database.
+def _rollback_completed(completed: list[tuple[Path, str, list[dict[str, Any]]]]) -> list[str]:
+    errors: list[str] = []
+    for source_path, backup, _ in reversed(completed):
+        try:
+            restore_source_backup(source_path, backup)
+        except Exception as exc:
+            errors.append(f"Не удалось восстановить {source_path.name}: {exc}")
+    return errors
 
-    The operation performs a full preflight before touching files. Each physical
-    workbook gets one backup and one save, even if several datasets/sheets from
-    that workbook are edited. If a later workbook fails, earlier workbooks are
-    restored from their backups before the error is returned.
+
+def save_changes_and_sync(changes: list[dict[str, Any]]) -> SaveResult:
+    """Persist an edit batch to linked workbooks and SQLite consistently.
+
+    The service validates every change before touching a file. Every physical
+    workbook gets one backup and one save, even when several datasets/sheets are
+    involved. SQLite updates are committed in one transaction only after all
+    workbook writes succeed. If workbook or database persistence fails, already
+    modified workbooks are restored from their backups.
     """
     if not changes:
         return SaveResult()
@@ -66,32 +83,20 @@ def save_changes_and_sync(changes: list[dict[str, Any]]) -> SaveResult:
             backup = sync_workbook_changes(dataset_changes)
             completed.append((source_path, backup, workbook_changes))
     except Exception as exc:
-        rollback_errors: list[str] = []
-        for source_path, backup, _ in reversed(completed):
-            try:
-                restore_source_backup(source_path, backup)
-            except Exception as rollback_exc:
-                rollback_errors.append(f"Не удалось восстановить {source_path.name}: {rollback_exc}")
-        errors = [f"Синхронизация отменена: {exc}"] + rollback_errors
+        errors = [f"Синхронизация отменена: {exc}"] + _rollback_completed(completed)
         return SaveResult(errors=errors)
 
+    transactional_changes: list[dict[str, Any]] = []
+    for _, backup, workbook_changes in completed:
+        for change in workbook_changes:
+            transactional_changes.append({**change, "source_backup": backup})
+
     try:
-        for _, backup, workbook_changes in completed:
-            update_analysis_values(
-                workbook_changes,
-                synced_to_source=True,
-                source_backup=backup,
-            )
+        apply_analysis_changes(transactional_changes, synced_to_source=True)
     except Exception as exc:
-        rollback_errors: list[str] = []
-        for source_path, backup, _ in reversed(completed):
-            try:
-                restore_source_backup(source_path, backup)
-            except Exception as rollback_exc:
-                rollback_errors.append(f"Не удалось восстановить {source_path.name}: {rollback_exc}")
         errors = [
-            "Excel-файлы восстановлены, но сохранение журнала/базы завершилось ошибкой: " + str(exc)
-        ] + rollback_errors
+            "Excel-файлы восстановлены, а изменения в базе не зафиксированы: " + str(exc)
+        ] + _rollback_completed(completed)
         return SaveResult(errors=errors)
 
     return SaveResult(
