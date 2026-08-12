@@ -17,6 +17,25 @@ near(r["apfu_Si"], 1.0)
 near(r["apfu_Mg"], 2.0)
 near(r["Fo"], 100.0, 0.05)
 
+# FeOt (total Fe expressed as FeO) is a valid FeO-equivalent input when no
+# separate FeO/Fe2O3 split is supplied.
+ol_feo = pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0}])
+ol_feot = pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "FeOt": 10.0}])
+r_feo = calculate_formula(ol_feo, "olivine", "ol_4o_fe2").data.iloc[0]
+r_feot = calculate_formula(ol_feot, "olivine", "ol_4o_fe2").data.iloc[0]
+near(r_feot["apfu_Fe2"], float(r_feo["apfu_Fe2"]), 1e-8)
+near(r_feot["Fo"], float(r_feo["Fo"]), 1e-8)
+
+# Total Fe plus a separate Fe2O3 column but no FeO split is ambiguous: the
+# engine must refuse to double-count/guess ferric iron.
+ambiguous_fe = pd.DataFrame([{"SiO2": 40.0, "MgO": 48.0, "FeOt": 10.0, "Fe2O3": 2.0}])
+try:
+    calculate_formula(ambiguous_fe, "olivine", "ol_4o_fe2")
+except ValueError as exc:
+    assert "FeOt" in str(exc) and "Fe2O3" in str(exc)
+else:
+    raise AssertionError("FeOt + Fe2O3 without FeO must be rejected")
+
 fsp = pd.DataFrame([{"SiO2": 68.74, "Al2O3": 19.44, "Na2O": 11.82}])
 r = calculate_formula(fsp, "feldspar", "fsp_8o").data.iloc[0]
 near(r["Ab"], 100.0, 0.05)
