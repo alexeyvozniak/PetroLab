@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -28,10 +26,10 @@ from petrolab.ternary_presets import (
 )
 
 
-# Overlay geometry is always valid ternary percent space.
+# Overlay geometry is always valid ternary percent space and carries auditable references.
 for overlay in TERNARY_OVERLAYS.values():
     assert overlay.source_citation
-    assert overlay.source_doi
+    assert overlay.has_reference_identifier
     for line in overlay.lines:
         assert len(line.points) >= 2
         for point in line.points:
@@ -40,6 +38,12 @@ for overlay in TERNARY_OVERLAYS.values():
     for label in overlay.labels:
         point = label.position
         assert abs(point.a + point.b + point.c - 100.0) < 1e-8
+
+assert PYROXENE_MORIMOTO_1988.source_doi == "10.1180/minmag.1988.052.367.15"
+assert FELDSPAR_DEER_1992.source_doi == ""
+assert "Deer" in FELDSPAR_DEER_1992.source_citation
+assert "Gündüz" in FELDSPAR_DEER_1992.verification_citation
+assert FELDSPAR_DEER_1992.verification_doi == "10.1180/mgm.2022.113"
 
 # Pyroxene preset uses conventional En-left / Fs-right / Wo-top orientation and
 # a Morimoto-specific source projection rather than the legacy Fe2-only Wo/En/Fs columns.
@@ -80,8 +84,8 @@ def px_row(en: float, fs: float, wo: float, q: float = 1.85, j: float = 0.05) ->
 
 assert classify_pyroxene_morimoto(px_row(80, 18, 2)) == "Enstatite-side low-Ca field"
 assert classify_pyroxene_morimoto(px_row(18, 80, 2)) == "Ferrosilite-side low-Ca field"
-assert classify_pyroxene_morimoto(px_row(55, 35, 10)) == "Pigeonite"
-assert classify_pyroxene_morimoto(px_row(40, 30, 30)) == "Augite"
+assert classify_pyroxene_morimoto(px_row(55, 35, 10)) == "Pigeonite compositional field"
+assert classify_pyroxene_morimoto(px_row(40, 30, 30)) == "Augite compositional field"
 assert classify_pyroxene_morimoto(px_row(30, 23, 47)) == "Diopside"
 assert classify_pyroxene_morimoto(px_row(23, 30, 47)) == "Hedenbergite"
 assert "Ca–Na" in classify_pyroxene_morimoto(px_row(40, 30, 30, q=1.2, j=0.5))
@@ -120,7 +124,7 @@ source = pd.DataFrame(
 )
 prepared = prepare_ternary(source, "En", "Fs", "Wo", normalization="already")
 classified = attach_ternary_classification(prepared.valid, "pyroxene_morimoto_1988")
-assert classified.loc[classified["_analysis_id"] == "a", "Классификационное поле"].iloc[0] == "Augite"
+assert classified.loc[classified["_analysis_id"] == "a", "Классификационное поле"].iloc[0] == "Augite compositional field"
 assert "Ca–Na" in classified.loc[classified["_analysis_id"] == "b", "Классификационное поле"].iloc[0]
 assert "Классификационное поле" not in source.columns
 
