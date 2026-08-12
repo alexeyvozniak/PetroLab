@@ -36,7 +36,6 @@ def backup_source(path: str | Path, dataset_id: int) -> Path:
 
 
 def validate_sync_change(dataset: dict, change: dict) -> None:
-    """Validate one pending change before any workbook is modified."""
     if not dataset.get("sync_enabled"):
         raise ValueError(f"Набор «{dataset['name']}»: обратная запись в источник отключена")
 
@@ -59,14 +58,26 @@ def validate_sync_change(dataset: dict, change: dict) -> None:
         raise ValueError(
             f"Набор «{dataset['name']}»: колонка «{column}» не связана с исходной колонкой Excel"
         )
+    info = mapping[column]
+    if not isinstance(info, dict) or "column_index" not in info:
+        raise ValueError(f"Набор «{dataset['name']}»: повреждена карта колонки «{column}»")
+    _to_source_value(info, change.get("new_value"), column)
+
+
+def _to_source_value(info: dict, value: object, column_name: str) -> object:
+    """Convert a canonical PetroLab value back to the source column's original unit."""
+    factor = float(info.get("to_source_factor", 1.0) or 1.0)
+    if factor == 1.0 or value is None or value == "":
+        return value
+    try:
+        return float(value) * factor
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Колонка «{column_name}» имеет преобразование единиц; значение должно быть числом"
+        ) from exc
 
 
 def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str:
-    """Write changes from one or more datasets that share the same workbook.
-
-    A single backup and a single workbook save are used for the whole physical
-    XLSX/XLSM file. All changes must be validated before calling this function.
-    """
     if not dataset_changes:
         raise ValueError("Нет изменений для записи")
 
@@ -98,7 +109,7 @@ def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str
                 worksheet.cell(
                     row=int(change["source_row"]),
                     column=int(info["column_index"]),
-                    value=change["new_value"],
+                    value=_to_source_value(info, change["new_value"], change["column_name"]),
                 )
         workbook.save(temp)
     finally:
@@ -111,7 +122,6 @@ def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str
 
 
 def restore_source_backup(source_path: str | Path, backup_path: str | Path) -> None:
-    """Restore a workbook from a PetroLab backup and refresh stored hashes."""
     source = Path(source_path)
     backup = Path(backup_path)
     if not backup.exists():
@@ -121,7 +131,6 @@ def restore_source_backup(source_path: str | Path, backup_path: str | Path) -> N
 
 
 def sync_cell_changes(dataset: dict, changes: list[dict]) -> str:
-    """Backward-compatible wrapper for syncing one dataset."""
     return sync_workbook_changes([(dataset, changes)])
 
 
