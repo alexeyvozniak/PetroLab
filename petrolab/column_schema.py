@@ -42,6 +42,9 @@ OXIDE_ALIASES: dict[str, str] = {
     "fe2o3": "Fe2O3",
     "feo": "FeO",
     "feot": "FeO",
+    "feotot": "FeO",
+    "feototal": "FeO",
+    "totalfeasfeo": "FeO",
     "feo*": "FeO",
     "mno": "MnO",
     "mgo": "MgO",
@@ -72,7 +75,7 @@ OXIDE_ALIASES: dict[str, str] = {
 }
 
 _UNIT_SUFFIX_RE = re.compile(
-    r"(?:\(|\[)?\s*(?:wt\.?\s*%|wtpct|mass\s*%|мас\.?\s*%|weight\s*%)\s*(?:\)|\])?$",
+    r"[\s,;:_-]*(?:\(|\[)?\s*(?:wt\.?\s*%|wtpct|mass\s*%|мас\.?\s*%|weight\s*%)\s*(?:\)|\])?$",
     flags=re.IGNORECASE,
 )
 
@@ -94,8 +97,18 @@ def _token(value: object) -> str:
     text = _nfkc(value).lower()
     text = _UNIT_SUFFIX_RE.sub("", text)
     text = text.replace("ё", "е")
-    text = re.sub(r"[\s._\-/()\[\]{}]+", "", text)
+    text = re.sub(r"[\s._\-/()\[\]{},;:%]+", "", text)
     return text
+
+
+_SEMANTIC_TOKENS = {
+    role: {_token(alias) for alias in aliases}
+    for role, aliases in SEMANTIC_ALIASES.items()
+}
+_WEAK_TOKENS = {
+    role: {_token(alias) for alias in aliases}
+    for role, aliases in WEAK_ROLE_CANDIDATES.items()
+}
 
 
 def canonicalize_header(value: object) -> str:
@@ -110,8 +123,8 @@ def infer_semantic_mapping(columns: Iterable[object]) -> dict[str, str]:
     result: dict[str, str] = {}
     for column in columns:
         token = _token(column)
-        for role, aliases in SEMANTIC_ALIASES.items():
-            if token in {_token(alias) for alias in aliases} and role not in result:
+        for role, aliases in _SEMANTIC_TOKENS.items():
+            if token in aliases and role not in result:
                 result[role] = str(column)
                 break
     return result
@@ -121,8 +134,8 @@ def inspect_sheet_schema(columns: Iterable[object]) -> SheetSchema:
     names = tuple(str(column) for column in columns)
     suggested = infer_semantic_mapping(names)
     weak: dict[str, tuple[str, ...]] = {}
-    for role, aliases in WEAK_ROLE_CANDIDATES.items():
-        candidates = [name for name in names if _token(name) in {_token(alias) for alias in aliases}]
+    for role, aliases in _WEAK_TOKENS.items():
+        candidates = [name for name in names if _token(name) in aliases]
         if candidates:
             weak[role] = tuple(candidates)
     return SheetSchema(columns=names, suggested=suggested, weak_candidates=weak)
