@@ -101,14 +101,33 @@ for path in pure_files:
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
 preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
 plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
-for scientific_name in ["Pigeonite", "Augite", "Diopside", "Hedenbergite"]:
+for scientific_name in [
+    "Pigeonite",
+    "Augite",
+    "Diopside",
+    "Hedenbergite",
+    "Oligoclase",
+    "Andesine",
+    "Labradorite",
+    "Bytownite",
+    "Prp-dominant",
+    "Alm-dominant",
+    "Grs-dominant",
+    "Sps-dominant",
+]:
     assert scientific_name in overlay_text
     assert scientific_name not in plotting_text, f"{scientific_name} leaked into generic renderer"
-for unsourced_feldspar_field in ["Oligoclase", "Andesine", "Labradorite", "Bytownite"]:
-    assert unsourced_feldspar_field not in overlay_text, f"unsourced feldspar geometry leaked into overlay registry: {unsourced_feldspar_field}"
-assert 'field_overlay_id=None' in preset_text
+for overlay_id in [
+    "pyroxene_morimoto_1988",
+    "feldspar_gunduz_asan_2023",
+    "garnet_prp_alm_grs_dominance",
+    "garnet_prp_alm_sps_dominance",
+]:
+    assert overlay_id in overlay_text
+    assert f'field_overlay_id="{overlay_id}"' in preset_text
 assert "source_citation" in overlay_text
 assert "source_doi" in overlay_text
+assert "не формальное IMA" in preset_text
 
 # Key workflows must be represented explicitly in the right layer.
 import_service = (ROOT / "petrolab" / "services" / "import_service.py").read_text(encoding="utf-8")
