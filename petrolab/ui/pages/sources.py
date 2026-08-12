@@ -31,6 +31,11 @@ ROLE_LABELS = {
     "Generation": "Генерация / группа кристаллизации",
 }
 
+FE2O3_OPTIONS = {
+    "Fe₂O₃ = отдельно заданное Fe³⁺": "Fe2O3",
+    "Fe₂O₃ = всё Fe, выраженное как Fe₂O₃ total": "Fe2O3t",
+}
+
 
 def render_sources_page() -> None:
     st.title("Источники и импорт")
@@ -40,8 +45,8 @@ def render_sources_page() -> None:
 
     st.caption(
         "Порядок колонок может быть любым. ПетроЛаб нормализует известные оксиды и "
-        "рассеянные элементы с явными единицами, а смысловые поля образца/зерна/точки/генерации "
-        "подтверждаются отдельно для каждого листа."
+        "рассеянные элементы с явными единицами, а смысловые поля и неоднозначные формы "
+        "представления железа подтверждаются отдельно для каждого листа."
     )
 
     linked_tab, upload_tab, sources_tab = st.tabs(
@@ -59,7 +64,7 @@ def _render_linked_import(project_id: int) -> None:
     st.subheader("Локальный Excel с двусторонней синхронизацией")
     st.info(
         "Рекомендуемый режим для постоянной работы: ПетроЛаб запоминает исходный файл, "
-        "лист, строку, исходную колонку и преобразование единиц каждой величины."
+        "лист, строку, исходную колонку, единицы и подтверждённый смысл неоднозначных полей."
     )
     path_text = st.text_input("Полный путь к Excel/CSV", key="local_source_path")
     header_row = int(st.number_input(
@@ -81,7 +86,7 @@ def _render_linked_import(project_id: int) -> None:
     )
     dataset_name = st.text_input("Название набора", value=source_path.stem, key="linked_dataset_name")
 
-    semantic_maps = _render_schema_mapping(
+    semantic_maps, measurement_maps = _render_schema_mapping(
         selected_sheets,
         inspector=lambda sheet: inspect_linked_sheet(source_path, sheet, header_row),
         key_prefix="linked",
@@ -89,9 +94,10 @@ def _render_linked_import(project_id: int) -> None:
 
     if selected_sheets:
         try:
+            first_sheet = selected_sheets[0]
             preview = preview_linked_source(
-                source_path, selected_sheets[0], header_row, mineral_key,
-                semantic_maps.get(selected_sheets[0], {}),
+                source_path, first_sheet, header_row, mineral_key,
+                semantic_maps.get(first_sheet, {}), measurement_maps.get(first_sheet, {}),
             )
             st.subheader("Предпросмотр после нормализации")
             st.dataframe(preview.head(50), width="stretch", hide_index=True)
@@ -106,7 +112,7 @@ def _render_linked_import(project_id: int) -> None:
             result = import_linked_sheets(
                 project_id=project_id, path=source_path, sheet_names=selected_sheets,
                 mineral_key=mineral_key, dataset_name=dataset_name, header_row=header_row,
-                semantic_maps=semantic_maps,
+                semantic_maps=semantic_maps, measurement_maps=measurement_maps,
             )
             st.success(f"Импортировано наборов: {result.count}.")
             st.rerun()
@@ -146,7 +152,7 @@ def _render_uploaded_import(project_id: int) -> None:
         "Название набора", value=Path(uploaded.name).stem, key="upload_dataset_name"
     )
 
-    semantic_maps = _render_schema_mapping(
+    semantic_maps, measurement_maps = _render_schema_mapping(
         selected_sheets,
         inspector=lambda sheet: inspect_uploaded_sheet(file_bytes, uploaded.name, sheet, header_row),
         key_prefix="upload",
@@ -154,9 +160,10 @@ def _render_uploaded_import(project_id: int) -> None:
 
     if selected_sheets:
         try:
+            first_sheet = selected_sheets[0]
             preview = preview_uploaded_source(
-                file_bytes, uploaded.name, selected_sheets[0], header_row, mineral_key,
-                semantic_maps.get(selected_sheets[0], {}),
+                file_bytes, uploaded.name, first_sheet, header_row, mineral_key,
+                semantic_maps.get(first_sheet, {}), measurement_maps.get(first_sheet, {}),
             )
             st.subheader("Предпросмотр после нормализации")
             st.dataframe(preview.head(50), width="stretch", hide_index=True)
@@ -172,6 +179,7 @@ def _render_uploaded_import(project_id: int) -> None:
                 project_id=project_id, file_bytes=file_bytes, filename=uploaded.name,
                 sheet_names=selected_sheets, mineral_key=mineral_key, dataset_name=dataset_name,
                 header_row=header_row, semantic_maps=semantic_maps,
+                measurement_maps=measurement_maps,
             )
             st.success(f"Импортировано наборов: {result.count}.")
             st.rerun()
@@ -184,15 +192,16 @@ def _render_schema_mapping(
     *,
     inspector: Callable[[str], ImportSchemaPreview],
     key_prefix: str,
-) -> dict[str, dict[str, str]]:
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
     semantic_maps: dict[str, dict[str, str]] = {}
+    measurement_maps: dict[str, dict[str, str]] = {}
     if not selected_sheets:
-        return semantic_maps
+        return semantic_maps, measurement_maps
 
     st.subheader("Сопоставление колонок")
     st.caption(
         "Оксиды и элементы с явными единицами нормализуются автоматически. Поля ниже объединяют "
-        "разные названия служебных колонок. Неоднозначные Group/Type/Zone не назначаются генерацией автоматически."
+        "разные названия служебных колонок. Неоднозначные Group/Type/Zone и смысл Fe₂O₃ не угадываются."
     )
 
     for sheet_index, sheet_name in enumerate(selected_sheets):
@@ -226,6 +235,20 @@ def _render_schema_mapping(
                     + ". Они не объединены автоматически. Проверьте исходный лист."
                 )
 
+            if "Fe2O3" in preview.schema.columns:
+                fe_choice = st.radio(
+                    "Что означает колонка Fe₂O₃ на этом листе?",
+                    list(FE2O3_OPTIONS),
+                    key=f"{key_prefix}_fe2o3_semantics_{sheet_index}",
+                )
+                measurement_maps[sheet_name] = {"Fe2O3": FE2O3_OPTIONS[fe_choice]}
+                st.caption(
+                    "Выбор сохраняется вместе с набором. Если это ΣFe как Fe₂O₃, ПетроЛаб не будет "
+                    "считать величину измеренным Fe³⁺ и при пересчёте сначала восстановит количество total Fe."
+                )
+            else:
+                measurement_maps[sheet_name] = {}
+
             options = ["—"] + [
                 column for column in preview.schema.columns
                 if column not in {"Σ оксидов", "QC суммы", "QC железа"}
@@ -248,7 +271,7 @@ def _render_schema_mapping(
                         + ". Подтвердите вручную, если это действительно нужное поле."
                     )
             semantic_maps[sheet_name] = sheet_map
-    return semantic_maps
+    return semantic_maps, measurement_maps
 
 
 def _render_source_statuses(project_id: int) -> None:
@@ -268,7 +291,7 @@ def _render_source_statuses(project_id: int) -> None:
             if status == "изменён вне ПетроЛаба":
                 st.caption(
                     "При обновлении ПетроЛаб заново найдёт физические колонки, применит сохранённые роли "
-                    "и сопоставит точки по устойчивым идентификаторам, а не только по номеру строки."
+                    "и смысл измерений и сопоставит точки по устойчивым идентификаторам."
                 )
                 if st.button("Обновить базу из этого Excel", key=f"reload_{dataset['id']}"):
                     try:
@@ -281,7 +304,7 @@ def _render_source_statuses(project_id: int) -> None:
                             st.info("Обнаружена перестановка/вставка строк: позиционный fallback был отключён для безопасности.")
                         if result.positional_fallback_disabled:
                             st.info(
-                                "Позиционное сопоставление по номеру строки отключено: в наборе уже есть "
+                                "Позиционное сопоставление по номеру строки отключено: у конкретных точек уже есть "
                                 "изображения или история правок. ID сохраняются только при более надёжном совпадении."
                             )
                         if result.positional_reused_count:
