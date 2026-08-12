@@ -99,10 +99,14 @@ for path in pure_files:
 
 # Scientific classification geometry belongs to the sourced overlay registry, not renderers/UI.
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
+preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
 plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
-for scientific_name in ["Pigeonite", "Augite", "Diopside", "Hedenbergite", "Oligoclase", "Labradorite"]:
+for scientific_name in ["Pigeonite", "Augite", "Diopside", "Hedenbergite"]:
     assert scientific_name in overlay_text
     assert scientific_name not in plotting_text, f"{scientific_name} leaked into generic renderer"
+for unsourced_feldspar_field in ["Oligoclase", "Andesine", "Labradorite", "Bytownite"]:
+    assert unsourced_feldspar_field not in overlay_text, f"unsourced feldspar geometry leaked into overlay registry: {unsourced_feldspar_field}"
+assert 'field_overlay_id=None' in preset_text
 assert "source_citation" in overlay_text
 assert "source_doi" in overlay_text
 
