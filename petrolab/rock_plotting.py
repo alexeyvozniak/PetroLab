@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from petrolab.plot_text import matplotlib_label
 from petrolab.services.rock_service import rhodes_equilibrium_fo
 
 
@@ -89,8 +90,8 @@ def build_tas_figure(
                     ax.annotate(label, (row["SiO2"], row["Total alkalis"]), xytext=(3, 3), textcoords="offset points", fontsize=max(6, font_size - 1))
         ax.set_xlim(35, 80)
         ax.set_ylim(0, 16)
-        ax.set_xlabel("SiO₂, wt.%")
-        ax.set_ylabel("Na₂O + K₂O, wt.%")
+        ax.set_xlabel(matplotlib_label("SiO₂, wt.%"))
+        ax.set_ylabel(matplotlib_label("Na₂O + K₂O, wt.%"))
         ax.set_title("TAS · Le Bas et al. (1986), IUGS")
         if grid:
             ax.grid(True, alpha=0.15)
@@ -131,9 +132,9 @@ def build_rock_scatter(
                 label = str(row.get(label_column, "")).strip()
                 if label and label.lower() != "nan":
                     ax.annotate(label, (row[x], row[y]), xytext=(3, 3), textcoords="offset points", fontsize=max(6, font_size - 1))
-        ax.set_xlabel(x_label or x)
-        ax.set_ylabel(y_label or y)
-        ax.set_title(title)
+        ax.set_xlabel(matplotlib_label(x_label or x))
+        ax.set_ylabel(matplotlib_label(y_label or y))
+        ax.set_title(matplotlib_label(title))
         if grid:
             ax.grid(True, alpha=0.2)
         fig.tight_layout()
