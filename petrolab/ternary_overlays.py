@@ -43,10 +43,16 @@ class TernaryOverlay:
     overlay_id: str
     title_ru: str
     source_citation: str
-    source_doi: str
     lines: tuple[OverlayLine, ...]
     labels: tuple[OverlayLabel, ...]
+    source_doi: str = ""
+    verification_citation: str = ""
+    verification_doi: str = ""
     note_ru: str = ""
+
+    @property
+    def has_reference_identifier(self) -> bool:
+        return bool(self.source_doi or self.verification_doi)
 
 
 def _constant_c(c: float) -> OverlayLine:
@@ -94,14 +100,17 @@ PYROXENE_MORIMOTO_1988 = TernaryOverlay(
     labels=(
         OverlayLabel("Enstatite-side\nlow-Ca field", TernaryVertex(72.0, 25.0, 3.0)),
         OverlayLabel("Ferrosilite-side\nlow-Ca field", TernaryVertex(25.0, 72.0, 3.0)),
-        OverlayLabel("Pigeonite", TernaryVertex(44.0, 44.0, 12.0)),
-        OverlayLabel("Augite", TernaryVertex(35.0, 35.0, 30.0)),
+        OverlayLabel("Pigeonite\ncompositional field", TernaryVertex(44.0, 44.0, 12.0)),
+        OverlayLabel("Augite\ncompositional field", TernaryVertex(35.0, 35.0, 30.0)),
         OverlayLabel("Diopside", TernaryVertex(30.0, 23.0, 47.0)),
         OverlayLabel("Hedenbergite", TernaryVertex(23.0, 30.0, 47.0)),
     ),
     note_ru=(
         "Поля применимы к Ca–Mg–Fe (Quad) пироксенам после Q–J проверки. "
-        "Низкокальциевые En/Fs поля не задают структурный полиморф только по химии."
+        "Morimoto et al. подчёркивают, что различение augite/pigeonite в пограничных "
+        "составах прежде всего структурное; здесь показывается химическое поле, а не "
+        "самостоятельное доказательство структуры. Низкокальциевые En/Fs поля также "
+        "не задают структурный полиморф только по химии."
     ),
 )
 
@@ -111,10 +120,14 @@ FELDSPAR_DEER_1992 = TernaryOverlay(
     title_ru="Ab–An–Or · схема по Deer et al. (1992)",
     source_citation=(
         "Deer W.A., Howie R.A., Zussman J. (1992). An Introduction to the Rock-Forming "
-        "Minerals, 2nd ed.; implementation cross-checked against Gündüz & Asan (2023), "
-        "Mineralogical Magazine 87, 1–9."
+        "Minerals, 2nd ed."
     ),
-    source_doi="10.1180/mgm.2022.113",
+    verification_citation=(
+        "Gündüz M., Asan K. (2023). MagMin_PT: an Excel VBA program for the calculation "
+        "of pressure-temperature conditions of magmatic rocks from mineral compositions. "
+        "Mineralogical Magazine 87, 1–9; feldspar Ab–An–Or classification follows Deer et al. (1992)."
+    ),
+    verification_doi="10.1180/mgm.2022.113",
     lines=(
         _constant_c(10.0),
         _constant_b_between_c(10.0, 0.0, 10.0),
@@ -134,7 +147,8 @@ FELDSPAR_DEER_1992 = TernaryOverlay(
     ),
     note_ru=(
         "Plagioclase subdivisions are shown in the low-Or band. Sanidine, orthoclase and "
-        "microcline are not assigned from chemistry alone because structural state is required."
+        "microcline are not assigned from chemistry alone because structural state is required. "
+        "The overlay intentionally does not approximate curved solvus/miscibility boundaries."
     ),
 )
 
@@ -186,9 +200,9 @@ def classify_pyroxene_morimoto(row: pd.Series) -> str:
     if wo < 5.0:
         return "Enstatite-side low-Ca field" if en >= fs else "Ferrosilite-side low-Ca field"
     if wo < 20.0:
-        return "Pigeonite"
+        return "Pigeonite compositional field"
     if wo < 45.0:
-        return "Augite"
+        return "Augite compositional field"
     if wo <= 50.0 + 1e-9:
         return "Diopside" if en >= fs else "Hedenbergite"
     return "unclassified"
