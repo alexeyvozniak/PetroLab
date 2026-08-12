@@ -10,7 +10,7 @@ import pandas as pd
 from petrolab.column_schema import ColumnDescriptor, describe_header
 
 COMMON_OXIDES = {
-    "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "FeO", "FeOt", "MnO", "MgO",
+    "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "Fe2O3t", "FeO", "FeOt", "MnO", "MgO",
     "CaO", "Na2O", "K2O", "P2O5", "NiO", "BaO", "SrO", "ZnO", "V2O3",
     "F", "Cl", "H2O", "ZrO2", "HfO2", "Nb2O5", "Ta2O5", "La2O3", "Ce2O3",
     "Nd2O3", "Y2O3", "ThO2", "UO2", "V2O5", "SO3",
@@ -132,6 +132,12 @@ def _duplicate_oxide_inputs(columns: pd.Index) -> list[str]:
     return sorted(conflicts)
 
 
+def _numeric_optional(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(float("nan"), index=df.index, dtype=float)
+    return pd.to_numeric(df[column], errors="coerce")
+
+
 def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = numericize_scientific_columns(df)
     duplicate_oxides = _duplicate_oxide_inputs(out.columns)
@@ -140,33 +146,47 @@ def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
             "Конфликтующие химические колонки: " + ", ".join(duplicate_oxides)
         )
 
-    oxides = [
+    non_fe_oxides = [
         column for column in oxide_columns(out)
-        if column not in {"F", "Cl", "H2O", "FeO", "FeOt", "Fe2O3"}
+        if column not in {"F", "Cl", "H2O", "FeO", "FeOt", "Fe2O3", "Fe2O3t"}
     ]
+    base_sum = (
+        out[non_fe_oxides].sum(axis=1, min_count=1)
+        if non_fe_oxides
+        else pd.Series(float("nan"), index=out.index, dtype=float)
+    )
 
-    # Iron requires special handling to avoid silently double-counting total Fe.
-    if "FeOt" in out.columns:
-        oxides.append("FeOt")
-        if "FeO" in out.columns or "Fe2O3" in out.columns:
-            out["QC железа"] = "Проверьте: FeOt присутствует вместе с раздельными формами Fe"
-    else:
-        if "FeO" in out.columns:
-            oxides.append("FeO")
-        if "Fe2O3" in out.columns:
-            oxides.append("Fe2O3")
+    feo = _numeric_optional(out, "FeO")
+    fe2o3 = _numeric_optional(out, "Fe2O3")
+    feot = _numeric_optional(out, "FeOt")
+    fe2o3t = _numeric_optional(out, "Fe2O3t")
 
-    if oxides:
-        out["Σ оксидов"] = out[oxides].sum(axis=1, min_count=1)
-        if duplicate_oxides:
-            out["QC суммы"] = "конфликт колонок"
-        else:
-            out["QC суммы"] = pd.cut(
-                out["Σ оксидов"],
-                bins=[float("-inf"), 97.0, 103.0, float("inf")],
-                labels=["низкая", "норма", "высокая"],
-                right=True,
-            ).astype("string")
+    total_overlap = feot.notna() & fe2o3t.notna()
+    total_any = feot.notna() | fe2o3t.notna()
+    split_any = feo.notna() | fe2o3.notna()
+    total_split_overlap = total_any & split_any
+    iron_conflict = total_overlap | total_split_overlap
+
+    if iron_conflict.any():
+        out["QC железа"] = "Проверьте: total Fe пересекается с другой формой представления Fe"
+
+    # For oxide totals use whichever reporting basis was actually supplied row by row.
+    # Split FeO + Fe2O3 is summed only when no total-Fe column is present in that row.
+    total_reported = feot.combine_first(fe2o3t)
+    split_reported = pd.concat([feo, fe2o3], axis=1).sum(axis=1, min_count=1)
+    iron_contribution = total_reported.combine_first(split_reported)
+
+    if base_sum.notna().any() or iron_contribution.notna().any():
+        out["Σ оксидов"] = pd.concat([base_sum, iron_contribution], axis=1).sum(axis=1, min_count=1)
+        invalid_sum = pd.Series(bool(duplicate_oxides), index=out.index) | iron_conflict
+        normal_labels = pd.cut(
+            out["Σ оксидов"],
+            bins=[float("-inf"), 97.0, 103.0, float("inf")],
+            labels=["низкая", "норма", "высокая"],
+            right=True,
+        ).astype("string")
+        out["QC суммы"] = normal_labels
+        out.loc[invalid_sum, "QC суммы"] = "конфликт колонок/железа"
     return out
 
 
