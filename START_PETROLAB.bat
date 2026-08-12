@@ -31,6 +31,8 @@ if "%PETROLAB_CI%"=="1" (
     echo Running PetroLab CI smoke tests...
     "%VENV_PY%" tests_formulae.py
     if errorlevel 1 goto fail
+    "%VENV_PY%" tests_dataframe_utils.py
+    if errorlevel 1 goto fail
     "%VENV_PY%" tests_smoke.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_streamlit.py
