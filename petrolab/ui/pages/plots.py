@@ -7,7 +7,20 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from petrolab.dataframe_utils import apply_column_filters, apply_quick_filter, dataset_label, row_identity
+from petrolab.analysis_groups import (
+    WORK_GROUP_COLUMN,
+    attach_work_groups,
+    clear_work_group,
+    list_work_groups,
+    set_work_group,
+)
+from petrolab.dataframe_utils import (
+    apply_column_filters,
+    apply_quick_filter,
+    dataset_label,
+    display_value,
+    row_identity,
+)
 from petrolab.db import (
     delete_plot_recipe,
     delete_style_profile,
@@ -18,6 +31,7 @@ from petrolab.db import (
     save_style_profile,
 )
 from petrolab.derived import load_unified_with_derived
+from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
@@ -193,7 +207,11 @@ def _outlier_controls(
 
     before_ids = set(original.get("_analysis_id", pd.Series(dtype=str)).astype(str))
     after_ids = set(filtered.get("_analysis_id", pd.Series(dtype=str)).astype(str))
-    removed = original[original["_analysis_id"].astype(str).isin(before_ids - after_ids)].copy() if "_analysis_id" in original.columns else pd.DataFrame()
+    removed = (
+        original[original["_analysis_id"].astype(str).isin(before_ids - after_ids)].copy()
+        if "_analysis_id" in original.columns
+        else pd.DataFrame()
+    )
 
     config = {
         "ranges": {column: [bounds[0], bounds[1]] for column, bounds in ranges.items()},
@@ -206,11 +224,190 @@ def _outlier_controls(
     return filtered, config, removed
 
 
+def _apply_interactive_exclusions(
+    dataframe: pd.DataFrame,
+    outlier_config: dict,
+    excluded_dataframe: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict, pd.DataFrame]:
+    ids = {str(value) for value in st.session_state.get("plot_interactive_excluded_ids", [])}
+    if not ids or "_analysis_id" not in dataframe.columns:
+        outlier_config["interactive_excluded_ids"] = sorted(ids)
+        return dataframe, outlier_config, excluded_dataframe
+
+    mask = dataframe["_analysis_id"].astype(str).isin(ids)
+    interactive_removed = dataframe.loc[mask].copy()
+    filtered = dataframe.loc[~mask].copy()
+    outlier_config["interactive_excluded_ids"] = sorted(ids)
+    if not interactive_removed.empty:
+        excluded_dataframe = pd.concat(
+            [excluded_dataframe, interactive_removed], ignore_index=True, sort=False
+        )
+        if "_analysis_id" in excluded_dataframe.columns:
+            excluded_dataframe = excluded_dataframe.drop_duplicates("_analysis_id", keep="first")
+    return filtered, outlier_config, excluded_dataframe
+
+
+def _render_selected_analysis(
+    dataframe: pd.DataFrame,
+    selected_ids: list[str],
+    project_id: int | None,
+    x: str,
+    y: str,
+) -> None:
+    if not selected_ids or dataframe.empty:
+        return
+    selected = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_ids)].copy()
+    if selected.empty:
+        return
+
+    summary_columns = [
+        column
+        for column in [
+            "Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN,
+            x, y, "Набор", "Источник", "_source_row",
+        ]
+        if column in selected.columns
+    ]
+    st.markdown(f"**Выбрано точек: {len(selected)}**")
+    st.dataframe(selected[summary_columns].head(1000), width="stretch", hide_index=True, height=240)
+
+    point_map = {_point_label(row): str(row["_analysis_id"]) for _, row in selected.iterrows()}
+    inspect_label = st.selectbox(
+        "Открыть выбранную точку подробно",
+        list(point_map),
+        key="interactive_selected_point",
+    )
+    analysis_id = point_map[inspect_label]
+    row = selected[selected["_analysis_id"].astype(str) == analysis_id].iloc[0]
+
+    visible_columns = [column for column in dataframe.columns if not str(column).startswith("_")]
+    properties = pd.DataFrame(
+        {
+            "Параметр": visible_columns,
+            "Значение": [display_value(row.get(column)) for column in visible_columns],
+        }
+    )
+    left, right = st.columns([1.1, 1.0])
+    with left:
+        st.dataframe(properties, width="stretch", hide_index=True, height=430)
+    with right:
+        assets = collect_related_images(row, project_id=project_id)
+        if assets:
+            render_asset_gallery(assets, max_items=8, width=520)
+        else:
+            st.caption("Для этой точки пока нет связанных изображений.")
+
+
+def _render_interactive_workspace(
+    dataframe: pd.DataFrame,
+    project_id: int | None,
+    x: str,
+    y: str,
+    group_col: str | None,
+    x_label: str,
+    y_label: str,
+    title: str,
+    log_x: bool,
+    log_y: bool,
+    style_map: dict,
+) -> None:
+    st.subheader("Интерактивный отбор точек")
+    st.caption(
+        "Кликните точку или выделите несколько рамкой/лассо. Это рабочий просмотр; "
+        "публикационный PNG/SVG строится отдельно ниже."
+    )
+    interactive = build_interactive_scatter(
+        dataframe,
+        x,
+        y,
+        group_col,
+        x_label=x_label,
+        y_label=y_label,
+        title=title,
+        log_x=log_x,
+        log_y=log_y,
+        style_map=style_map,
+    )
+    event = st.plotly_chart(
+        interactive,
+        width="stretch",
+        theme=None,
+        key="petrolab_interactive_plot",
+        on_select="rerun",
+        selection_mode=("points", "box", "lasso"),
+        config={"displaylogo": False, "scrollZoom": True},
+    )
+    selected_ids = selected_analysis_ids(event)
+
+    active_excluded = [
+        str(value) for value in st.session_state.get("plot_interactive_excluded_ids", [])
+    ]
+    if active_excluded:
+        st.caption(f"Интерактивно исключено из этого графика: {len(active_excluded)} точек.")
+
+    if selected_ids:
+        action1, action2 = st.columns(2)
+        if action1.button(
+            f"Исключить выбранные из этого графика ({len(selected_ids)})",
+            type="primary",
+            key="exclude_plot_selection",
+            width="stretch",
+        ):
+            st.session_state.plot_interactive_excluded_ids = sorted(
+                set(active_excluded) | set(selected_ids)
+            )
+            st.rerun()
+
+        existing_groups = list_work_groups()
+        group_choice = action2.selectbox(
+            "Рабочая группа",
+            ["Новая группа…"] + existing_groups,
+            key="selected_work_group_choice",
+        )
+        new_group_name = ""
+        if group_choice == "Новая группа…":
+            new_group_name = st.text_input(
+                "Название новой рабочей группы",
+                key="selected_work_group_name",
+                placeholder="например, предполагаемые ксенокристы",
+            )
+        target_group = new_group_name.strip() if group_choice == "Новая группа…" else group_choice
+        g1, g2 = st.columns(2)
+        if g1.button(
+            "Назначить группу выбранным",
+            disabled=not target_group,
+            key="assign_work_group",
+            width="stretch",
+        ):
+            changed = set_work_group(selected_ids, target_group)
+            st.success(f"Рабочая группа назначена для {changed} точек.")
+            st.rerun()
+        if g2.button(
+            "Убрать рабочую группу",
+            key="clear_work_group",
+            width="stretch",
+        ):
+            changed = clear_work_group(selected_ids)
+            st.success(f"Рабочая группа очищена у {changed} точек.")
+            st.rerun()
+
+        _render_selected_analysis(dataframe, selected_ids, project_id, x, y)
+    else:
+        st.caption("Чтобы открыть анализ и изображения, выберите точку на графике.")
+
+    if active_excluded and st.button(
+        "Вернуть все интерактивно исключённые точки",
+        key="restore_interactive_exclusions",
+    ):
+        st.session_state.plot_interactive_excluded_ids = []
+        st.rerun()
+
+
 def render_plots_page() -> None:
     st.title("Диаграммы")
     st.write(
         "Исходные и сохранённые расчётные величины доступны в одном списке осей. "
-        "Фильтрация выбросов обратима и относится только к текущему графику."
+        "Точки можно выбирать прямо на графике, а фильтры не меняют исходный Excel."
     )
 
     scope = st.radio("Область данных", ["Один проект", "Все проекты"], horizontal=True, key="plot_scope")
@@ -240,6 +437,10 @@ def render_plots_page() -> None:
                 chosen = recipe_map[chosen_label]
                 if c_load.button("Применить рецепт", key="load_recipe_btn"):
                     st.session_state.loaded_recipe = chosen["config"]
+                    cfg = chosen["config"].get("outlier_filters", {})
+                    st.session_state.plot_interactive_excluded_ids = list(
+                        cfg.get("interactive_excluded_ids", [])
+                    )
                     st.rerun()
                 if c_delete.button("Удалить рецепт", key="delete_recipe_btn"):
                     delete_plot_recipe(int(chosen["id"]))
@@ -249,20 +450,28 @@ def render_plots_page() -> None:
             st.caption("Сохранённых рецептов пока нет.")
         if st.button("Сбросить применённый рецепт", key="reset_recipe_btn"):
             st.session_state.loaded_recipe = None
+            st.session_state.plot_interactive_excluded_ids = []
             st.rerun()
 
     recipe = st.session_state.get("loaded_recipe") or {}
+    if "plot_interactive_excluded_ids" not in st.session_state:
+        cfg = recipe.get("outlier_filters", {}) if isinstance(recipe.get("outlier_filters", {}), dict) else {}
+        st.session_state.plot_interactive_excluded_ids = list(cfg.get("interactive_excluded_ids", []))
+
     dataset_labels = {dataset_label(dataset): int(dataset["id"]) for dataset in datasets}
     wanted_ids = recipe.get("dataset_ids", list(dataset_labels.values()))
     defaults = [label for label, dataset_id in dataset_labels.items() if dataset_id in wanted_ids]
     selected_labels = st.multiselect(
-        "Наборы для графика", list(dataset_labels), default=defaults or list(dataset_labels), key="plot_datasets"
+        "Наборы для графика",
+        list(dataset_labels),
+        default=defaults or list(dataset_labels),
+        key="plot_datasets",
     )
     selected_ids = [dataset_labels[label] for label in selected_labels]
     if not selected_ids:
         return
 
-    dataframe = load_unified_with_derived(project_id, selected_ids)
+    dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
     if dataframe.empty:
         return
 
@@ -283,13 +492,26 @@ def render_plots_page() -> None:
 
     with st.expander("Фильтры по группам и категориям", expanded=False):
         candidates = [
-            column for column in dataframe.columns
+            column
+            for column in dataframe.columns
             if not str(column).startswith("_") and dataframe[column].nunique(dropna=True) <= 100
         ]
         preferred = [
-            column for column in [
-                "Проект", "Набор", "Минерал", "Источник", "Лист", "Generation", "Group", "Type", "Sample", "Grain"
-            ] if column in candidates
+            column
+            for column in [
+                WORK_GROUP_COLUMN,
+                "Проект",
+                "Набор",
+                "Минерал",
+                "Источник",
+                "Лист",
+                "Generation",
+                "Group",
+                "Type",
+                "Sample",
+                "Grain",
+            ]
+            if column in candidates
         ]
         choices = st.multiselect(
             "Колонки для фильтрации",
@@ -302,7 +524,10 @@ def render_plots_page() -> None:
             values = sorted(dataframe[column].dropna().astype(str).unique().tolist())
             defaults = [value for value in recipe.get("column_filters", {}).get(column, []) if value in values]
             chosen_filters[column] = st.multiselect(
-                column, values, default=defaults, key=f"filter_vals_{column}"
+                column,
+                values,
+                default=defaults,
+                key=f"filter_vals_{column}",
             )
         if chosen_filters:
             dataframe = apply_column_filters(dataframe, chosen_filters)
@@ -317,26 +542,36 @@ def render_plots_page() -> None:
     if preset_default not in JOURNAL_PRESETS:
         preset_default = "Свой"
     preset = st.selectbox(
-        "Шаблон графика", preset_names, index=preset_names.index(preset_default), key="journal_preset"
+        "Шаблон графика",
+        preset_names,
+        index=preset_names.index(preset_default),
+        key="journal_preset",
     )
     preset_cfg = JOURNAL_PRESETS[preset]
 
     categorical = [
-        column for column in dataframe.columns
+        column
+        for column in dataframe.columns
         if not str(column).startswith("_")
         and column not in numeric
         and dataframe[column].nunique(dropna=True) <= 80
     ]
-    preferred_groups = [column for column in ["Набор", "Минерал", "Источник", "Лист"] if column in dataframe.columns]
+    preferred_groups = [
+        column
+        for column in [WORK_GROUP_COLUMN, "Набор", "Минерал", "Источник", "Лист"]
+        if column in dataframe.columns
+    ]
     categorical = preferred_groups + [column for column in categorical if column not in preferred_groups]
 
     c1, c2, c3 = st.columns(3)
     x = c1.selectbox(
-        "Ось X", numeric,
+        "Ось X",
+        numeric,
         index=numeric.index(recipe.get("x")) if recipe.get("x") in numeric else 0,
     )
     y = c2.selectbox(
-        "Ось Y", numeric,
+        "Ось Y",
+        numeric,
         index=numeric.index(recipe.get("y")) if recipe.get("y") in numeric else min(1, len(numeric) - 1),
     )
     group_options = ["Без группировки"] + categorical
@@ -351,13 +586,20 @@ def render_plots_page() -> None:
     plot_source, outlier_config, excluded_dataframe = _outlier_controls(
         plot_source, numeric, x, y, recipe
     )
+    plot_source, outlier_config, excluded_dataframe = _apply_interactive_exclusions(
+        plot_source, outlier_config, excluded_dataframe
+    )
     st.caption(f"В график войдёт {len(plot_source)} точек.")
 
     c4, c5, c6, c7 = st.columns(4)
     x_label = c4.text_input("Подпись X", value=recipe.get("x_label", x))
     y_label = c5.text_input("Подпись Y", value=recipe.get("y_label", y))
     marker_size = c6.slider(
-        "Размер маркеров", 10, 180, int(recipe.get("marker_size", preset_cfg["marker_size"])), 2
+        "Размер маркеров",
+        10,
+        180,
+        int(recipe.get("marker_size", preset_cfg["marker_size"])),
+        2,
     )
     title = c7.text_input("Заголовок", value=recipe.get("title", ""))
 
@@ -376,44 +618,66 @@ def render_plots_page() -> None:
         show_legend = d1.checkbox("Показывать легенду", value=recipe.get("show_legend", preset_cfg["show_legend"]))
         annotate = d2.checkbox("Подписывать точки", value=recipe.get("annotate", False))
         label_candidates = [
-            column for column in plot_source.columns
-            if not str(column).startswith("_") and plot_source[column].nunique(dropna=True) <= max(200, len(plot_source))
+            column
+            for column in plot_source.columns
+            if not str(column).startswith("_")
+            and plot_source[column].nunique(dropna=True) <= max(200, len(plot_source))
         ]
         label_default = recipe.get("label_col")
         label_col_choice = d3.selectbox(
-            "Поле для подписи", ["—"] + label_candidates,
+            "Поле для подписи",
+            ["—"] + label_candidates,
             index=1 + label_candidates.index(label_default) if label_default in label_candidates else 0,
         )
         label_col = None if label_col_choice == "—" else label_col_choice
         annotate_top_n = (
             st.slider("Сколько точек подписывать", 1, 1000, int(recipe.get("annotate_top_n", 25)))
-            if annotate and label_col else 0
+            if annotate and label_col
+            else 0
         )
         e1, e2, e3, e4 = st.columns(4)
         figure_width = e1.number_input(
-            "Ширина фигуры", min_value=3.0, max_value=20.0,
-            value=float(recipe.get("figure_width", preset_cfg["figure_width"])), step=0.1,
+            "Ширина фигуры",
+            min_value=3.0,
+            max_value=20.0,
+            value=float(recipe.get("figure_width", preset_cfg["figure_width"])),
+            step=0.1,
         )
         figure_height = e2.number_input(
-            "Высота фигуры", min_value=3.0, max_value=20.0,
-            value=float(recipe.get("figure_height", preset_cfg["figure_height"])), step=0.1,
+            "Высота фигуры",
+            min_value=3.0,
+            max_value=20.0,
+            value=float(recipe.get("figure_height", preset_cfg["figure_height"])),
+            step=0.1,
         )
         font_size = e3.number_input(
-            "Размер шрифта", min_value=6.0, max_value=24.0,
-            value=float(recipe.get("font_size", preset_cfg["font_size"])), step=0.5,
+            "Размер шрифта",
+            min_value=6.0,
+            max_value=24.0,
+            value=float(recipe.get("font_size", preset_cfg["font_size"])),
+            step=0.5,
         )
         tick_size = e4.number_input(
-            "Размер подписей делений", min_value=6.0, max_value=24.0,
-            value=float(recipe.get("tick_size", preset_cfg["tick_size"])), step=0.5,
+            "Размер подписей делений",
+            min_value=6.0,
+            max_value=24.0,
+            value=float(recipe.get("tick_size", preset_cfg["tick_size"])),
+            step=0.5,
         )
         f1, f2 = st.columns(2)
         spine_width = f1.number_input(
-            "Толщина осей", min_value=0.5, max_value=3.0,
-            value=float(recipe.get("spine_width", preset_cfg["spine_width"])), step=0.1,
+            "Толщина осей",
+            min_value=0.5,
+            max_value=3.0,
+            value=float(recipe.get("spine_width", preset_cfg["spine_width"])),
+            step=0.1,
         )
         title_size = f2.number_input(
-            "Размер заголовка", min_value=6.0, max_value=28.0,
-            value=float(recipe.get("title_size", float(recipe.get("font_size", preset_cfg["font_size"])) + 1.0)), step=0.5,
+            "Размер заголовка",
+            min_value=6.0,
+            max_value=28.0,
+            value=float(recipe.get("title_size", float(recipe.get("font_size", preset_cfg["font_size"])) + 1.0)),
+            step=0.5,
         )
 
     style_map = {}
@@ -427,7 +691,8 @@ def render_plots_page() -> None:
             }
             selected_profile = (
                 st.selectbox("Готовый профиль", ["—"] + list(profile_map), key="style_profile_select")
-                if profile_map else "—"
+                if profile_map
+                else "—"
             )
             existing_style = (
                 profile_map[selected_profile]["styles"]
@@ -456,7 +721,9 @@ def render_plots_page() -> None:
             )
             if st.button("Сохранить профиль стилей", key="save_style_profile"):
                 save_style_profile(
-                    profile_name or f"Профиль {group_col}", group_col, style_map,
+                    profile_name or f"Профиль {group_col}",
+                    group_col,
+                    style_map,
                     project_id=project_id if project_profile else None,
                 )
                 st.success("Профиль стилей сохранён.")
@@ -465,23 +732,70 @@ def render_plots_page() -> None:
                 delete_style_profile(int(profile_map[selected_profile]["id"]))
                 st.rerun()
 
+    _render_interactive_workspace(
+        plot_source,
+        project_id,
+        x,
+        y,
+        group_col,
+        x_label,
+        y_label,
+        title,
+        log_x,
+        log_y,
+        style_map,
+    )
+
     needed = [x, y] + ([group_col] if group_col else []) + ([label_col] if label_col else [])
     base_columns = [
-        column for column in [
-            "_analysis_id", "_dataset_id", "_source_row", "Проект", "Набор", "Минерал", "Источник", "Лист",
-            "Sample", "Grain", "Point", "Generation",
-        ] if column in plot_source.columns
+        column
+        for column in [
+            "_analysis_id",
+            "_dataset_id",
+            "_source_row",
+            "Проект",
+            "Набор",
+            "Минерал",
+            "Источник",
+            "Лист",
+            "Sample",
+            "Grain",
+            "Point",
+            "Generation",
+            WORK_GROUP_COLUMN,
+        ]
+        if column in plot_source.columns
     ]
-    plot_dataframe = plot_source[[column for column in dict.fromkeys(base_columns + needed) if column in plot_source.columns]].copy()
+    plot_dataframe = plot_source[
+        [column for column in dict.fromkeys(base_columns + needed) if column in plot_source.columns]
+    ].copy()
 
+    st.subheader("Публикационная фигура")
     figure = build_scatter(
-        plot_dataframe, x, y, group_col,
-        x_label=x_label, y_label=y_label, title=title, marker_size=marker_size,
-        xlim=(x_min, x_max), ylim=(y_min, y_max), log_x=log_x, log_y=log_y,
-        show_grid=show_grid, style_map=style_map, monochrome=monochrome,
-        show_legend=show_legend, annotate=annotate, label_col=label_col,
-        annotate_top_n=annotate_top_n, figure_size=(figure_width, figure_height),
-        font_size=font_size, tick_size=tick_size, title_size=title_size, spine_width=spine_width,
+        plot_dataframe,
+        x,
+        y,
+        group_col,
+        x_label=x_label,
+        y_label=y_label,
+        title=title,
+        marker_size=marker_size,
+        xlim=(x_min, x_max),
+        ylim=(y_min, y_max),
+        log_x=log_x,
+        log_y=log_y,
+        show_grid=show_grid,
+        style_map=style_map,
+        monochrome=monochrome,
+        show_legend=show_legend,
+        annotate=annotate,
+        label_col=label_col,
+        annotate_top_n=annotate_top_n,
+        figure_size=(figure_width, figure_height),
+        font_size=font_size,
+        tick_size=tick_size,
+        title_size=title_size,
+        spine_width=spine_width,
     )
     st.pyplot(figure, width="content")
     png = figure_png_bytes(figure, dpi=600)
@@ -529,8 +843,11 @@ def render_plots_page() -> None:
             excluded_dataframe.to_excel(writer, index=False, sheet_name="Исключённые точки")
         pd.DataFrame([settings]).to_excel(writer, index=False, sheet_name="Настройки")
     d3.download_button(
-        "Данные графика · Excel", plot_excel.getvalue(), file_name="petrolab_plot_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+        "Данные графика · Excel",
+        plot_excel.getvalue(),
+        file_name="petrolab_plot_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
     )
 
     current_recipe = {
@@ -570,27 +887,18 @@ def render_plots_page() -> None:
     with st.expander("Сохранить текущий рецепт графика", expanded=False):
         recipe_name = st.text_input("Название рецепта", key="save_recipe_name")
         recipe_project = st.checkbox(
-            "Сохранить как проектный рецепт", value=project_id is not None, disabled=project_id is None
+            "Сохранить как проектный рецепт",
+            value=project_id is not None,
+            disabled=project_id is None,
         )
         if st.button("Сохранить рецепт", key="save_recipe_button"):
             save_plot_recipe(
-                recipe_name or f"{x} vs {y}", current_recipe,
+                recipe_name or f"{x} vs {y}",
+                current_recipe,
                 project_id=project_id if recipe_project else None,
             )
             st.success("Рецепт сохранён.")
             st.rerun()
 
-    st.subheader("Точки, вошедшие в график")
-    st.dataframe(plot_dataframe, width="stretch", hide_index=True, height=350)
-    if not plot_dataframe.empty:
-        point_map = {
-            _point_label(row): str(row["_analysis_id"])
-            for _, row in plot_dataframe.head(3000).iterrows()
-        }
-        chosen_point = st.selectbox("Открыть точку с графика", list(point_map), key="plot_point_select")
-        selected_row = plot_dataframe[
-            plot_dataframe["_analysis_id"].astype(str) == point_map[chosen_point]
-        ].iloc[0]
-        render_asset_gallery(
-            collect_related_images(selected_row, project_id=project_id), max_items=10, width=650
-        )
+    with st.expander("Таблица точек, вошедших в график", expanded=False):
+        st.dataframe(plot_dataframe, width="stretch", hide_index=True, height=380)
