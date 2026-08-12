@@ -101,6 +101,28 @@ def oxygen_normalized_apfu(
     раздельно как Fe2 и Fe3, если оба измерены.
     """
     allowed = set(allowed_oxides) if allowed_oxides else set(OXIDES)
+
+    # A duplicated scientific input such as FeO + FeO__2 is ambiguous. The import
+    # layer deliberately keeps both columns instead of merging them, and the formula
+    # engine must not silently choose the first one.
+    formula_inputs = set(allowed) | set(HALOGENS)
+    if "FeO" in allowed:
+        formula_inputs.add("FeOt")
+    duplicate_inputs: list[str] = []
+    for column in df.columns:
+        name = str(column)
+        if "__" not in name:
+            continue
+        base, suffix = name.rsplit("__", 1)
+        if suffix.isdigit() and base in formula_inputs:
+            duplicate_inputs.append(name)
+    if duplicate_inputs:
+        raise ValueError(
+            "Нельзя пересчитать формулу при конфликтующих химических колонках: "
+            + ", ".join(sorted(duplicate_inputs))
+            + ". Сначала выберите правильный исходный столбец."
+        )
+
     cats: dict[str, pd.Series] = {}
     oxygen_moles = pd.Series(0.0, index=df.index, dtype=float)
 
