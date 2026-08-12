@@ -8,6 +8,7 @@ from petrolab.db import _utcnow, connect
 
 
 WORK_GROUP_COLUMN = "Рабочая группа"
+_SQL_CHUNK = 800
 
 
 def ensure_work_group_storage() -> None:
@@ -34,6 +35,11 @@ def _clean_ids(analysis_ids: Iterable[str]) -> list[str]:
     return sorted({str(value).strip() for value in analysis_ids if str(value).strip()})
 
 
+def _chunks(values: list[str], size: int = _SQL_CHUNK):
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
+
+
 def set_work_group(analysis_ids: Iterable[str], group_name: str) -> int:
     """Assign one local working group to one or more immutable analysis IDs."""
     ensure_work_group_storage()
@@ -46,15 +52,15 @@ def set_work_group(analysis_ids: Iterable[str], group_name: str) -> int:
 
     now = _utcnow()
     with connect() as con:
-        existing = {
-            str(row["analysis_id"])
-            for row in con.execute(
+        existing: set[str] = set()
+        for chunk in _chunks(ids):
+            rows = con.execute(
                 "SELECT analysis_id FROM analysis_rows WHERE analysis_id IN ("
-                + ",".join("?" for _ in ids)
+                + ",".join("?" for _ in chunk)
                 + ")",
-                ids,
+                chunk,
             ).fetchall()
-        }
+            existing.update(str(row["analysis_id"]) for row in rows)
         missing = [analysis_id for analysis_id in ids if analysis_id not in existing]
         if missing:
             raise ValueError(
@@ -81,12 +87,13 @@ def clear_work_group(analysis_ids: Iterable[str]) -> int:
         return 0
     with connect() as con:
         before = con.total_changes
-        con.execute(
-            "DELETE FROM analysis_work_groups WHERE analysis_id IN ("
-            + ",".join("?" for _ in ids)
-            + ")",
-            ids,
-        )
+        for chunk in _chunks(ids):
+            con.execute(
+                "DELETE FROM analysis_work_groups WHERE analysis_id IN ("
+                + ",".join("?" for _ in chunk)
+                + ")",
+                chunk,
+            )
         changed = con.total_changes - before
         con.commit()
     return int(changed)
