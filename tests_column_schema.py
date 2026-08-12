@@ -16,8 +16,16 @@ assert canonicalize_header(" SiO2 (wt. %) ") == "SiO2"
 assert canonicalize_header("Al₂O₃") == "Al2O3"
 assert canonicalize_header("FeOt") == "FeOt"
 assert canonicalize_header("FeO total") == "FeOt"
+assert canonicalize_header("Fe2O3T") == "Fe2O3t"
+assert canonicalize_header("Fe2O3 total") == "Fe2O3t"
+assert canonicalize_header("Fe2O3") == "Fe2O3"
 assert canonicalize_header("Na₂O wt%") == "Na2O"
 assert canonicalize_header("Generation custom") == "Generation custom"
+
+assert "total Fe as FeO" in describe_header("FeOt").warning
+assert "not a measured FeO" in describe_header("FeOt").warning
+assert "total Fe as Fe2O3" in describe_header("Fe2O3T").warning
+assert "not a measured Fe2O3" in describe_header("Fe2O3T").warning
 
 assert canonicalize_header("Rb ppm") == "Rb [µg/g]"
 assert canonicalize_header("Rb (µg/g)") == "Rb [µg/g]"
@@ -44,7 +52,7 @@ assert list(normalized.columns) == [
 ]
 assert source_map["SiO2"]["original"] == "SiO₂"
 assert source_map["FeOt"]["original"] == "FeOt"
-assert source_map["FeOt"]["warning"] == "total Fe as FeO"
+assert "total Fe as FeO" in source_map["FeOt"]["warning"]
 assert float(normalized.loc[0, "Rb [µg/g]"]) == 150.0
 assert float(normalized.loc[0, "Ba [µg/g]"]) == 1.2
 assert source_map["Ba [µg/g]"]["to_source_factor"] == 1000.0
@@ -93,12 +101,30 @@ assert "Повторяющийся" in mangled_map["Rb [µg/g]__2"]["warning"]
 qc_conflict = add_qc_columns(
     pd.DataFrame([{"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0, "FeO__2": 11.0}])
 )
-assert qc_conflict.loc[0, "QC суммы"] == "конфликт колонок"
+assert qc_conflict.loc[0, "QC суммы"] == "конфликт колонок/железа"
 assert "FeO__2" in qc_conflict.loc[0, "QC химии"]
 
-# FeO and FeOt remain semantically distinct.
-iron_raw = pd.DataFrame({"FeO": [1.0], "FeOt": [2.0]})
+# Total Fe reported on different bases stays distinct and can be used in the oxide sum
+# only when it does not overlap another Fe reporting convention in the same row.
+total_fe2o3 = add_qc_columns(pd.DataFrame([{"SiO2": 50.0, "MgO": 40.0, "Fe2O3t": 10.0}]))
+assert float(total_fe2o3.loc[0, "Σ оксидов"]) == 100.0
+assert total_fe2o3.loc[0, "QC суммы"] == "норма"
+
+mixed_total_basis = add_qc_columns(pd.DataFrame([
+    {"SiO2": 50.0, "MgO": 40.0, "FeOt": 10.0, "Fe2O3t": None},
+    {"SiO2": 50.0, "MgO": 40.0, "FeOt": None, "Fe2O3t": 10.0},
+]))
+assert mixed_total_basis["QC суммы"].tolist() == ["норма", "норма"]
+
+overlapping_total_basis = add_qc_columns(pd.DataFrame([
+    {"SiO2": 50.0, "MgO": 40.0, "FeOt": 10.0, "Fe2O3t": 10.0},
+]))
+assert overlapping_total_basis.loc[0, "QC суммы"] == "конфликт колонок/железа"
+assert "total Fe" in overlapping_total_basis.loc[0, "QC железа"]
+
+# FeO, FeOt and Fe2O3t remain semantically distinct.
+iron_raw = pd.DataFrame({"FeO": [1.0], "FeOt": [2.0], "Fe2O3T": [3.0]})
 iron, _ = normalize_columns_with_map(iron_raw)
-assert list(iron.columns) == ["FeO", "FeOt"]
+assert list(iron.columns) == ["FeO", "FeOt", "Fe2O3t"]
 
 print("column schema tests: OK")
