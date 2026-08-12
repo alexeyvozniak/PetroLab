@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -89,12 +90,21 @@ def create_image_assets(
 
 
 def delete_image_asset(asset_id: int) -> None:
-    """Delete an image file and its metadata record."""
+    """Remove one asset without leaving a dangling DB record or orphaned user-visible file."""
     record = get_image_record(int(asset_id))
     path = Path(record["stored_path"])
+    staged = path.with_name(path.name + ".petrolab_delete")
+
     if path.exists():
-        path.unlink()
-    delete_image_record(int(asset_id))
+        os.replace(path, staged)
+    try:
+        delete_image_record(int(asset_id))
+    except sqlite3.Error:
+        if staged.exists():
+            os.replace(staged, path)
+        raise
+    if staged.exists():
+        staged.unlink()
 
 
 def list_dataset_images(dataset_id: int) -> list[dict]:
@@ -183,10 +193,10 @@ def _cleanup_created(asset_ids: list[int], paths: list[Path]) -> None:
     for asset_id in reversed(asset_ids):
         try:
             delete_image_record(asset_id)
-        except Exception:
-            pass
+        except sqlite3.Error:
+            continue
     for path in reversed(paths):
         try:
             path.unlink(missing_ok=True)
         except OSError:
-            pass
+            continue
