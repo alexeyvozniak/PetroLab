@@ -67,7 +67,11 @@ _UNIT_SUFFIX_RE = re.compile(
 )
 _CONCENTRATION_UNIT_RE = re.compile(
     r"(?:\(|\[)?\s*(ppm|ppb|ppt|[µμu]g\s*/\s*g|mg\s*/\s*kg|ng\s*/\s*g|pg\s*/\s*g|"
+    r"[µμu]g\s+g(?:\^?[-−]?1|[⁻−-]¹)|mg\s+kg(?:\^?[-−]?1|[⁻−-]¹)|"
+    r"ng\s+g(?:\^?[-−]?1|[⁻−-]¹)|pg\s+g(?:\^?[-−]?1|[⁻−-]¹)|"
     r"мкг\s*/\s*г|мг\s*/\s*кг|нг\s*/\s*г|пг\s*/\s*г|"
+    r"мкг\s+г(?:\^?[-−]?1|[⁻−-]¹)|мг\s+кг(?:\^?[-−]?1|[⁻−-]¹)|"
+    r"нг\s+г(?:\^?[-−]?1|[⁻−-]¹)|пг\s+г(?:\^?[-−]?1|[⁻−-]¹)|"
     r"wt\.?\s*%|mass\s*%|мас\.?\s*%)\s*(?:\)|\])?\s*$",
     flags=re.IGNORECASE,
 )
@@ -160,12 +164,13 @@ def describe_header(value: object) -> ColumnDescriptor:
 
 def _normalize_concentration_unit(raw: str) -> tuple[str, str, float]:
     unit = _nfkc(raw).lower().replace("μ", "µ").replace("u", "µ")
+    unit = unit.replace("−", "-").replace("⁻", "-").replace("¹", "1").replace("^", "")
     unit = re.sub(r"\s+", "", unit)
-    if unit in {"ppm", "µg/g", "мкг/г", "mg/kg", "мг/кг"}:
+    if unit in {"ppm", "µg/g", "мкг/г", "mg/kg", "мг/кг", "µgg-1", "мкгг-1", "mgkg-1", "мгкг-1"}:
         return raw, "µg/g", 1.0
-    if unit in {"ppb", "ng/g", "нг/г"}:
+    if unit in {"ppb", "ng/g", "нг/г", "ngg-1", "нгг-1"}:
         return raw, "µg/g", 1e-3
-    if unit in {"ppt", "pg/g", "пг/г"}:
+    if unit in {"ppt", "pg/g", "пг/г", "pgg-1", "пгг-1"}:
         return raw, "µg/g", 1e-6
     if unit in {"wt%", "wt.%", "mass%", "мас.%", "мас%"}:
         return raw, "wt%", 1.0

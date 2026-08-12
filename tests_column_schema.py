@@ -30,6 +30,9 @@ assert "not a measured Fe2O3" in describe_header("Fe2O3T").warning
 assert canonicalize_header("Rb ppm") == "Rb [µg/g]"
 assert canonicalize_header("Rb (µg/g)") == "Rb [µg/g]"
 assert canonicalize_header("Yb, мкг/г") == "Yb [µg/g]"
+assert canonicalize_header("Yb µg g⁻¹") == "Yb [µg/g]"
+assert canonicalize_header("La mg kg-1") == "La [µg/g]"
+assert canonicalize_header("Ba ng g⁻¹") == "Ba [µg/g]"
 assert canonicalize_header("Ba ppb") == "Ba [µg/g]"
 assert canonicalize_header("Rb") == "Rb"
 assert describe_header("Ba ppb").to_canonical_factor == 1e-3
