@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 import streamlit as st
 
+from petrolab.settings_service import load_settings
 from petrolab.visualization_presets import FIGURE_PRESETS, POINT_STYLE_PRESETS
 
 
@@ -33,14 +34,18 @@ def render_figure_style_controls(
     dataframe: pd.DataFrame,
     *,
     key_prefix: str,
-    default_preset: str = "Lithos",
+    default_preset: str | None = None,
 ) -> FigureStyleSelection:
+    settings = load_settings()
+    preferred_figure = default_preset or str(settings.get("default_figure_preset", "Lithos"))
+    preferred_points = str(settings.get("default_point_style", "balanced"))
+
     with st.expander("Оформление рисунка", expanded=False):
         preset_names = list(FIGURE_PRESETS)
         preset_name = st.selectbox(
             "Журнальный preset",
             preset_names,
-            index=preset_names.index(default_preset) if default_preset in preset_names else 0,
+            index=preset_names.index(preferred_figure) if preferred_figure in preset_names else 0,
             key=f"{key_prefix}_figure_preset",
         )
         preset = FIGURE_PRESETS[preset_name]
@@ -49,13 +54,15 @@ def render_figure_style_controls(
             "Гармоничный набор маркеров",
             point_style_names,
             format_func=lambda name: POINT_STYLE_PRESETS[name].title,
+            index=point_style_names.index(preferred_points) if preferred_points in point_style_names else 0,
             key=f"{key_prefix}_point_style",
         )
         c1, c2, c3 = st.columns(3)
+        font_options = ["Arial", "DejaVu Sans", "Times New Roman"]
         font_family = c1.selectbox(
             "Шрифт",
-            ["Arial", "DejaVu Sans", "Times New Roman"],
-            index=0 if preset.font_family == "Arial" else 1,
+            font_options,
+            index=font_options.index(preset.font_family) if preset.font_family in font_options else 0,
             key=f"{key_prefix}_font",
         )
         font_size = c2.slider("Основной шрифт", 6.0, 18.0, float(preset.font_size), 0.5, key=f"{key_prefix}_font_size")
@@ -67,7 +74,8 @@ def render_figure_style_controls(
         d1, d2, d3 = st.columns(3)
         width_in = d1.slider("Ширина, inch", 2.5, 12.0, float(preset.width_in), 0.1, key=f"{key_prefix}_width")
         height_in = d2.slider("Высота, inch", 2.5, 10.0, float(preset.height_in), 0.1, key=f"{key_prefix}_height")
-        dpi = int(d3.selectbox("DPI", [300, 450, 600, 900], index=[300, 450, 600, 900].index(preset.dpi) if preset.dpi in [300, 450, 600, 900] else 2, key=f"{key_prefix}_dpi"))
+        dpi_values = [300, 450, 600, 900]
+        dpi = int(d3.selectbox("DPI", dpi_values, index=dpi_values.index(preset.dpi) if preset.dpi in dpi_values else 2, key=f"{key_prefix}_dpi"))
         e1, e2, e3 = st.columns(3)
         grid = e1.checkbox("Сетка", value=bool(preset.grid), key=f"{key_prefix}_grid")
         monochrome = e2.checkbox("Ч/б", value=bool(preset.monochrome), key=f"{key_prefix}_mono")
@@ -106,7 +114,7 @@ def render_custom_fields(key_prefix: str) -> pd.DataFrame:
     with st.expander("Пользовательские поля", expanded=False):
         st.caption(
             "Можно добавить прямоугольные области поверх публикационного XY-графика. "
-            "Они сохраняются только в рецепте рисунка и не меняют данные."
+            "Они сохраняются только в текущей конфигурации рисунка и не меняют данные."
         )
         default = pd.DataFrame(columns=["label", "x_min", "x_max", "y_min", "y_max"])
         edited = st.data_editor(
