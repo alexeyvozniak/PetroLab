@@ -36,6 +36,14 @@ from petrolab.db import (
     update_analysis_values,
     update_dataset_metadata,
 )
+from petrolab.dataframe_utils import (
+    apply_column_filters,
+    apply_quick_filter,
+    compute_changes,
+    dataset_label,
+    display_value,
+    row_identity,
+)
 from petrolab.io_utils import (
     list_excel_sheets,
     list_excel_sheets_path,
@@ -47,6 +55,7 @@ from petrolab.io_utils import (
 )
 from petrolab.minerals.formulae import calculate_formula, methods_for
 from petrolab.minerals.registry import MINERALS, labels as mineral_labels
+from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.sources import reload_linked_source, source_status, sync_cell_changes
 
@@ -72,15 +81,6 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
-
-JOURNAL_PRESETS = {
-    "Свой": {"figure_width": 7.8, "figure_height": 5.8, "font_size": 10, "tick_size": 9, "spine_width": 1.0, "marker_size": 58, "monochrome": False, "show_grid": False, "show_legend": True},
-    "Lithos": {"figure_width": 7.2, "figure_height": 5.4, "font_size": 10, "tick_size": 9, "spine_width": 1.0, "marker_size": 60, "monochrome": False, "show_grid": False, "show_legend": True},
-    "Geodynamics & Tectonophysics": {"figure_width": 7.0, "figure_height": 5.3, "font_size": 10, "tick_size": 9, "spine_width": 1.0, "marker_size": 64, "monochrome": False, "show_grid": False, "show_legend": True},
-    "ДАН": {"figure_width": 6.7, "figure_height": 5.0, "font_size": 9, "tick_size": 8, "spine_width": 1.1, "marker_size": 68, "monochrome": True, "show_grid": False, "show_legend": True},
-    "Supplementary": {"figure_width": 7.5, "figure_height": 5.8, "font_size": 10, "tick_size": 9, "spine_width": 1.0, "marker_size": 54, "monochrome": False, "show_grid": True, "show_legend": True},
-}
-
 
 def project_selector(key: str = "project_select"):
     projects = list_projects()
@@ -109,94 +109,6 @@ def safe_copy_upload(project_id: int, filename: str, data: bytes) -> Path:
     target = source_dir / f"{uuid4().hex[:10]}_{clean_name}"
     target.write_bytes(data)
     return target
-
-
-def row_identity(row: pd.Series) -> str:
-    preferred_fragments = ["sample", "образ", "grain", "зерн", "point", "точк", "spot", "analysis", "name", "group", "тип"]
-    pieces = []
-    for frag in preferred_fragments:
-        for col in row.index:
-            if str(col).startswith("_"):
-                continue
-            if frag in str(col).lower() and pd.notna(row[col]):
-                text = f"{col}: {row[col]}"
-                if text not in pieces:
-                    pieces.append(text)
-                if len(pieces) >= 4:
-                    break
-        if len(pieces) >= 4:
-            break
-    if not pieces:
-        pieces = [f"Строка {row.get('_source_row', row.name + 2)}"]
-    return " · ".join(pieces)
-
-
-def _canon(value):
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-    if isinstance(value, str):
-        return value.strip()
-    if hasattr(value, "item"):
-        return value.item()
-    return value
-
-
-def values_equal(a, b) -> bool:
-    a = _canon(a)
-    b = _canon(b)
-    if a is None and b is None:
-        return True
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        try:
-            return abs(float(a) - float(b)) <= 1e-12
-        except Exception:
-            pass
-    return a == b
-
-
-def compute_changes(original: pd.DataFrame, edited: pd.DataFrame) -> list[dict]:
-    if "_analysis_id" not in original.columns or "_analysis_id" not in edited.columns:
-        return []
-    old_map = original.set_index("_analysis_id", drop=False)
-    new_map = edited.set_index("_analysis_id", drop=False)
-    changes = []
-    protected = META_COLUMNS | {"Σ оксидов", "QC суммы"}
-    common_cols = [c for c in original.columns if c in edited.columns and c not in protected and not str(c).startswith("_")]
-    for aid in new_map.index.intersection(old_map.index):
-        old_row = old_map.loc[aid]
-        new_row = new_map.loc[aid]
-        for col in common_cols:
-            old_value = _canon(old_row[col])
-            new_value = _canon(new_row[col])
-            if not values_equal(old_value, new_value):
-                changes.append({"analysis_id": str(aid), "dataset_id": int(old_row["_dataset_id"]), "source_row": None if pd.isna(old_row.get("_source_row")) else int(old_row["_source_row"]), "column_name": col, "old_value": old_value, "new_value": new_value})
-    return changes
-
-
-def apply_quick_filter(df: pd.DataFrame, query: str) -> pd.DataFrame:
-    if not query.strip() or df.empty:
-        return df
-    q = query.strip()
-    mask = df.astype("string").apply(lambda col: col.str.contains(q, case=False, na=False)).any(axis=1)
-    return df.loc[mask]
-
-
-def apply_column_filters(df: pd.DataFrame, chosen_filters: dict[str, list[str]]) -> pd.DataFrame:
-    out = df
-    for col, values in chosen_filters.items():
-        if not values or col not in out.columns:
-            continue
-        out = out[out[col].astype(str).isin([str(v) for v in values])]
-    return out
-
-
-def dataset_label(d: dict) -> str:
-    return f'{d["project_name"]} · {d["name"]} · {d["row_count"]} строк · {d["source_filename"]}'
 
 
 def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
@@ -265,7 +177,7 @@ if page == "Главная":
         view = pd.DataFrame(all_datasets)[["project_name", "name", "mineral_key", "row_count", "source_filename", "source_sheet", "source_kind"]].copy()
         view["mineral_key"] = view["mineral_key"].map(mineral_labels()).fillna(view["mineral_key"])
         view.columns = ["Проект", "Набор", "Минерал", "Строк", "Источник", "Лист", "Тип связи"]
-        st.dataframe(view, use_container_width=True, hide_index=True)
+        st.dataframe(view, width="stretch", hide_index=True)
 
 elif page == "Проекты":
     st.title("Проекты")
@@ -281,7 +193,7 @@ elif page == "Проекты":
                 st.error(str(exc))
     projects = list_projects()
     if projects:
-        st.dataframe(pd.DataFrame(projects)[["name", "description", "created_at"]], use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(projects)[["name", "description", "created_at"]], width="stretch", hide_index=True)
 
 elif page == "Источники и импорт":
     st.title("Источники и импорт")
@@ -312,7 +224,7 @@ elif page == "Источники и импорт":
                     if selected_sheets:
                         preview_df, _, _ = read_tabular_path(local_path, selected_sheets[0] or None, int(header_row))
                         preview_df = MINERALS[mineral_key].calculate(preview_df)
-                        st.dataframe(preview_df.head(50), use_container_width=True, hide_index=True)
+                        st.dataframe(preview_df.head(50), width="stretch", hide_index=True)
                     if st.button("Связать и импортировать выбранные листы", type="primary", key="link_local"):
                         created = []
                         for sheet in selected_sheets:
@@ -343,7 +255,7 @@ elif page == "Источники и импорт":
             if selected_sheets:
                 preview, _, _ = read_tabular_with_map(file_bytes, uploaded.name, selected_sheets[0] or None, int(upload_header_row))
                 preview = MINERALS[mineral_key].calculate(preview)
-                st.dataframe(preview.head(50), use_container_width=True, hide_index=True)
+                st.dataframe(preview.head(50), width="stretch", hide_index=True)
             if st.button("Импортировать рабочую копию", type="primary", key="upload_import"):
                 managed_path = safe_copy_upload(project["id"], uploaded.name, file_bytes)
                 created = []
@@ -407,14 +319,18 @@ elif page == "Единая база":
     query = st.text_input("Поиск по всей выбранной базе", key="db_search")
     shown = apply_quick_filter(db_df, query).copy()
     disabled_cols = [c for c in shown.columns if c in META_COLUMNS or str(c).startswith("_") or c in {"Σ оксидов", "QC суммы"}]
-    edited = st.data_editor(shown, use_container_width=True, hide_index=True, height=650, disabled=disabled_cols, num_rows="fixed", key="unified_editor")
-    changes = compute_changes(shown, edited)
+    edited = st.data_editor(shown, width="stretch", hide_index=True, height=650, disabled=disabled_cols, num_rows="fixed", key="unified_editor")
+    changes = compute_changes(
+        shown,
+        edited,
+        protected_columns=META_COLUMNS | {"Σ оксидов", "QC суммы"},
+    )
     b1, b2 = st.columns(2)
-    if b1.button("Сохранить изменения в базе", type="primary", disabled=not changes, use_container_width=True):
+    if b1.button("Сохранить изменения в базе", type="primary", disabled=not changes, width="stretch"):
         update_analysis_values(changes, synced_to_source=False)
         st.success("Изменения сохранены в базе.")
         st.rerun()
-    if b2.button("Сохранить в базе и записать в Excel", disabled=not changes, use_container_width=True):
+    if b2.button("Сохранить в базе и записать в Excel", disabled=not changes, width="stretch"):
         grouped = {}
         for ch in changes:
             grouped.setdefault(int(ch["dataset_id"]), []).append(ch)
@@ -443,7 +359,14 @@ elif page == "Единая база":
             selected_point_label = st.selectbox("Точка", list(point_map), key="db_point_card")
             selected_aid = point_map[selected_point_label]
             selected_row = shown[shown["_analysis_id"].astype(str) == selected_aid].iloc[0]
-            st.dataframe(pd.DataFrame({"Параметр": [c for c in shown.columns if not str(c).startswith("_")], "Значение": [selected_row.get(c) for c in [c for c in shown.columns if not str(c).startswith("_")]]}), use_container_width=True, hide_index=True, height=360)
+            visible_columns = [c for c in shown.columns if not str(c).startswith("_")]
+            point_properties = pd.DataFrame(
+                {
+                    "Параметр": visible_columns,
+                    "Значение": [display_value(selected_row.get(c)) for c in visible_columns],
+                }
+            )
+            st.dataframe(point_properties, width="stretch", hide_index=True, height=360)
             render_asset_gallery(collect_related_images(selected_row, project_id=selected_project_id))
 
 elif page == "Изображения":
@@ -514,7 +437,7 @@ elif page == "Пересчёт формул":
     method = method_map[st.selectbox("Метод пересчёта", list(method_map), format_func=lambda mid: method_map[mid].title_ru)]
     raw_df = load_dataset_dataframe(int(chosen["id"]), include_meta=False)
     result = calculate_formula(raw_df, chosen["mineral_key"], method.id)
-    st.dataframe(result.data.head(150), use_container_width=True, hide_index=True, height=560)
+    st.dataframe(result.data.head(150), width="stretch", hide_index=True, height=560)
 
 elif page == "Минералы":
     st.title("Минералогические модули")
@@ -636,7 +559,7 @@ elif page == "Диаграммы":
             profile_map = {f"{r['name']} · {r['grouping_column'] or 'без поля'}": r for r in style_records if not r['grouping_column'] or r['grouping_column'] == group_col}
             selected_profile = st.selectbox("Готовый профиль", ["—"] + list(profile_map), key="style_profile_select") if profile_map else "—"
             existing_style = profile_map[selected_profile]["styles"] if profile_map and selected_profile != "—" else recipe.get("style_map", {})
-            style_editor = st.data_editor(style_df_from_groups(group_values, existing=existing_style), use_container_width=True, hide_index=True, column_config={"Маркер": st.column_config.SelectboxColumn("Маркер", options=MARKERS), "Размер ×": st.column_config.NumberColumn("Размер ×", min_value=0.2, max_value=5.0, step=0.1), "Alpha": st.column_config.NumberColumn("Alpha", min_value=0.1, max_value=1.0, step=0.05), "Заливка": st.column_config.CheckboxColumn("Заливка")}, key="style_editor")
+            style_editor = st.data_editor(style_df_from_groups(group_values, existing=existing_style), width="stretch", hide_index=True, column_config={"Маркер": st.column_config.SelectboxColumn("Маркер", options=MARKERS), "Размер ×": st.column_config.NumberColumn("Размер ×", min_value=0.2, max_value=5.0, step=0.1), "Alpha": st.column_config.NumberColumn("Alpha", min_value=0.1, max_value=1.0, step=0.05), "Заливка": st.column_config.CheckboxColumn("Заливка")}, key="style_editor")
             style_map = style_map_from_df(style_editor)
             s1, s2 = st.columns(2)
             profile_name = s1.text_input("Название профиля стилей", value=recipe.get("style_profile_name", ""), key="style_profile_name")
@@ -652,18 +575,18 @@ elif page == "Диаграммы":
     plot_df[y] = pd.to_numeric(plot_df[y], errors="coerce")
     plot_df = plot_df.dropna(subset=[x, y])
     fig = build_scatter(plot_df, x, y, group_col, x_label=x_label, y_label=y_label, title=title, marker_size=marker_size, xlim=(x_min, x_max), ylim=(y_min, y_max), log_x=log_x, log_y=log_y, show_grid=show_grid, style_map=style_map, monochrome=monochrome, show_legend=show_legend, annotate=annotate, label_col=label_col, annotate_top_n=annotate_top_n, figure_size=(figure_width, figure_height), font_size=font_size, tick_size=tick_size, title_size=title_size, spine_width=spine_width)
-    st.pyplot(fig, use_container_width=False)
+    st.pyplot(fig, width="content")
     png = figure_png_bytes(fig, dpi=600)
     svg = figure_svg_bytes(fig)
     plt.close(fig)
     b1, b2, b3 = st.columns(3)
-    b1.download_button("PNG · 600 dpi", png, file_name="petrolab_plot.png", mime="image/png", use_container_width=True)
-    b2.download_button("SVG", svg, file_name="petrolab_plot.svg", mime="image/svg+xml", use_container_width=True)
+    b1.download_button("PNG · 600 dpi", png, file_name="petrolab_plot.png", mime="image/png", width="stretch")
+    b2.download_button("SVG", svg, file_name="petrolab_plot.svg", mime="image/svg+xml", width="stretch")
     plot_excel = io.BytesIO()
     with pd.ExcelWriter(plot_excel, engine="openpyxl") as writer:
         plot_df.to_excel(writer, index=False, sheet_name="Точки графика")
         pd.DataFrame([{"journal_preset": preset, "x": x, "y": y, "group_col": group_col or "", "x_label": x_label, "y_label": y_label, "title": title, "marker_size": marker_size, "x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max, "log_x": log_x, "log_y": log_y, "show_grid": show_grid, "monochrome": monochrome, "show_legend": show_legend, "annotate": annotate, "label_col": label_col or "", "annotate_top_n": annotate_top_n, "figure_width": figure_width, "figure_height": figure_height, "font_size": font_size, "tick_size": tick_size, "spine_width": spine_width, "title_size": title_size, "query": query, "column_filters": json.dumps(chosen_filters, ensure_ascii=False)}]).to_excel(writer, index=False, sheet_name="Настройки")
-    b3.download_button("Данные графика · Excel", plot_excel.getvalue(), file_name="petrolab_plot_data.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    b3.download_button("Данные графика · Excel", plot_excel.getvalue(), file_name="petrolab_plot_data.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
     with st.expander("Сохранить текущий рецепт графика", expanded=False):
         recipe_name = st.text_input("Название рецепта", value=recipe.get("name", ""), key="save_recipe_name")
         recipe_project = st.checkbox("Сохранить как проектный рецепт", value=True if project_id is not None else False, disabled=project_id is None)
@@ -673,7 +596,7 @@ elif page == "Диаграммы":
             st.success("Рецепт сохранён.")
             st.rerun()
     st.subheader("Точки, вошедшие в график")
-    st.dataframe(plot_df, use_container_width=True, hide_index=True, height=350)
+    st.dataframe(plot_df, width="stretch", hide_index=True, height=350)
     if not plot_df.empty:
         point_map = {f"{row_identity(row)} · {row.get('Источник', '')} · строка {row.get('_source_row', '—')}": str(row["_analysis_id"]) for _, row in plot_df.head(3000).iterrows()}
         chosen_point = st.selectbox("Открыть точку с графика", list(point_map), key="plot_point_select")
@@ -691,7 +614,7 @@ elif page == "Экспорт":
     if not ids:
         st.stop()
     df = load_unified_analyses(dataset_ids=ids)
-    st.dataframe(df.head(80), use_container_width=True, hide_index=True)
+    st.dataframe(df.head(80), width="stretch", hide_index=True)
     export_df = df[[c for c in df.columns if not str(c).startswith("_")]].copy()
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
@@ -709,6 +632,6 @@ elif page == "Журнал изменений":
     st.title("Журнал изменений")
     rows = list_change_log(limit=2000)
     if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=700)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=700)
     else:
         st.caption("Изменений пока нет.")
