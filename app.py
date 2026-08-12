@@ -15,6 +15,7 @@ from petrolab.ui.pages import (
     render_plots_page,
     render_projects_page,
     render_sources_page,
+    render_ternary_page,
 )
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
@@ -34,6 +35,8 @@ st.markdown(
 
 if "loaded_recipe" not in st.session_state:
     st.session_state.loaded_recipe = None
+if "loaded_ternary_recipe" not in st.session_state:
+    st.session_state.loaded_ternary_recipe = None
 
 PAGES = {
     "Главная": render_home_page,
@@ -41,7 +44,8 @@ PAGES = {
     "Источники и импорт": render_sources_page,
     "Единая база": render_analyses_page,
     "Расчёты и формулы": render_formulae_page,
-    "Диаграммы": render_plots_page,
+    "XY-диаграммы": render_plots_page,
+    "Треугольные диаграммы": render_ternary_page,
     "Изображения": render_images_page,
     "Минералы": render_minerals_page,
     "Экспорт": render_export_page,
