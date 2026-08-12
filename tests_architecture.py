@@ -69,6 +69,8 @@ pure_files = [
     ROOT / "petrolab" / "dataframe_utils.py",
     ROOT / "petrolab" / "outliers.py",
     ROOT / "petrolab" / "derived.py",
+    ROOT / "petrolab" / "analysis_groups.py",
+    ROOT / "petrolab" / "interactive_plotting.py",
     ROOT / "petrolab" / "plot_presets.py",
     ROOT / "petrolab" / "analysis_identity.py",
     ROOT / "petrolab" / "services" / "import_service.py",
@@ -103,10 +105,15 @@ plots_page = (pages_dir / "plots.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in plots_page
 assert "robust_outliers" in plots_page
 assert "manual_outlier_exclusions" in plots_page
+assert "build_interactive_scatter" in plots_page
+assert "selected_analysis_ids" in plots_page
+assert "set_work_group" in plots_page
+assert "st.plotly_chart" in plots_page
 
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in analyses_page
 assert "active_derived_columns" in analyses_page
+assert "attach_work_groups" in analyses_page
 
 # Empty exception handlers make scientific/data failures impossible to diagnose.
 for path in [app_path, *sorted((ROOT / "petrolab").rglob("*.py"))]:
