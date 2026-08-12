@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PetroLab local scientific data -- NEVER commit user data
+petrolab_data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Scientific source data / images
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.tsv
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# Keep repository documentation assets if introduced later
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!docs/**/*.webp
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
