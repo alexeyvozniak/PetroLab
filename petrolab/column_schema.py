@@ -34,10 +34,13 @@ WEAK_ROLE_CANDIDATES: dict[str, set[str]] = {
     "Generation": {"group", "type", "zone", "rimcore", "population", "series"},
 }
 
-# FeOt is deliberately NOT collapsed into FeO. It is total iron expressed as FeO.
+# Total-iron reporting conventions stay distinct from measured valence-specific oxides.
 OXIDE_ALIASES: dict[str, str] = {
     "sio2": "SiO2", "tio2": "TiO2", "al2o3": "Al2O3", "cr2o3": "Cr2O3",
-    "fe2o3": "Fe2O3", "feo": "FeO", "feot": "FeOt", "feotot": "FeOt",
+    "fe2o3": "Fe2O3",
+    "fe2o3t": "Fe2O3t", "fe2o3tot": "Fe2O3t", "fe2o3total": "Fe2O3t",
+    "totalfeasfe2o3": "Fe2O3t", "fe2o3*": "Fe2O3t",
+    "feo": "FeO", "feot": "FeOt", "feotot": "FeOt",
     "feototal": "FeOt", "totalfeasfeo": "FeOt", "feo*": "FeOt",
     "mno": "MnO", "mgo": "MgO", "cao": "CaO", "na2o": "Na2O", "k2o": "K2O",
     "p2o5": "P2O5", "nio": "NiO", "bao": "BaO", "sro": "SrO", "zno": "ZnO",
@@ -116,8 +119,13 @@ def describe_header(value: object) -> ColumnDescriptor:
     token = _token(original)
     if token in OXIDE_ALIASES:
         canonical = OXIDE_ALIASES[token]
-        warning = "total Fe as FeO" if canonical == "FeOt" else ""
-        return ColumnDescriptor(canonical, "oxide", "wt%", "wt%", 1.0, 1.0, warning)
+        warnings = {
+            "FeOt": "total Fe as FeO; not a measured FeO/Fe2+ value",
+            "Fe2O3t": "total Fe as Fe2O3; not a measured Fe2O3/Fe3+ value",
+        }
+        return ColumnDescriptor(
+            canonical, "oxide", "wt%", "wt%", 1.0, 1.0, warnings.get(canonical, "")
+        )
 
     unit_match = _CONCENTRATION_UNIT_RE.search(original)
     if unit_match:
