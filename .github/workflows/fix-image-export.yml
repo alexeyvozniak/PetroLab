@@ -1,0 +1,41 @@
+name: Fix image export service route
+
+on:
+  push:
+    branches:
+      - refactor/import-schema-images
+    paths:
+      - tools/fix_image_export.py
+      - .github/workflows/fix-image-export.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply export fix
+        run: python tools/fix_image_export.py
+      - name: Validate
+        run: |
+          python -m py_compile app.py petrolab/services/image_service.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app.py').read_text(encoding='utf-8')
+          assert 'list_image_assets()' not in text
+          assert 'list_all_images()' in text
+          PY
+      - name: Commit and remove one-shot tooling
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add app.py
+          git rm tools/fix_image_export.py .github/workflows/fix-image-export.yml
+          git commit -m "Route image export through service"
+          git push
