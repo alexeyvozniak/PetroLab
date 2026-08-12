@@ -1,0 +1,33 @@
+name: Refine protected identity scope
+
+on:
+  push:
+    branches:
+      - refactor/stable-analysis-ids-trace-elements-image-wizard
+    paths:
+      - tools/refine_protected_identity_scope.py
+      - .github/workflows/refine-protected-identity-scope.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python tools/refine_protected_identity_scope.py
+      - name: Validate syntax
+        run: python -m py_compile petrolab/repositories/analysis_refresh_repository.py
+      - name: Commit patch and remove one-shot tooling
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add petrolab/repositories/analysis_refresh_repository.py
+          git rm tools/refine_protected_identity_scope.py .github/workflows/refine-protected-identity-scope.yml
+          git commit -m "Protect identity only for point-specific metadata"
+          git push
