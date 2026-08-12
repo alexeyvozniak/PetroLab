@@ -1,0 +1,33 @@
+name: Apply formula duplicate guard
+
+on:
+  push:
+    branches:
+      - refactor/stable-analysis-ids-trace-elements-image-wizard
+    paths:
+      - tools/patch_formula_duplicate_guard.py
+      - .github/workflows/apply-formula-duplicate-guard.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python tools/patch_formula_duplicate_guard.py
+      - name: Validate syntax
+        run: python -m py_compile petrolab/minerals/formulae.py
+      - name: Commit patch and remove one-shot tooling
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add petrolab/minerals/formulae.py
+          git rm tools/patch_formula_duplicate_guard.py .github/workflows/apply-formula-duplicate-guard.yml
+          git commit -m "Reject duplicate chemical inputs in formula calculations"
+          git push
