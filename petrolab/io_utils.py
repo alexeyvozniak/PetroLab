@@ -120,8 +120,26 @@ def trace_element_columns(df: pd.DataFrame) -> list[str]:
     return [column for column in df.columns if str(column).endswith("[µg/g]")]
 
 
+def _duplicate_oxide_inputs(columns: pd.Index) -> list[str]:
+    conflicts: list[str] = []
+    for column in columns:
+        name = str(column)
+        if "__" not in name:
+            continue
+        base, suffix = name.rsplit("__", 1)
+        if suffix.isdigit() and base in COMMON_OXIDES:
+            conflicts.append(name)
+    return sorted(conflicts)
+
+
 def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = numericize_scientific_columns(df)
+    duplicate_oxides = _duplicate_oxide_inputs(out.columns)
+    if duplicate_oxides:
+        out["QC химии"] = (
+            "Конфликтующие химические колонки: " + ", ".join(duplicate_oxides)
+        )
+
     oxides = [
         column for column in oxide_columns(out)
         if column not in {"F", "Cl", "H2O", "FeO", "FeOt", "Fe2O3"}
@@ -140,12 +158,15 @@ def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     if oxides:
         out["Σ оксидов"] = out[oxides].sum(axis=1, min_count=1)
-        out["QC суммы"] = pd.cut(
-            out["Σ оксидов"],
-            bins=[float("-inf"), 97.0, 103.0, float("inf")],
-            labels=["низкая", "норма", "высокая"],
-            right=True,
-        ).astype("string")
+        if duplicate_oxides:
+            out["QC суммы"] = "конфликт колонок"
+        else:
+            out["QC суммы"] = pd.cut(
+                out["Σ оксидов"],
+                bins=[float("-inf"), 97.0, 103.0, float("inf")],
+                labels=["низкая", "норма", "высокая"],
+                right=True,
+            ).astype("string")
     return out
 
 
