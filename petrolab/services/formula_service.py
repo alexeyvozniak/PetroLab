@@ -11,6 +11,7 @@ from petrolab.minerals.classification import (
     attach_mineral_classification,
 )
 from petrolab.minerals.formulae import CalculationResult, OXIDES, calculate_formula
+from petrolab.minerals.garnet_ti import apply_strict_grew_figure5
 
 
 FE2O3T_TO_FEOT = (
@@ -78,18 +79,15 @@ def calculate_formula_safe(
     prepared, preparation_note = prepare_formula_input(dataframe)
     result = calculate_formula(prepared, mineral_key, method_id)
 
-    # Present exactly the original source columns plus genuinely calculated fields. Temporary
-    # FeOt created from Fe2O3t must never look like a second measured laboratory column.
     final = dataframe.copy()
     for column in result.data.columns:
         if column not in prepared.columns:
             final[column] = result.data[column].to_numpy(copy=False)
 
-    # Classification is interpretation, not the structural-formula calculation itself.
-    # Missing classification inputs must therefore degrade to an explicit status instead of
-    # destroying a valid formula. Scientific errors in the formula stage still fail hard above.
     try:
         final = attach_mineral_classification(final, mineral_key, method_id)
+        if str(mineral_key) == "garnet":
+            final = apply_strict_grew_figure5(final)
     except ValueError as exc:
         final = _classification_unavailable(final, exc)
 
