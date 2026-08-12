@@ -16,7 +16,6 @@ from petrolab.db import (
     META_COLUMNS,
     add_dataset,
     add_image_asset,
-    create_project,
     delete_image_asset,
     delete_plot_recipe,
     delete_style_profile,
@@ -54,10 +53,11 @@ from petrolab.io_utils import (
     sha256_file,
 )
 from petrolab.minerals.formulae import calculate_formula, methods_for
-from petrolab.minerals.registry import MINERALS, labels as mineral_labels
+from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.sources import reload_linked_source, source_status, sync_cell_changes
+from petrolab.ui.pages import render_home_page, render_projects_page
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
@@ -162,38 +162,10 @@ with st.sidebar:
     st.caption("Локальная база SQLite. Анализы связываются с исходными Excel, а изображения — с набором, полем или отдельной точкой.")
 
 if page == "Главная":
-    st.title("ПетроЛаб")
-    st.write("Единая локальная рабочая среда для минералогических и геохимических анализов.")
-    all_datasets = list_datasets()
-    all_projects = list_projects()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Проектов", len(all_projects))
-    c2.metric("Наборов данных", len(all_datasets))
-    c3.metric("Анализов", sum(int(d["row_count"]) for d in all_datasets))
-    c4.metric("Минералов", len({d["mineral_key"] for d in all_datasets}))
-    st.subheader("Новая графическая логика")
-    st.write("В «Диаграммах» теперь есть журнальные шаблоны, фильтры по колонкам, сохранённые рецепты и профили маркеров по группам.")
-    if all_datasets:
-        view = pd.DataFrame(all_datasets)[["project_name", "name", "mineral_key", "row_count", "source_filename", "source_sheet", "source_kind"]].copy()
-        view["mineral_key"] = view["mineral_key"].map(mineral_labels()).fillna(view["mineral_key"])
-        view.columns = ["Проект", "Набор", "Минерал", "Строк", "Источник", "Лист", "Тип связи"]
-        st.dataframe(view, width="stretch", hide_index=True)
+    render_home_page()
 
 elif page == "Проекты":
-    st.title("Проекты")
-    with st.form("new_project", clear_on_submit=True):
-        name = st.text_input("Название проекта")
-        description = st.text_area("Краткое описание")
-        if st.form_submit_button("Создать проект", type="primary"):
-            try:
-                create_project(name, description)
-                st.success(f"Проект «{name.strip()}» создан.")
-                st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
-    projects = list_projects()
-    if projects:
-        st.dataframe(pd.DataFrame(projects)[["name", "description", "created_at"]], width="stretch", hide_index=True)
+    render_projects_page()
 
 elif page == "Источники и импорт":
     st.title("Источники и импорт")
