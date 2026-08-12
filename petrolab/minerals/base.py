@@ -14,6 +14,11 @@ MOLAR_MASS = {
 }
 
 
+def _has_duplicate_input(columns: pd.Index, base: str) -> bool:
+    prefix = f"{base}__"
+    return any(str(column).startswith(prefix) for column in columns)
+
+
 @dataclass(frozen=True)
 class MineralModule:
     key: str
@@ -30,6 +35,16 @@ class MineralModule:
             iron_column = "FeO"
         elif "FeOt" in out.columns:
             iron_column = "FeOt"
+
+        duplicate_inputs = [
+            base for base in ("MgO", "FeO", "FeOt")
+            if _has_duplicate_input(out.columns, base)
+        ]
+        if duplicate_inputs:
+            out["QC Mg#"] = (
+                "Mg# не рассчитан: конфликтующие колонки " + ", ".join(duplicate_inputs)
+            )
+            return out
 
         if "MgO" in out.columns and iron_column:
             mg = pd.to_numeric(out["MgO"], errors="coerce") / MOLAR_MASS["MgO"]
