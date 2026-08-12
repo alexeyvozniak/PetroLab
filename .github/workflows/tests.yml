@@ -1,0 +1,42 @@
+name: Windows verification
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate BAT encoding and line endings
+        shell: python
+        run: |
+          from pathlib import Path
+          launchers = list(Path('.').glob('*.bat'))
+          assert launchers, 'No BAT launchers found'
+          for path in launchers:
+              data = path.read_bytes()
+              assert all(b < 128 for b in data), f'{path}: non-ASCII byte found'
+              assert b'\n' not in data.replace(b'\r\n', b''), f'{path}: bare LF found'
+          print('Windows launchers: encoding and CRLF OK')
+
+      - name: Compile Python sources
+        shell: cmd
+        run: python -m compileall -q app.py petrolab tests_formulae.py tests_smoke.py tests_streamlit.py
+
+      - name: Run real PetroLab Windows startup in CI mode
+        shell: cmd
+        run: |
+          set PETROLAB_CI=1
+          call START_PETROLAB.bat
