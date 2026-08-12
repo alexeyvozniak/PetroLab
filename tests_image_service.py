@@ -126,6 +126,7 @@ batch = create_assigned_image_batch(
     ],
 )
 assert batch.count == 2
+single_point_asset_id = batch.asset_ids[1]
 assert len(list_dataset_images(dataset_id)) == 5
 
 # Sorting rows and inserting a new point must preserve old IDs and image links.
@@ -143,6 +144,7 @@ refresh = refresh_dataset_from_source(dataset_id)
 assert refresh.moved_rows_detected
 assert refresh.reused_count == 3
 assert refresh.new_count == 1
+assert refresh.detached_image_count == 0
 refreshed = load_dataset_dataframe(dataset_id, include_meta=True)
 row_a1 = refreshed[(refreshed["Sample"] == "A") & (refreshed["Point"].astype(str) == "1")].iloc[0]
 row_a2 = refreshed[(refreshed["Sample"] == "A") & (refreshed["Point"].astype(str) == "2")].iloc[0]
@@ -150,6 +152,24 @@ assert str(row_a1["_analysis_id"]) == first_id
 assert str(row_a2["_analysis_id"]) == second_id
 assert "two-points" in {asset["title"] for asset in related_images_for_row(row_a1, project_id=project_id)}
 assert "two-points" in {asset["title"] for asset in related_images_for_row(row_a2, project_id=project_id)}
+
+# Removing A/1/2 must detach its point-specific image links but keep the physical files.
+without_second = pd.DataFrame(
+    {
+        "Sample": ["C", "B", "A"],
+        "Grain": ["3", "2", "1"],
+        "Point": ["1", "1", "1"],
+        "SiO2": [39.0, 42.0, 40.0],
+    }
+)
+with pd.ExcelWriter(workbook, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+    without_second.to_excel(writer, sheet_name="Data", index=False)
+removed = refresh_dataset_from_source(dataset_id)
+assert removed.removed_count == 1
+assert removed.detached_image_count == 2
+assert get_image_record(point_result.asset_ids[0])["analysis_ids"] == [first_id]
+assert get_image_record(single_point_asset_id)["analysis_ids"] == []
+assert Path(get_image_record(single_point_asset_id)["stored_path"]).exists()
 
 point_path = Path(get_image_record(point_result.asset_ids[0])["stored_path"])
 assert point_path.exists()
