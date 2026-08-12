@@ -25,11 +25,18 @@ def collect_related_images(selected_row: pd.Series, project_id: int | None = Non
     return related_images_for_row(selected_row, project_id=project_id)
 
 
-def render_asset_gallery(assets: list[dict], max_items: int = 20, width: int = 650) -> None:
-    """Render stored image assets while tolerating missing or unreadable files."""
+def render_asset_gallery(
+    assets: list[dict],
+    max_items: int = 20,
+    width: int | str = "stretch",
+) -> None:
+    """Render stored images responsively while tolerating missing/unreadable files."""
     if not assets:
         st.caption("Связанных изображений нет.")
         return
+    # Legacy callers may still request a large pixel width. Convert it to responsive
+    # layout instead of letting individual pages make different mobile decisions.
+    effective_width: int | str = "stretch" if isinstance(width, int) and width > 700 else width
     for asset in assets[:max_items]:
         path = Path(asset["stored_path"])
         if not path.exists():
@@ -39,7 +46,7 @@ def render_asset_gallery(assets: list[dict], max_items: int = 20, width: int = 6
             st.image(
                 str(path),
                 caption=asset["title"] or asset["original_filename"],
-                width=width,
+                width=effective_width,
             )
         except Exception:
             st.caption(asset["original_filename"])
