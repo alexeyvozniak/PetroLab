@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import pandas as pd
 
+from petrolab.plot_text import matplotlib_label
 from petrolab.scientific_overlays import draw_xy_overlay
 from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
@@ -79,20 +78,31 @@ def build_scientific_xy_figure(
                 ax.add_patch(rect)
                 label = str(row.get("label", "")).strip()
                 if label:
-                    ax.text((x_min + x_max) / 2.0, (y_min + y_max) / 2.0, label,
-                            ha="center", va="center", fontsize=max(6, font_size - 1))
+                    ax.text(
+                        (x_min + x_max) / 2.0,
+                        (y_min + y_max) / 2.0,
+                        matplotlib_label(label),
+                        ha="center",
+                        va="center",
+                        fontsize=max(6, font_size - 1),
+                    )
 
         if point_label_column and point_label_column in work.columns:
             for _, row in work.iterrows():
                 text = str(row.get(point_label_column, "")).strip()
                 if text and text.lower() != "nan":
-                    ax.annotate(text, (row[x], row[y]), xytext=(3, 3), textcoords="offset points",
-                                fontsize=max(6, font_size - 1))
+                    ax.annotate(
+                        text,
+                        (row[x], row[y]),
+                        xytext=(3, 3),
+                        textcoords="offset points",
+                        fontsize=max(6, font_size - 1),
+                    )
 
-        ax.set_xlabel(x_label or x, fontsize=label_size)
-        ax.set_ylabel(y_label or y, fontsize=label_size)
+        ax.set_xlabel(matplotlib_label(x_label or x), fontsize=label_size)
+        ax.set_ylabel(matplotlib_label(y_label or y), fontsize=label_size)
         ax.tick_params(labelsize=tick_size)
-        ax.set_title(title)
+        ax.set_title(matplotlib_label(title))
         for spine in ax.spines.values():
             spine.set_linewidth(spine_width)
         if grid:
