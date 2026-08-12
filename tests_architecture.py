@@ -43,6 +43,7 @@ assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
 assert (ROOT / "petrolab" / "ui" / "data_scope.py").exists()
 assert (ROOT / "petrolab" / "ui" / "plot_style_controls.py").exists()
+assert (ROOT / "petrolab" / "ui" / "rock_plots.py").exists()
 assert (ROOT / "petrolab" / "ui" / "theme.py").exists()
 
 pure_files = [
@@ -84,7 +85,6 @@ for path in pure_files:
     assert "import streamlit" not in text, f"Streamlit dependency leaked into {path}"
     assert "from streamlit" not in text, f"Streamlit dependency leaked into {path}"
 
-# Scientific boundaries belong to source-aware registries/overlays, never page code.
 science_page_text = (pages_dir / "science_plots.py").read_text(encoding="utf-8")
 science_overlay_text = (ROOT / "petrolab" / "scientific_overlays.py").read_text(encoding="utf-8")
 for coefficient in ["51.9078", "52.8316", "3.375", "0.94"]:
@@ -93,7 +93,6 @@ for coefficient in ["51.9078", "52.8316", "3.375", "0.94"]:
 assert "10.1016/j.lithos.2004.04.025" in science_overlay_text
 assert "10.1016/j.lithos.2004.04.012" in science_overlay_text
 
-# Scientific ternary classification geometry belongs to the existing source-aware registry.
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
 preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
 plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
@@ -149,6 +148,9 @@ for marker in [
     "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe",
 ]:
     assert marker in ternary_workspace
+ternary_controls_text = ternary_controls.read_text(encoding="utf-8")
+assert "Подписи вершин" in ternary_controls_text
+assert "Подписи классификационных полей" in ternary_controls_text
 
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in analyses_page
@@ -156,8 +158,11 @@ assert "active_derived_columns" in analyses_page
 assert "attach_work_groups" in analyses_page
 
 rocks_page = (pages_dir / "rocks.py").read_text(encoding="utf-8")
-for marker in ["build_tas_figure", "build_rhodes_figure", "set_mineral_links", "replace_isotopes"]:
+for marker in ["set_mineral_links", "replace_isotopes", "render_rock_plots", "delete_rock_with_assets"]:
     assert marker in rocks_page
+rock_plots_text = (ROOT / "petrolab" / "ui" / "rock_plots.py").read_text(encoding="utf-8")
+for marker in ["build_tas_figure", "build_rhodes_figure", "build_pattern_figure", "render_figure_style_controls"]:
+    assert marker in rock_plots_text
 rock_storage = (ROOT / "petrolab" / "storage_extensions.py").read_text(encoding="utf-8")
 for table_name in ["rock_samples", "rock_compositions", "rock_isotopes", "rock_mineral_links", "rock_images"]:
     assert table_name in rock_storage
