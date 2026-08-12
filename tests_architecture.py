@@ -31,6 +31,7 @@ for renderer in [
     "render_analyses_page",
     "render_formulae_page",
     "render_plots_page",
+    "render_ternary_page",
     "render_images_page",
     "render_minerals_page",
     "render_export_page",
@@ -45,6 +46,8 @@ for page_name in [
     "analyses.py",
     "formulae.py",
     "plots.py",
+    "ternary.py",
+    "plots_ternary.py",
     "images.py",
     "minerals.py",
     "export.py",
@@ -72,6 +75,9 @@ pure_files = [
     ROOT / "petrolab" / "analysis_groups.py",
     ROOT / "petrolab" / "interactive_plotting.py",
     ROOT / "petrolab" / "plot_presets.py",
+    ROOT / "petrolab" / "ternary_data.py",
+    ROOT / "petrolab" / "ternary_presets.py",
+    ROOT / "petrolab" / "ternary_plotting.py",
     ROOT / "petrolab" / "analysis_identity.py",
     ROOT / "petrolab" / "services" / "import_service.py",
     ROOT / "petrolab" / "services" / "analysis_service.py",
@@ -109,6 +115,16 @@ assert "build_interactive_scatter" in plots_page
 assert "selected_analysis_ids" in plots_page
 assert "set_work_group" in plots_page
 assert "st.plotly_chart" in plots_page
+
+ternary_page = (pages_dir / "ternary.py").read_text(encoding="utf-8")
+ternary_workspace = (pages_dir / "plots_ternary.py").read_text(encoding="utf-8")
+assert "load_unified_with_derived" in ternary_page
+assert "render_ternary_workspace" in ternary_page
+assert "prepare_ternary" in ternary_workspace
+assert "build_interactive_ternary" in ternary_workspace
+assert "build_publication_ternary" in ternary_workspace
+assert "selected_analysis_ids" in ternary_workspace
+assert "save_plot_recipe" in ternary_workspace
 
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in analyses_page
