@@ -24,6 +24,10 @@ from petrolab.io_utils import (
     sha256_bytes,
     sha256_file,
 )
+from petrolab.measurement_semantics import (
+    apply_measurement_overrides,
+    stored_measurement_overrides,
+)
 from petrolab.minerals.registry import MINERALS
 from petrolab.repositories.analysis_refresh_repository import (
     RefreshPersistenceResult,
@@ -121,10 +125,12 @@ def preview_linked_source(
     header_row: int,
     mineral_key: str,
     semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
     source = validate_source_path(path)
     dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
-    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -135,9 +141,11 @@ def preview_uploaded_source(
     header_row: int,
     mineral_key: str,
     semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
     dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
-    mapped, _, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -150,6 +158,7 @@ def import_linked_sheets(
     dataset_name: str,
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
     source = validate_source_path(path)
     if not sheet_names:
@@ -161,6 +170,9 @@ def import_linked_sheets(
         dataframe, column_map, source_rows = read_tabular_path(source, sheet_name or None, int(header_row))
         mapped, mapped_column_map, _ = apply_semantic_mapping(
             dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
+        )
+        mapped, mapped_column_map, _ = apply_measurement_overrides(
+            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
         )
         calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, source.stem, sheet_name, len(sheet_names))
@@ -194,6 +206,7 @@ def import_uploaded_sheets(
     dataset_name: str,
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ImportBatchResult:
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
@@ -208,6 +221,9 @@ def import_uploaded_sheets(
         )
         mapped, mapped_column_map, _ = apply_semantic_mapping(
             dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
+        )
+        mapped, mapped_column_map, _ = apply_measurement_overrides(
+            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
         )
         calculated = _calculate_mineral(mapped, mineral_key)
         name = _dataset_name(dataset_name, Path(filename).stem, sheet_name, len(sheet_names))
@@ -232,11 +248,12 @@ def import_uploaded_sheets(
 
 
 def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
-    """Reload a source while preserving identities across edits, inserts and sorting."""
+    """Reload a source while preserving identities and confirmed column semantics."""
     dataset = get_dataset(int(dataset_id))
     dataframe, column_map, source_rows, new_hash = reload_linked_source(int(dataset_id))
     stored_map = json.loads(dataset.get("column_map_json") or "{}")
     previous_semantic = stored_semantic_mapping(stored_map)
+    measurement_map = stored_measurement_overrides(stored_map)
     semantic_map = resolve_semantic_mapping(dataframe.columns, previous_semantic)
     recovered_roles = tuple(
         role for role, previous in previous_semantic.items()
@@ -244,6 +261,9 @@ def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
     )
 
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(
+        mapped, mapped_column_map, measurement_map
+    )
     calculated = _calculate_mineral(mapped, dataset.get("mineral_key") or "generic")
     persistence: RefreshPersistenceResult = replace_dataset_rows_stable(
         int(dataset_id), calculated, source_rows
@@ -292,6 +312,10 @@ def _schema_preview(
             notes.append(f"{original} → {normalized}: {source_unit} → {canonical_unit}, ×{factor:g}")
         if warning:
             notes.append(f"{original}: {warning}")
+    if "Fe2O3" in dataframe.columns:
+        notes.append(
+            "Fe2O3: подтвердите смысл колонки — отдельно заданное Fe³⁺ или ΣFe, выраженное как Fe2O3 total."
+        )
     return ImportSchemaPreview(
         sheet_name=sheet_name,
         schema=inspect_sheet_schema(dataframe.columns),
