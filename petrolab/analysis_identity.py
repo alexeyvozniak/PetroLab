@@ -39,18 +39,22 @@ class AnalysisMatchResult:
     strategies: Mapping[int, str]
     moved_rows_detected: bool
     unmatched_existing_ids: frozenset[str]
+    positional_fallback_disabled: bool = False
 
 
 def match_existing_analyses(
     existing: Iterable[ExistingAnalysis],
     new_dataframe: pd.DataFrame,
     source_rows: list[int | None],
+    *,
+    allow_source_row_fallback: bool = True,
 ) -> AnalysisMatchResult:
     """Match refreshed rows to old analysis IDs without guessing through ambiguity.
 
     Semantic keys are used only when unique on both sides. Exact row fingerprints then
     recover rows that were sorted without identifiers. Source-row fallback is allowed only
-    when row count is unchanged and there is no evidence of row movement.
+    when row count is unchanged, there is no evidence of row movement, and the caller has
+    not disabled it because point-specific metadata already depends on the old IDs.
     """
     old = list(existing)
     if len(source_rows) != len(new_dataframe):
@@ -83,7 +87,11 @@ def match_existing_analyses(
             matched[index] = item.analysis_id
             strategies[index] = "+".join(fields)
             used_old.add(item.analysis_id)
-            if item.source_row is not None and source_rows[index] is not None and item.source_row != source_rows[index]:
+            if (
+                item.source_row is not None
+                and source_rows[index] is not None
+                and item.source_row != source_rows[index]
+            ):
                 moved = True
 
     # Exact fingerprints are deliberately based on source-like values and ignore common
@@ -105,12 +113,17 @@ def match_existing_analyses(
         matched[index] = item.analysis_id
         strategies[index] = "exact-row"
         used_old.add(item.analysis_id)
-        if item.source_row is not None and source_rows[index] is not None and item.source_row != source_rows[index]:
+        if (
+            item.source_row is not None
+            and source_rows[index] is not None
+            and item.source_row != source_rows[index]
+        ):
             moved = True
 
-    # Reusing a row number after an insertion/sort can silently attach an image to the
-    # wrong analysis. Positional fallback is therefore deliberately conservative.
-    if not moved:
+    # Reusing a row number after an insertion/sort can silently attach point metadata to
+    # the wrong analysis. Positional fallback is therefore deliberately conservative.
+    positional_disabled = not allow_source_row_fallback
+    if not moved and allow_source_row_fallback:
         old_by_source = {
             item.source_row: item
             for item in old
@@ -134,6 +147,7 @@ def match_existing_analyses(
         strategies=strategies,
         moved_rows_detected=moved,
         unmatched_existing_ids=frozenset(all_old - used_old),
+        positional_fallback_disabled=positional_disabled,
     )
 
 
