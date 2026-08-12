@@ -26,6 +26,7 @@ def make_workbook(path: Path, value: float = 40.0) -> None:
         pd.DataFrame(
             {
                 "Sample": ["A", "B"],
+                "Point": ["1", "2"],
                 "SiO2": [value, value + 1.0],
                 "MgO": [20.0, 19.0],
                 "FeO": [5.0, 6.0],
@@ -48,6 +49,7 @@ linked = import_linked_sheets(
     mineral_key="generic",
     dataset_name="Linked",
     header_row=1,
+    semantic_maps={"Analyses": {"Sample": "Sample", "Point": "Point"}},
 )
 assert linked.count == 1
 linked_id = linked.dataset_ids[0]
@@ -65,8 +67,11 @@ assert float(before.loc[0, "SiO2"]) == 40.0
 make_workbook(linked_path, value=44.0)
 status, _ = source_status(get_dataset(linked_id))
 assert status == "изменён вне ПетроЛаба"
-row_count = refresh_dataset_from_source(linked_id)
-assert row_count == 2
+refresh = refresh_dataset_from_source(linked_id)
+assert refresh.row_count == 2
+assert refresh.reused_count == 2
+assert refresh.new_count == 0
+assert refresh.removed_count == 0
 
 after = load_dataset_dataframe(linked_id, include_meta=True)
 assert after["_analysis_id"].tolist() == ids_before
