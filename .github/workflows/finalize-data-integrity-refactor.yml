@@ -1,0 +1,108 @@
+name: Finalize data integrity refactor
+
+on:
+  push:
+    branches:
+      - refactor/stable-analysis-ids-trace-elements-image-wizard
+    paths:
+      - .github/workflows/finalize-data-integrity-refactor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify all safety patches are present
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          required = {
+              "petrolab/minerals/formulae.py": [
+                  "Fe2O3t (total Fe as Fe2O3)",
+                  "conflicting chemical columns",
+                  "feo_raw.combine_first(feot_raw)",
+              ],
+              "petrolab/sources.py": [
+                  "keep_vba=",
+                  "quantity_kind",
+                  "isfinite",
+              ],
+              "petrolab/services/image_service.py": [
+                  "from PIL import Image, UnidentifiedImageError",
+                  "opened.verify()",
+                  "image_export_records",
+              ],
+              "petrolab/column_schema.py": [
+                  '"Fe2O3t"',
+                  '"FeOt"',
+                  "µgg-1",
+              ],
+              "petrolab/services/import_service.py": [
+                  "positional_fallback_disabled",
+                  "detached_image_count",
+              ],
+              "petrolab/repositories/analysis_refresh_repository.py": [
+                  "linked_point_image",
+                  "positional_fallback_disabled",
+              ],
+              "petrolab/ui/pages/images.py": [
+                  "К нескольким точкам анализа",
+                  "create_assigned_image_batch",
+                  "image_upload_epoch_",
+              ],
+          }
+          for filename, needles in required.items():
+              text = Path(filename).read_text(encoding="utf-8")
+              for needle in needles:
+                  if needle not in text:
+                      raise SystemExit(f"Missing required safety patch in {filename}: {needle}")
+          print("All required safety patches are present")
+          PY
+
+      - name: Add permanent sanitation guard and remove one-shot tooling
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests_architecture.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "# Temporary refactor tooling must never reach main."
+          if marker not in text:
+              block = '''\n\n# Temporary refactor tooling must never reach main.\ntemporary_tools = sorted(ROOT.glob("tools/patch_*.py")) + sorted(ROOT.glob("tools/refine_*.py"))\ntemporary_workflows = (\n    sorted((ROOT / ".github" / "workflows").glob("apply-*.yml"))\n    + sorted((ROOT / ".github" / "workflows").glob("refine-*.yml"))\n    + sorted((ROOT / ".github" / "workflows").glob("finalize-*.yml"))\n)\nassert not temporary_tools, f"Temporary patch tools remain: {temporary_tools}"\nassert not temporary_workflows, f"Temporary patch workflows remain: {temporary_workflows}"\n\n# UI/export layers must use the image service rather than legacy direct DB helpers.\napp_and_ui = [ROOT / "app.py", *sorted((ROOT / "petrolab" / "ui").rglob("*.py"))]\nfor guarded_path in app_and_ui:\n    guarded_text = guarded_path.read_text(encoding="utf-8")\n    assert "add_image_asset(" not in guarded_text, f"Direct image DB write leaked into {guarded_path}"\n    assert "list_image_assets(" not in guarded_text, f"Legacy image DB read leaked into {guarded_path}"\n\n'''
+              # Insert before the existing final print so this guard executes on every CI run.
+              print_marker = 'print(f"architecture tests: OK; app.py = {app_lines} lines")'
+              if print_marker not in text:
+                  raise SystemExit("architecture test print marker not found")
+              text = text.replace(print_marker, block + print_marker, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+          rm -f tools/patch_*.py tools/refine_*.py
+          rm -f .github/workflows/apply-*.yml .github/workflows/refine-*.yml
+          rm -f .github/workflows/finalize-data-integrity-refactor.yml
+
+      - name: Validate sanitized tree
+        shell: bash
+        run: |
+          python -m py_compile app.py petrolab/**/*.py tests_architecture.py
+          python tests_architecture.py
+          test -z "$(find tools -maxdepth 1 -type f \( -name 'patch_*.py' -o -name 'refine_*.py' \) -print 2>/dev/null)"
+          test -z "$(find .github/workflows -maxdepth 1 -type f \( -name 'apply-*.yml' -o -name 'refine-*.yml' -o -name 'finalize-*.yml' \) -print 2>/dev/null)"
+
+      - name: Commit sanitized branch
+        shell: bash
+        run: |
+          git config user.name "PetroLab Refactor"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize data integrity and image assignment refactor"
+          git push
