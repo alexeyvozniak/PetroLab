@@ -1,29 +1,17 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from petrolab.db import list_datasets
-from petrolab.derived import load_unified_with_derived
-from petrolab.extended_plotting import (
-    NORMALIZATION_REFERENCES,
-    REE_ORDER,
-    SPIDER_ORDER,
-    available_elements,
-    build_pattern_figure,
-    prepare_pattern,
-)
 from petrolab.repositories.rock_repository import (
-    composition_wide,
     create_rock,
-    delete_rock,
     get_composition,
     get_isotopes,
     get_rock,
-    isotope_wide,
     list_mineral_links,
     list_rocks,
     replace_isotopes,
@@ -31,15 +19,15 @@ from petrolab.repositories.rock_repository import (
     update_rock,
     upsert_composition_values,
 )
-from petrolab.rock_plotting import build_rhodes_figure, build_rock_scatter, build_tas_figure, figure_bytes
 from petrolab.services.rock_image_service import delete_rock_image, list_rock_images, save_rock_image
 from petrolab.services.rock_service import (
     composition_dict,
+    delete_rock_with_assets,
     import_rocks_wide,
-    measured_olivine_kd,
     whole_rock_mg_number,
 )
 from petrolab.ui.components import render_project_selector
+from petrolab.ui.rock_plots import render_rock_plots
 
 
 META_ROLE_LABELS = {
@@ -49,30 +37,70 @@ META_ROLE_LABELS = {
     "age_ma": "Возраст, млн лет",
     "age_uncertainty_ma": "Ошибка возраста, млн лет",
 }
+CONFLICT_OPTIONS = {
+    "Обновить существующую породу": "update",
+    "Пропустить существующую породу": "skip",
+    "Считать совпадение ошибкой": "error",
+}
 
 
 def _rock_label(rock: dict) -> str:
-    extra = " · ".join(value for value in [str(rock.get("massif", "")).strip(), str(rock.get("lithology", "")).strip()] if value)
+    extra = " · ".join(
+        value
+        for value in [str(rock.get("massif", "")).strip(), str(rock.get("lithology", "")).strip()]
+        if value
+    )
     return f"{rock['name']}" + (f" · {extra}" if extra else "")
+
+
+def _read_uploaded_rock_table(uploaded) -> pd.DataFrame:
+    suffix = Path(uploaded.name).suffix.lower()
+    content = uploaded.getvalue()
+    if suffix in {".xlsx", ".xls"}:
+        workbook = pd.ExcelFile(io.BytesIO(content))
+        sheet = st.selectbox("Лист", workbook.sheet_names, key="rock_bulk_sheet")
+        return pd.read_excel(io.BytesIO(content), sheet_name=sheet)
+
+    s1, s2 = st.columns(2)
+    separator_name = s1.selectbox(
+        "Разделитель",
+        ["Определить автоматически", "Запятая", "Точка с запятой", "Табуляция"],
+        key="rock_bulk_separator",
+    )
+    decimal_name = s2.selectbox("Десятичный знак", ["Точка", "Запятая"], key="rock_bulk_decimal")
+    separators = {
+        "Определить автоматически": None,
+        "Запятая": ",",
+        "Точка с запятой": ";",
+        "Табуляция": "\t",
+    }
+    separator = separators[separator_name]
+    return pd.read_csv(
+        io.BytesIO(content),
+        sep=separator,
+        engine="python" if separator is None else "c",
+        decimal="." if decimal_name == "Точка" else ",",
+    )
 
 
 def _render_bulk_import(project_id: int) -> None:
     with st.expander("Импортировать таблицу валовых составов", expanded=False):
-        uploaded = st.file_uploader("Excel/CSV с породами", type=["xlsx", "xls", "csv", "tsv"], key="rock_bulk_upload")
+        uploaded = st.file_uploader(
+            "Excel/CSV с породами",
+            type=["xlsx", "xls", "csv", "tsv"],
+            key="rock_bulk_upload",
+        )
         if uploaded is None:
             return
-        suffix = Path(uploaded.name).suffix.lower()
-        if suffix in {".xlsx", ".xls"}:
-            workbook = pd.ExcelFile(uploaded)
-            sheet = st.selectbox("Лист", workbook.sheet_names, key="rock_bulk_sheet")
-            dataframe = pd.read_excel(workbook, sheet_name=sheet)
-        else:
-            separator = "\t" if suffix == ".tsv" else ","
-            dataframe = pd.read_csv(uploaded, sep=separator)
-        dataframe = dataframe.dropna(how="all")
+        try:
+            dataframe = _read_uploaded_rock_table(uploaded).dropna(how="all")
+        except Exception as exc:
+            st.error(f"Не удалось прочитать таблицу: {exc}")
+            return
         if dataframe.empty:
             st.warning("Таблица пуста.")
             return
+
         st.dataframe(dataframe.head(20), width="stretch", hide_index=True)
         columns = [str(column) for column in dataframe.columns]
         name_column = st.selectbox("Колонка с названием образца/породы", columns, key="rock_bulk_name")
@@ -85,6 +113,15 @@ def _render_bulk_import(project_id: int) -> None:
         c1, c2 = st.columns(2)
         method = c1.text_input("Метод химии", placeholder="XRF + ICP-MS", key="rock_bulk_method")
         laboratory = c2.text_input("Лаборатория", key="rock_bulk_lab")
+        conflict_label = st.selectbox(
+            "Если название уже есть в проекте",
+            list(CONFLICT_OPTIONS),
+            key="rock_bulk_conflict",
+        )
+        st.caption(
+            "Перед записью ПетроЛаб проверяет повторяющиеся названия внутри файла. "
+            "Две строки с одинаковым названием в одной импортируемой таблице считаются неоднозначными."
+        )
         if st.button("Импортировать породы", type="primary", key="rock_bulk_import"):
             try:
                 result = import_rocks_wide(
@@ -95,11 +132,15 @@ def _render_bulk_import(project_id: int) -> None:
                     chemistry_method=method,
                     laboratory=laboratory,
                     source=uploaded.name,
+                    on_conflict=CONFLICT_OPTIONS[conflict_label],
                 )
             except Exception as exc:
                 st.error(f"Импорт не выполнен: {exc}")
                 return
-            st.success(f"Добавлено пород: {len(result.created_ids)}")
+            st.success(
+                f"Создано: {len(result.created_ids)} · обновлено: {len(result.updated_ids)} · "
+                f"пропущено: {len(result.skipped_names)}"
+            )
             if result.warnings:
                 st.warning("\n".join(result.warnings[:30]))
             st.rerun()
@@ -116,32 +157,59 @@ def _render_passport(rock: dict) -> None:
         locality = c4.text_input("Местоположение", value=str(rock.get("locality", "")))
         description = st.text_area("Описание породы", value=str(rock.get("description", "")), height=110)
         a1, a2, a3 = st.columns(3)
-        age_ma = a1.number_input("Возраст, млн лет", value=float(rock["age_ma"]) if rock.get("age_ma") is not None else None, placeholder="не указан")
-        age_err = a2.number_input("±, млн лет", value=float(rock["age_uncertainty_ma"]) if rock.get("age_uncertainty_ma") is not None else None, placeholder="не указана")
-        age_method = a3.text_input("Метод возраста", value=str(rock.get("age_method", "")), placeholder="U–Pb zircon, Rb–Sr...")
+        age_ma = a1.number_input(
+            "Возраст, млн лет",
+            value=float(rock["age_ma"]) if rock.get("age_ma") is not None else None,
+            placeholder="не указан",
+        )
+        age_err = a2.number_input(
+            "±, млн лет",
+            value=float(rock["age_uncertainty_ma"]) if rock.get("age_uncertainty_ma") is not None else None,
+            placeholder="не указана",
+        )
+        age_method = a3.text_input(
+            "Метод возраста",
+            value=str(rock.get("age_method", "")),
+            placeholder="U–Pb zircon, Rb–Sr...",
+        )
         m1, m2 = st.columns(2)
-        chemistry_method = m1.text_area("Методика химии", value=str(rock.get("chemistry_method", "")), height=90)
-        isotope_method = m2.text_area("Методика изотопии", value=str(rock.get("isotope_method", "")), height=90)
-        laboratory = st.text_input("Лаборатория / где выполнялись анализы", value=str(rock.get("laboratory", "")))
+        chemistry_method = m1.text_area(
+            "Методика химии",
+            value=str(rock.get("chemistry_method", "")),
+            height=90,
+        )
+        isotope_method = m2.text_area(
+            "Методика изотопии",
+            value=str(rock.get("isotope_method", "")),
+            height=90,
+        )
+        laboratory = st.text_input(
+            "Лаборатория / где выполнялись анализы",
+            value=str(rock.get("laboratory", "")),
+        )
         notes = st.text_area("Заметки", value=str(rock.get("notes", "")), height=90)
         if st.form_submit_button("Сохранить паспорт", type="primary"):
-            update_rock(
-                rock_id,
-                name=name,
-                lithology=lithology,
-                massif=massif,
-                locality=locality,
-                description=description,
-                age_ma=age_ma,
-                age_uncertainty_ma=age_err,
-                age_method=age_method,
-                chemistry_method=chemistry_method,
-                isotope_method=isotope_method,
-                laboratory=laboratory,
-                notes=notes,
-            )
-            st.success("Паспорт сохранён.")
-            st.rerun()
+            try:
+                update_rock(
+                    rock_id,
+                    name=name,
+                    lithology=lithology,
+                    massif=massif,
+                    locality=locality,
+                    description=description,
+                    age_ma=age_ma,
+                    age_uncertainty_ma=age_err,
+                    age_method=age_method,
+                    chemistry_method=chemistry_method,
+                    isotope_method=isotope_method,
+                    laboratory=laboratory,
+                    notes=notes,
+                )
+            except Exception as exc:
+                st.error(f"Не удалось сохранить паспорт: {exc}")
+            else:
+                st.success("Паспорт сохранён.")
+                st.rerun()
 
 
 def _render_composition(rock: dict) -> None:
@@ -169,17 +237,24 @@ def _render_composition(rock: dict) -> None:
         try:
             upsert_composition_values(rock_id, edited.to_dict("records"))
             st.success("Химический состав сохранён.")
+            st.rerun()
         except Exception as exc:
             st.error(f"Не удалось сохранить состав: {exc}")
     mgnum = whole_rock_mg_number(composition_dict(rock_id))
     st.metric("Whole-rock Mg# (Fe²⁺ proxy)", "—" if pd.isna(mgnum) else f"{mgnum:.3f}")
-    st.caption("Если в породе задано total Fe, Mg# здесь является прозрачным proxy. Для redox-aware расчёта задайте Fe³⁺-долю в mineral–rock модуле.")
+    st.caption(
+        "Если в породе задано total Fe, Mg# здесь является прозрачным proxy. "
+        "Для redox-aware screening Fe³⁺-доля задаётся отдельно в mineral–rock модуле."
+    )
 
 
 def _render_isotopes(rock: dict) -> None:
     rock_id = int(rock["id"])
     isotopes = get_isotopes(rock_id)
-    columns = ["system", "ratio_name", "value", "uncertainty", "initial_value", "age_ma_used", "method", "laboratory", "notes"]
+    columns = [
+        "system", "ratio_name", "value", "uncertainty", "initial_value",
+        "age_ma_used", "method", "laboratory", "notes",
+    ]
     if isotopes.empty:
         isotopes = pd.DataFrame(columns=columns)
     edited = st.data_editor(
@@ -193,6 +268,7 @@ def _render_isotopes(rock: dict) -> None:
         try:
             replace_isotopes(rock_id, edited)
             st.success("Изотопные данные сохранены.")
+            st.rerun()
         except Exception as exc:
             st.error(f"Не удалось сохранить изотопию: {exc}")
 
@@ -233,105 +309,23 @@ def _render_links_and_images(rock: dict) -> None:
         if saved:
             st.success(f"Сохранено изображений: {saved}")
             st.rerun()
+
     images = list_rock_images(rock_id)
-    if images:
-        columns = st.columns(min(3, len(images)))
-        for index, image in enumerate(images):
-            path = Path(str(image["stored_path"]))
-            with columns[index % len(columns)]:
-                if path.exists():
-                    st.image(str(path), caption=image["title"] or image["original_filename"], width="stretch")
-                if st.button("Удалить", key=f"rock_image_delete_{image['id']}"):
-                    delete_rock_image(int(image["id"]))
-                    st.rerun()
-
-
-def _render_rock_plots(project_id: int, selected_rock: dict) -> None:
-    wide = composition_wide(project_id)
-    if wide.empty:
-        st.info("Сначала внесите валовый химический состав.")
+    if not images:
         return
-    tab_tas, tab_harker, tab_pattern, tab_iso, tab_rhodes = st.tabs(["TAS", "Harker / бинарные", "REE / Spider", "Изотопы", "Mineral–rock / Rhodes"])
-
-    with tab_tas:
-        required = {"SiO2", "Na2O", "K2O"}
-        if required.issubset(wide.columns):
-            fig = build_tas_figure(wide, group_column="Massif" if "Massif" in wide else None)
-            st.pyplot(fig, width="stretch")
-            st.download_button("TAS PNG", figure_bytes(fig, "png", 600), file_name="TAS.png", mime="image/png", key="rock_tas_png")
-            plt.close(fig)
-        else:
-            st.info("Для TAS нужны SiO2, Na2O и K2O.")
-
-    with tab_harker:
-        numeric = [column for column in wide.columns if pd.to_numeric(wide[column], errors="coerce").notna().sum() >= 2 and not str(column).startswith("_")]
-        if numeric:
-            x_default = "SiO2" if "SiO2" in numeric else numeric[0]
-            c1, c2 = st.columns(2)
-            x = c1.selectbox("X", numeric, index=numeric.index(x_default), key="rock_harker_x")
-            y_choices = [column for column in numeric if column != x]
-            if y_choices:
-                y = c2.selectbox("Y", y_choices, key="rock_harker_y")
-                fig = build_rock_scatter(wide, x, y, group_column="Massif" if "Massif" in wide else None, title=f"{y} vs {x}")
-                st.pyplot(fig, width="stretch")
-                st.download_button("PNG", figure_bytes(fig, "png", 600), file_name=f"{y}_vs_{x}.png", mime="image/png", key="rock_harker_png")
-                plt.close(fig)
-
-    with tab_pattern:
-        mode = st.segmented_control("Тип", ["REE", "Spider"], default="REE", key="rock_pattern_mode")
-        order = REE_ORDER if mode == "REE" else SPIDER_ORDER
-        available = available_elements(wide, order)
-        if len(available) >= 2:
-            elements = st.multiselect("Элементы", list(order), default=available, key="rock_pattern_elements")
-            ref_name = st.selectbox("Нормировка", list(NORMALIZATION_REFERENCES), index=1 if mode == "REE" else 2, key="rock_pattern_ref")
-            pattern = prepare_pattern(wide, elements, NORMALIZATION_REFERENCES[ref_name])
-            labels = wide["Rock"] if "Rock" in wide else None
-            groups = wide["Massif"] if "Massif" in wide else None
-            fig = build_pattern_figure(pattern, labels=labels, group=groups, title=f"Whole-rock {mode}", ylabel="Sample / reference" if ref_name != "Без нормировки" else "Concentration")
-            st.pyplot(fig, width="stretch")
-            st.download_button("PNG", figure_bytes(fig, "png", 600), file_name=f"whole_rock_{mode}.png", mime="image/png", key="rock_pattern_png")
-            plt.close(fig)
-        else:
-            st.info("Недостаточно trace-element данных.")
-
-    with tab_iso:
-        isotopes = isotope_wide(project_id)
-        numeric = [column for column in isotopes.columns if pd.to_numeric(isotopes[column], errors="coerce").notna().sum() >= 2 and not str(column).startswith("_")]
-        if len(numeric) >= 2:
-            x = st.selectbox("Изотопная X", numeric, key="rock_iso_x")
-            y = st.selectbox("Изотопная Y", [column for column in numeric if column != x], key="rock_iso_y")
-            fig = build_rock_scatter(isotopes, x, y, title=f"{y} vs {x}")
-            st.pyplot(fig, width="stretch")
-            plt.close(fig)
-        else:
-            st.info("Добавьте как минимум две числовые изотопные величины у нескольких пород.")
-
-    with tab_rhodes:
-        links = list_mineral_links(int(selected_rock["id"]))
-        if not links:
-            st.info("Свяжите породу с минералогическим dataset.")
-            return
-        minerals = load_unified_with_derived(int(selected_rock["project_id"]), links)
-        olivine = minerals[minerals["Минерал"].astype(str).eq("olivine")].copy() if "Минерал" in minerals else pd.DataFrame()
-        if olivine.empty or "Fo" not in olivine.columns:
-            st.info("Для Rhodes нужен связанный набор оливинов с сохранённым Fo.")
-            return
-        comp = composition_dict(int(selected_rock["id"]))
-        fe3 = st.slider("Доля Fe³⁺ в total Fe породы для Mg# proxy", 0.0, 0.5, 0.0, 0.01, key="rock_rhodes_fe3")
-        mgnum = whole_rock_mg_number(comp, fe3_fraction=fe3)
-        if pd.isna(mgnum):
-            st.warning("Невозможно рассчитать whole-rock Mg#: нужны MgO и FeO/FeOt/Fe2O3t.")
-            return
-        rock_row = pd.DataFrame([{"Rock": selected_rock["name"], "Mg#_rock": mgnum}])
-        fig = build_rhodes_figure(rock_row, olivine)
-        st.pyplot(fig, width="stretch")
-        kd = measured_olivine_kd(olivine["Fo"], mgnum)
-        view_columns = [column for column in ["Sample", "Grain", "Point", "Fo"] if column in olivine.columns]
-        kd_table = olivine[view_columns].copy()
-        kd_table["Kd_FeMg_ol-rock_proxy"] = kd.to_numpy()
-        st.dataframe(kd_table, width="stretch", hide_index=True, height=320)
-        st.caption("Это equilibrium-screening proxy. Whole-rock состав не всегда равен составу расплава; интерпретация особенно осторожна для кумулятов, ксенокристов и контаминированных лампрофиров/кимберлитов.")
-        plt.close(fig)
+    columns = st.columns(min(3, len(images)))
+    for index, image in enumerate(images):
+        path = Path(str(image["stored_path"]))
+        with columns[index % len(columns)]:
+            if path.exists():
+                st.image(
+                    str(path),
+                    caption=image["title"] or image["original_filename"],
+                    width="stretch",
+                )
+            if st.button("Удалить", key=f"rock_image_delete_{image['id']}"):
+                delete_rock_image(int(image["id"]))
+                st.rerun()
 
 
 def render_rocks_page() -> None:
@@ -369,13 +363,27 @@ def render_rocks_page() -> None:
     if selected is None:
         return
 
-    tabs = st.tabs(["Паспорт", "Валовый состав", "Изотопия", "Минералы и фото", "Графики / mineral–rock"])
+    tabs = st.tabs([
+        "Паспорт", "Валовый состав", "Изотопия", "Минералы и фото", "Графики / mineral–rock",
+    ])
     with tabs[0]:
         _render_passport(selected)
         with st.expander("Опасная зона", expanded=False):
-            if st.button("Удалить породу", key=f"rock_delete_{selected['id']}"):
-                delete_rock(int(selected["id"]))
-                st.rerun()
+            confirm = st.checkbox(
+                "Я понимаю, что порода и её локальные фотографии будут удалены",
+                key=f"rock_delete_confirm_{selected['id']}",
+            )
+            if st.button(
+                "Удалить породу",
+                disabled=not confirm,
+                key=f"rock_delete_{selected['id']}",
+            ):
+                try:
+                    delete_rock_with_assets(int(selected["id"]))
+                except Exception as exc:
+                    st.error(f"Не удалось удалить породу: {exc}")
+                else:
+                    st.rerun()
     with tabs[1]:
         _render_composition(selected)
     with tabs[2]:
@@ -383,4 +391,4 @@ def render_rocks_page() -> None:
     with tabs[3]:
         _render_links_and_images(selected)
     with tabs[4]:
-        _render_rock_plots(project_id, selected)
+        render_rock_plots(project_id, selected)
