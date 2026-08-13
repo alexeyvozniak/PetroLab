@@ -158,6 +158,7 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
                 alpha=point_style.alpha,
                 linewidth=style.line_width,
                 grid=style.grid,
+                monochrome=style.monochrome,
                 font_family=style.font_family,
                 font_size=style.font_size,
                 figure_size=(style.width_in, style.height_in),
