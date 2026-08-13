@@ -16,14 +16,12 @@ SPIDER_ORDER = (
     "Ho", "Er", "Tm", "Yb", "Lu",
 )
 
-# McDonough & Sun (1995), Chemical Geology 120, 223–253.
 CI_CHONDRITE_1995 = {
     "La": 0.237, "Ce": 0.613, "Pr": 0.0928, "Nd": 0.457, "Sm": 0.148,
     "Eu": 0.0563, "Gd": 0.199, "Tb": 0.0361, "Dy": 0.246, "Ho": 0.0546,
     "Er": 0.160, "Tm": 0.0247, "Yb": 0.161, "Lu": 0.0246,
 }
 
-# Sun & McDonough (1989), Geological Society Special Publication 42, 313–345.
 PRIMITIVE_MANTLE_1989 = {
     "Rb": 0.635, "Ba": 6.989, "Th": 0.085, "U": 0.021, "Nb": 0.713,
     "Ta": 0.041, "K": 250.0, "La": 0.687, "Ce": 1.775, "Pb": 0.185,
@@ -39,10 +37,12 @@ NORMALIZATION_REFERENCES = {
     "Primitive mantle · Sun & McDonough (1989)": PRIMITIVE_MANTLE_1989,
 }
 
-# Whole-rock major elements are commonly reported as oxide wt.%. For a normalized
-# multi-element plot the reference values above are elemental concentrations in µg/g.
-# These factors convert 1 wt.% oxide to µg/g of the named element, preserving explicit
-# provenance instead of pretending the oxide column is already ppm.
+NORMALIZATION_AXIS_LABELS = {
+    "Без нормировки": "Concentration",
+    "CI-хондрит · McDonough & Sun (1995)": "Sample / CI chondrite",
+    "Primitive mantle · Sun & McDonough (1989)": "Sample / primitive mantle",
+}
+
 _OXIDE_ELEMENT_EQUIVALENTS: dict[str, tuple[str, float]] = {
     "K": ("K2O", (2.0 * 39.0983) / (2.0 * 39.0983 + 15.999) * 10_000.0),
     "P": ("P2O5", (2.0 * 30.973761998) / (2.0 * 30.973761998 + 5.0 * 15.999) * 10_000.0),
@@ -59,12 +59,13 @@ class PatternResult:
     excluded_rows: int
     missing_elements: tuple[str, ...]
     source_columns: Mapping[str, str]
+    missing_reference_elements: tuple[str, ...] = ()
 
 
 def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
     if column not in dataframe.columns:
         return pd.Series(np.nan, index=dataframe.index, dtype=float)
-    return pd.to_numeric(dataframe[column], errors="coerce")
+    return pd.to_numeric(dataframe[column], errors="coerce").replace([np.inf, -np.inf], np.nan)
 
 
 def _resolve_element_source(
@@ -93,21 +94,28 @@ def _resolve_element_source(
 
 
 def resolve_element_column(dataframe: pd.DataFrame, element: str, *, allow_bare: bool = True) -> str | None:
-    """Resolve the physical source column for an element without guessing unknown units.
-
-    Canonical concentration columns (``La [µg/g]``) are preferred. Bare ``La`` is
-    permitted only when the caller allows unknown units. K, P and Ti may additionally
-    be derived from K2O/P2O5/TiO2 wt.% using explicit stoichiometric factors.
-    """
     source = _resolve_element_source(dataframe, element, allow_bare=allow_bare)
     return source[0] if source is not None else None
 
 
-def available_elements(dataframe: pd.DataFrame, preferred: Iterable[str], *, require_known_units: bool = False) -> list[str]:
-    return [
-        element for element in preferred
-        if _resolve_element_source(dataframe, element, allow_bare=not require_known_units) is not None
-    ]
+def available_elements(
+    dataframe: pd.DataFrame,
+    preferred: Iterable[str],
+    *,
+    require_known_units: bool = False,
+    reference: Mapping[str, float] | None = None,
+) -> list[str]:
+    result: list[str] = []
+    for element in preferred:
+        source = _resolve_element_source(dataframe, element, allow_bare=not require_known_units)
+        if source is None:
+            continue
+        if reference is not None:
+            divisor = reference.get(element)
+            if divisor is None or not np.isfinite(float(divisor)) or float(divisor) <= 0:
+                continue
+        result.append(element)
+    return result
 
 
 def prepare_pattern(
@@ -121,10 +129,23 @@ def prepare_pattern(
         for element in requested
     }
     missing = tuple(element for element, source in resolved.items() if source is None)
-    usable = tuple(element for element, source in resolved.items() if source is not None)
+    missing_reference = tuple(
+        element for element, source in resolved.items()
+        if source is not None
+        and reference is not None
+        and (
+            element not in reference
+            or not np.isfinite(float(reference.get(element, np.nan)))
+            or float(reference.get(element, np.nan)) <= 0
+        )
+    )
+    usable = tuple(
+        element for element, source in resolved.items()
+        if source is not None and element not in missing_reference
+    )
     source_columns = {element: str(resolved[element][2]) for element in usable if resolved[element] is not None}
     if not usable:
-        return PatternResult(pd.DataFrame(index=dataframe.index), (), len(dataframe), missing, {})
+        return PatternResult(pd.DataFrame(index=dataframe.index), (), len(dataframe), missing, {}, missing_reference)
 
     out = pd.DataFrame(index=dataframe.index)
     for element in usable:
@@ -133,12 +154,13 @@ def prepare_pattern(
         source_column, factor, _ = source
         values = _numeric(dataframe, source_column) * float(factor)
         if reference is not None:
-            divisor = float(reference.get(element, np.nan))
-            values = values / divisor if np.isfinite(divisor) and divisor > 0 else np.nan
+            values = values / float(reference[element])
         out[element] = values
     out = out.where(out > 0)
-    valid = out.notna().any(axis=1)
-    return PatternResult(out.loc[valid].copy(), usable, int((~valid).sum()), missing, source_columns)
+    valid = out.notna().sum(axis=1) >= 2
+    return PatternResult(
+        out.loc[valid].copy(), usable, int((~valid).sum()), missing, source_columns, missing_reference
+    )
 
 
 def build_pattern_figure(
@@ -221,12 +243,12 @@ def build_histogram_figure(
         if group_column and group_column in dataframe.columns:
             grouped = list(dataframe.assign(_value=values).groupby(group_column, dropna=False, sort=False))
             for index, (group_name, subset) in enumerate(grouped):
-                sample = pd.to_numeric(subset["_value"], errors="coerce").dropna()
+                sample = pd.to_numeric(subset["_value"], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
                 if sample.empty:
                     continue
-                kwargs: dict[str, object] = {"bins": bins, "alpha": 0.55, "density": density, "label": str(group_name)}
+                label = "Без группы" if pd.isna(group_name) else str(group_name)
+                kwargs: dict[str, object] = {"bins": bins, "alpha": 0.55, "density": density, "label": label}
                 if monochrome:
-                    # Grayscale remains publication-safe while preserving group separation.
                     shade = 0.18 + 0.62 * index / max(1, len(grouped) - 1)
                     kwargs["color"] = str(shade)
                     kwargs["edgecolor"] = "black"
@@ -269,7 +291,7 @@ def build_boxplot_figure(
                 arr = _numeric(subset, value).dropna().to_numpy(dtype=float)
                 if arr.size:
                     groups.append(arr)
-                    names.append(str(group_name))
+                    names.append("Без группы" if pd.isna(group_name) else str(group_name))
             if groups:
                 ax.boxplot(groups, tick_labels=names, showfliers=show_fliers)
                 ax.set_ylabel(value)
