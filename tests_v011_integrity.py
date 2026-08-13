@@ -9,7 +9,7 @@ os.environ.pop("PETROLAB_CI", None)
 
 from petrolab.column_schema import canonicalize_header
 from petrolab.extended_plotting import prepare_pattern
-from petrolab.io_utils import normalize_columns_with_map
+from petrolab.io_utils import add_qc_columns, normalize_columns_with_map
 from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ternary_presets import TERNARY_PRESETS, apply_preset_projection
@@ -19,6 +19,25 @@ from petrolab.ternary_presets import TERNARY_PRESETS, apply_preset_projection
 censored_raw = pd.DataFrame({"La ppb": ["<100", 250.0]})
 censored, _ = normalize_columns_with_map(censored_raw)
 assert censored["La [µg/g]"].tolist() == ["<0.1", 0.25]
+
+# Decimal commas are numeric scientific values, including inside a qualifier.
+comma_raw = pd.DataFrame({"La ppm": ["40,52", "<0,01"]})
+comma_values, comma_map = normalize_columns_with_map(comma_raw)
+assert comma_values["La [µg/g]"].tolist() == [40.52, "<0.01"]
+apply_measurement_overrides(comma_values, comma_map, {})
+
+# Known qualifier text is preserved; arbitrary chemistry text is an import blocker.
+qualified_raw = pd.DataFrame({"La ppm": ["BDL", "n.d.", "trace"]})
+qualified, qualified_map = normalize_columns_with_map(qualified_raw)
+apply_measurement_overrides(qualified, qualified_map, {})
+unknown_raw = pd.DataFrame({"La ppm": ["not-a-number"]})
+unknown, unknown_map = normalize_columns_with_map(unknown_raw)
+try:
+    apply_measurement_overrides(unknown, unknown_map, {})
+except ValueError as exc:
+    assert "нераспознанные" in str(exc).lower()
+else:
+    raise AssertionError("Unknown non-empty scientific text must block import")
 
 # Compact Cyrillic concentration units remain recognized after Unicode normalization.
 assert canonicalize_header("Ba нг г⁻¹") == "Ba [µg/g]"
@@ -46,6 +65,18 @@ except ValueError as exc:
     assert "Fe2O3" in str(exc)
 else:
     raise AssertionError("Bare Fe2O3 must require explicit reporting semantics")
+
+# F and Cl enter the measured-component total; O=F,Cl is subtracted transparently.
+qc = add_qc_columns(pd.DataFrame({
+    "SiO2": [40.0], "Al2O3": [15.0], "MgO": [20.0], "K2O": [10.0],
+    "FeOt": [10.0], "F": [4.0], "Cl": [1.0],
+}))
+assert np.isclose(float(qc.loc[0, "Σ компонентов raw"]), 100.0)
+expected_correction = 4.0 * 15.999 / (2.0 * 18.998403163)
+expected_correction += 1.0 * 15.999 / (2.0 * 35.45)
+assert np.isclose(float(qc.loc[0, "Поправка O=F,Cl"]), expected_correction)
+assert np.isclose(float(qc.loc[0, "Σ corrected"]), 100.0 - expected_correction)
+assert np.isclose(float(qc.loc[0, "Σ оксидов"]), float(qc.loc[0, "Σ corrected"]))
 
 # Canonical duplicates must stop import instead of preserving an order-dependent __2 value.
 duplicate, duplicate_map = normalize_columns_with_map(
