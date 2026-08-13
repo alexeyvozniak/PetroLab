@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import streamlit as st
+
+from petrolab.db import list_datasets, list_projects
+
+
+NAV_SECTIONS = {
+    "Данные": [("home", "Главная"), ("sources", "Импорт"), ("analyses", "База анализов"), ("formulae", "Расчёты")],
+    "Исследование": [("plots", "XY-диаграммы"), ("ternary", "Треугольные"), ("science_plots", "Научные диаграммы"), ("statistics", "Статистика")],
+    "Материалы": [("rocks", "Породы"), ("images", "Изображения"), ("minerals", "Минералогические модули")],
+    "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
+    "Система": [("projects", "Проекты"), ("settings", "Настройки"), ("help", "Справка"), ("updates", "Что нового"), ("change_log", "История правок данных")],
+}
+ROUTE_LABELS = {route: label for entries in NAV_SECTIONS.values() for route, label in entries}
+
+
+def navigate(route: str) -> None:
+    if route in ROUTE_LABELS:
+        st.session_state["nav_route"] = route
+
+
+def render_sidebar(version: str) -> str:
+    st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
+
+    projects = list_projects()
+    st.markdown('<div class="petrolab-nav-section">Проект</div>', unsafe_allow_html=True)
+    if projects:
+        by_id = {int(row["id"]): row for row in projects}
+        ids = list(by_id)
+        try:
+            active_id = int(st.session_state.get("active_project_id", ids[0]))
+        except (TypeError, ValueError):
+            active_id = ids[0]
+        if active_id not in by_id:
+            active_id = ids[0]
+        selected = st.selectbox("Проект", ids, index=ids.index(active_id), format_func=lambda value: str(by_id[int(value)]["name"]), key="sidebar_project", label_visibility="collapsed")
+        st.session_state["active_project_id"] = int(selected)
+        datasets = list_datasets(int(selected))
+        rows = sum(int(item.get("row_count") or 0) for item in datasets)
+        st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
+        st.session_state["_sidebar_project_ready"] = True
+    else:
+        st.caption("Создайте первый проект")
+
+    current = str(st.session_state.get("nav_route", "home"))
+    if current not in ROUTE_LABELS:
+        current = "home"
+    for section, entries in NAV_SECTIONS.items():
+        st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
+        for route, label in entries:
+            if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch"):
+                st.session_state["nav_route"] = route
+                st.rerun()
+    return current
