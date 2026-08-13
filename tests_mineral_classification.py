@@ -12,7 +12,11 @@ from petrolab.minerals.classification import (
     attach_mineral_classification,
 )
 from petrolab.minerals.garnet_ti import apply_strict_grew_figure5
-from petrolab.services.formula_service import calculate_formula_safe
+from petrolab.services.formula_service import (
+    FORMULA_INPUT_STATUS_COL,
+    FORMULA_MISSING_INPUTS_COL,
+    calculate_formula_safe,
+)
 from petrolab.ternary_data import prepare_ternary
 from petrolab.ternary_overlays import GARNET_TI_GREW_2013_FIG5, attach_ternary_classification
 from petrolab.ternary_presets import TERNARY_PRESETS, apply_preset_projection
@@ -137,5 +141,31 @@ apt_r = calculate_formula_safe(apt, "apatite", "ap_ketcham25").data.iloc[0]
 assert apt_r[SPECIES_COL] == ""
 assert "fluorapatite" in apt_r[FIELD_COL]
 assert "X-anion" in apt_r[LEVEL_COL]
+
+# A measured zero and a blank cell are not the same analytical statement. The safe
+# formula result must retain 0 apfu for the measured zero but restore NaN for the blank.
+row_semantics = pd.DataFrame([
+    {"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0, "MnO": 0.0},
+    {"SiO2": 40.0, "MgO": 50.0, "FeO": 10.0, "MnO": None},
+])
+row_result = calculate_formula_safe(row_semantics, "olivine", "ol_4o_fe2").data
+near(row_result.loc[0, "apfu_Mn"], 0.0, 1e-12)
+assert pd.isna(row_result.loc[1, "apfu_Mn"])
+assert row_result.loc[0, FORMULA_INPUT_STATUS_COL] == "полный набор в представленных колонках"
+assert "частичный" in row_result.loc[1, FORMULA_INPUT_STATUS_COL]
+assert row_result.loc[1, FORMULA_MISSING_INPUTS_COL] == "MnO"
+
+# The same distinction matters directly for volatile-site estimates. If F is a supplied
+# analytical column but one row is blank, OH cannot be inferred by silently substituting F=0.
+mica_rows = pd.DataFrame([
+    {"SiO2": 45.15, "Al2O3": 12.77, "MgO": 30.29, "K2O": 11.80, "F": 0.0, "Cl": 0.0},
+    {"SiO2": 45.15, "Al2O3": 12.77, "MgO": 30.29, "K2O": 11.80, "F": None, "Cl": 0.0},
+])
+mica_rows_result = calculate_formula_safe(mica_rows, "mica", "mica_rieder_11o").data
+near(mica_rows_result.loc[0, "apfu_F"], 0.0, 1e-12)
+assert pd.isna(mica_rows_result.loc[1, "apfu_F"])
+near(mica_rows_result.loc[0, "apfu_OH_max"], 2.0, 0.03)
+assert pd.isna(mica_rows_result.loc[1, "apfu_OH_max"])
+assert "F" in mica_rows_result.loc[1, FORMULA_MISSING_INPUTS_COL]
 
 print("mineral classification tests: OK")
