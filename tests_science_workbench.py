@@ -27,6 +27,7 @@ def main() -> None:
             prepare_pattern,
         )
         from petrolab.repositories.rock_repository import (
+            apply_rock_import_batch,
             composition_wide,
             create_rock,
             get_composition,
@@ -126,6 +127,26 @@ def main() -> None:
         else:
             raise AssertionError("duplicate names inside one whole-rock import must fail preflight")
         assert len(list_rocks(project_id)) == before_duplicate
+
+        before_atomic_names = {str(rock["name"]) for rock in list_rocks(project_id)}
+        try:
+            apply_rock_import_batch(
+                project_id,
+                [
+                    {"name": "R1", "metadata": {"massif": "changed"}, "composition": {"SiO2": 99.0}, "units": {}},
+                    {"name": "AtomicFailure", "metadata": {}, "composition": {"SiO2": object()}, "units": {}},
+                ],
+                on_conflict="update",
+            )
+        except (TypeError, ValueError):
+            pass
+        else:
+            raise AssertionError("Injected mid-batch failure must abort the whole rock transaction")
+        after_atomic_names = {str(rock["name"]) for rock in list_rocks(project_id)}
+        assert after_atomic_names == before_atomic_names
+        r1_after_rollback = get_composition(rock_id).set_index("analyte")
+        assert float(r1_after_rollback.loc["SiO2", "value"]) == 52.0
+        assert "AtomicFailure" not in after_atomic_names
 
         image_buffer = io.BytesIO()
         Image.new("RGB", (8, 8), "white").save(image_buffer, format="PNG")
