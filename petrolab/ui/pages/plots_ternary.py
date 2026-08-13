@@ -24,7 +24,9 @@ from petrolab.ternary_data import (
 from petrolab.ternary_overlays import attach_ternary_classification
 from petrolab.ternary_plotting import build_interactive_ternary, build_publication_ternary
 from petrolab.ui.components import collect_related_images, render_asset_gallery
+from petrolab.ui.plot_style_controls import render_figure_style_controls
 from petrolab.ui.ternary_controls import render_ternary_selection
+from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
 
 _NORMALIZATION_LABELS = {
@@ -110,8 +112,25 @@ def _style_profile(group_col: str | None, project_id: int | None) -> dict:
         f"{record['name']} · {record['grouping_column'] or 'общий'}": record
         for record in records
     }
-    chosen = st.selectbox("Профиль маркеров", ["Авто"] + list(labels), key="ternary_style_profile")
-    return {} if chosen == "Авто" else labels[chosen]["styles"]
+    chosen = st.selectbox("Сохранённый профиль маркеров", ["—"] + list(labels), key="ternary_style_profile")
+    return {} if chosen == "—" else labels[chosen]["styles"]
+
+
+def _preset_style_map(dataframe: pd.DataFrame, group_col: str | None, preset_name: str) -> dict[str, dict]:
+    preset = POINT_STYLE_PRESETS[preset_name]
+    if group_col and group_col in dataframe.columns:
+        names = dataframe[group_col].fillna("—").astype(str).drop_duplicates().tolist()
+    else:
+        names = ["Все точки"]
+    return {
+        str(name): {
+            "marker": preset.markers[index % len(preset.markers)],
+            "alpha": preset.alpha,
+            "size_multiplier": preset.size_multiplier,
+            "filled": preset.filled,
+        }
+        for index, name in enumerate(names)
+    }
 
 
 def render_ternary_workspace(
@@ -172,7 +191,12 @@ def render_ternary_workspace(
         key="ternary_group",
     )
     group_col = None if group == "Без группировки" else group
-    style_map = _style_profile(group_col, project_id)
+
+    style = render_figure_style_controls(dataframe, key_prefix="ternary_style")
+    style_map = _preset_style_map(dataframe, group_col, style.point_style_name)
+    saved_style = _style_profile(group_col, project_id)
+    for name, overrides in saved_style.items():
+        style_map.setdefault(str(name), {}).update(overrides)
 
     try:
         preparation = prepare_ternary(dataframe, a_col, b_col, c_col, normalization=normalization)
@@ -329,33 +353,10 @@ def render_ternary_workspace(
         st.rerun()
 
     st.markdown("#### Публикационная фигура")
-    f1, f2, f3, f4 = st.columns(4)
-    marker_size = f1.slider(
-        "Размер маркеров",
-        10,
-        180,
-        int(recipe.get("marker_size", 48)),
-        2,
-        key="ternary_marker_size",
-    )
-    show_grid = f2.checkbox("Сетка", value=bool(recipe.get("show_grid", True)), key="ternary_grid")
-    show_legend = f3.checkbox("Легенда", value=bool(recipe.get("show_legend", True)), key="ternary_legend")
-    annotate = f4.checkbox("Подписывать точки", value=bool(recipe.get("annotate", False)), key="ternary_annotate")
-
-    label_candidates = [
-        column
-        for column in plot_data.columns
-        if not str(column).startswith("_")
-        and plot_data[column].nunique(dropna=True) <= max(200, len(plot_data))
-    ]
-    label_col = None
     annotate_top_n = 0
-    if annotate:
-        l1, l2 = st.columns(2)
-        label_choice = l1.selectbox("Поле подписи", ["—"] + label_candidates, key="ternary_label_col")
-        label_col = None if label_choice == "—" else label_choice
-        annotate_top_n = l2.slider(
-            "Сколько подписывать",
+    if style.label_points and style.point_label_column:
+        annotate_top_n = st.slider(
+            "Сколько точек подписывать",
             1,
             1000,
             int(recipe.get("annotate_top_n", 25)),
@@ -369,17 +370,23 @@ def render_ternary_workspace(
         c_label=c_label,
         group_col=group_col,
         title=title,
-        marker_size=float(marker_size),
+        marker_size=style.marker_size,
         style_map=style_map,
-        show_grid=show_grid,
-        show_legend=show_legend,
-        annotate=annotate,
-        label_col=label_col,
+        show_grid=style.grid,
+        show_legend=style.show_legend,
+        annotate=style.label_points,
+        label_col=style.point_label_column,
         annotate_top_n=annotate_top_n,
+        figure_size=(style.width_in, style.height_in),
+        font_family=style.font_family,
+        font_size=style.font_size,
+        title_size=style.font_size + 1.0,
+        line_width=style.line_width,
+        monochrome=style.monochrome,
         overlay=render_overlay,
     )
     st.pyplot(figure, width="content")
-    png = figure_png_bytes(figure, dpi=600)
+    png = figure_png_bytes(figure, dpi=style.dpi)
     svg = figure_svg_bytes(figure)
     plt.close(figure)
 
@@ -409,6 +416,14 @@ def render_ternary_workspace(
         "show_classification_overlay": bool(selection.show_overlay),
         "classification_source": classification_overlay.source_citation if classification_overlay else "",
         "classification_doi": classification_overlay.source_doi if classification_overlay else "",
+        "figure_preset": style.preset_name,
+        "point_style_preset": style.point_style_name,
+        "font_family": style.font_family,
+        "font_size": style.font_size,
+        "marker_size": style.marker_size,
+        "monochrome": style.monochrome,
+        "grid": style.grid,
+        "dpi": style.dpi,
         "auto_outlier_method": method_label,
         "auto_outlier_threshold": threshold,
         "interactive_excluded_ids": json.dumps(sorted(interactive_ids), ensure_ascii=False),
@@ -422,7 +437,7 @@ def render_ternary_workspace(
 
     d1, d2, d3 = st.columns(3)
     d1.download_button(
-        "PNG · 600 dpi",
+        f"PNG · {style.dpi} dpi",
         png,
         file_name="petrolab_ternary.png",
         mime="image/png",
@@ -468,11 +483,17 @@ def render_ternary_workspace(
         "classification_overlay_id": classification_overlay.overlay_id if classification_overlay else "",
         "group_col": group_col,
         "title": title,
-        "marker_size": marker_size,
-        "show_grid": show_grid,
-        "show_legend": show_legend,
-        "annotate": annotate,
-        "label_col": label_col,
+        "figure_preset": style.preset_name,
+        "point_style_preset": style.point_style_name,
+        "font_family": style.font_family,
+        "font_size": style.font_size,
+        "marker_size": style.marker_size,
+        "show_grid": style.grid,
+        "show_legend": style.show_legend,
+        "monochrome": style.monochrome,
+        "dpi": style.dpi,
+        "annotate": style.label_points,
+        "label_col": style.point_label_column,
         "annotate_top_n": annotate_top_n,
     }
     with st.expander("Сохранить рецепт ternary", expanded=False):
