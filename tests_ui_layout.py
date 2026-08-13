@@ -9,6 +9,7 @@ PAGES = UI / "pages"
 THEME = (UI / "theme.py").read_text(encoding="utf-8")
 LAYOUT = (UI / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
+DESTRUCTIVE = (UI / "destructive_page_policy.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
 
 # Scientific-dashboard visual system and responsive behavior.
@@ -52,6 +53,17 @@ assert '"Быстрое построение"' in plots and '"Расширенн
 analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
 for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
     assert view in analyses
+
+# Existing one-click destructive actions must be intercepted before reaching storage.
+assert "install_destructive_page_policy" in APP
+for marker in [
+    '"plot_recipe"', '"style_profile"', '"work_group"', '"rock_image"',
+    "original_delete_recipe", "original_delete_profile", "original_clear_group",
+    "original_delete_rock_image", "st.rerun()", "Отмена",
+]:
+    assert marker in DESTRUCTIVE, marker
+assert "loaded_recipe = None" in DESTRUCTIVE
+assert 'pop("style_profile_select", None)' in DESTRUCTIVE
 
 for path in sorted(PAGES.glob("*.py")):
     text = path.read_text(encoding="utf-8")
