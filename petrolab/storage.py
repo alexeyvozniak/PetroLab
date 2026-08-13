@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from . import db as _db
+from .storage_extensions import ensure_rock_tables
 
 
 def ensure_storage() -> None:
@@ -133,6 +134,8 @@ def ensure_storage() -> None:
             )
             """
         )
+
+        ensure_rock_tables(con)
         con.commit()
     finally:
         con.close()

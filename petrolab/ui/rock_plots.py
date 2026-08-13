@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+
+from petrolab.derived import load_unified_with_derived
+from petrolab.extended_plotting import (
+    NORMALIZATION_REFERENCES,
+    REE_ORDER,
+    SPIDER_ORDER,
+    available_elements,
+    build_pattern_figure,
+    prepare_pattern,
+)
+from petrolab.repositories.rock_repository import composition_wide, isotope_wide, list_mineral_links
+from petrolab.rock_plotting import build_rhodes_figure, build_rock_scatter, build_tas_figure, figure_bytes
+from petrolab.services.rock_service import composition_dict, measured_olivine_kd, whole_rock_mg_number
+from petrolab.ui.plot_style_controls import render_figure_style_controls
+from petrolab.visualization_presets import POINT_STYLE_PRESETS
+
+
+def _download_figure(fig, filename_stem: str, style, key_prefix: str) -> None:
+    c1, c2 = st.columns(2)
+    c1.download_button(
+        "PNG",
+        figure_bytes(fig, "png", style.dpi),
+        file_name=f"{filename_stem}.png",
+        mime="image/png",
+        key=f"{key_prefix}_png",
+    )
+    c2.download_button(
+        "SVG",
+        figure_bytes(fig, "svg", style.dpi),
+        file_name=f"{filename_stem}.svg",
+        mime="image/svg+xml",
+        key=f"{key_prefix}_svg",
+    )
+
+
+def render_rock_plots(project_id: int, selected_rock: dict) -> None:
+    """Render bulk-rock and mineral–rock plots without owning rock CRUD state."""
+    wide = composition_wide(project_id)
+    if wide.empty:
+        st.info("Сначала внесите валовый химический состав.")
+        return
+
+    tab_tas, tab_harker, tab_pattern, tab_iso, tab_rhodes = st.tabs(
+        ["TAS", "Harker / бинарные", "REE / Spider", "Изотопы", "Mineral–rock / Rhodes"]
+    )
+
+    with tab_tas:
+        required = {"SiO2", "Na2O", "K2O"}
+        if required.issubset(wide.columns):
+            style = render_figure_style_controls(wide, key_prefix="rock_tas")
+            label_points = st.checkbox("Подписывать названия пород", value=True, key="rock_tas_labels")
+            fig = build_tas_figure(
+                wide,
+                group_column="Massif" if "Massif" in wide else None,
+                label_column="Rock" if label_points else None,
+                font_family=style.font_family,
+                font_size=style.font_size,
+                marker_size=style.marker_size,
+                grid=style.grid,
+                figure_size=(style.width_in, style.height_in),
+            )
+            st.pyplot(fig, width="stretch")
+            _download_figure(fig, "TAS", style, "rock_tas")
+            plt.close(fig)
+            st.caption(
+                "TAS: Le Bas et al. (1986), IUGS. Basanite/tephrite и trachyte/trachydacite "
+                "не разделяются одной позицией на TAS без дополнительных критериев."
+            )
+        else:
+            st.info("Для TAS нужны SiO2, Na2O и K2O.")
+
+    with tab_harker:
+        numeric = [
+            column for column in wide.columns
+            if pd.to_numeric(wide[column], errors="coerce").notna().sum() >= 2
+            and not str(column).startswith("_")
+        ]
+        if len(numeric) >= 2:
+            x_default = "SiO2" if "SiO2" in numeric else numeric[0]
+            c1, c2 = st.columns(2)
+            x = c1.selectbox("X", numeric, index=numeric.index(x_default), key="rock_harker_x")
+            y_choices = [column for column in numeric if column != x]
+            y = c2.selectbox("Y", y_choices, key="rock_harker_y")
+            style = render_figure_style_controls(wide, key_prefix="rock_harker")
+            fig = build_rock_scatter(
+                wide,
+                x,
+                y,
+                group_column="Massif" if "Massif" in wide else None,
+                label_column=style.point_label_column if style.label_points else None,
+                title=f"{y} vs {x}",
+                font_family=style.font_family,
+                font_size=style.font_size,
+                marker_size=style.marker_size,
+                grid=style.grid,
+                figure_size=(style.width_in, style.height_in),
+            )
+            st.pyplot(fig, width="stretch")
+            _download_figure(fig, f"{y}_vs_{x}", style, "rock_harker")
+            plt.close(fig)
+        else:
+            st.info("Для бинарной диаграммы нужны минимум две числовые колонки в нескольких породах.")
+
+    with tab_pattern:
+        mode = st.segmented_control("Тип", ["REE", "Spider"], default="REE", key="rock_pattern_mode")
+        order = REE_ORDER if mode == "REE" else SPIDER_ORDER
+        reference_names = list(NORMALIZATION_REFERENCES)
+        ref_name = st.selectbox(
+            "Нормировка",
+            reference_names,
+            index=1 if mode == "REE" else 2,
+            key="rock_pattern_ref",
+        )
+        reference = NORMALIZATION_REFERENCES[ref_name]
+        available = available_elements(wide, order, require_known_units=reference is not None)
+        if len(available) >= 2:
+            elements = st.multiselect("Элементы", list(order), default=available, key="rock_pattern_elements")
+            pattern = prepare_pattern(wide, elements, reference)
+            labels = wide["Rock"] if "Rock" in wide else None
+            groups = wide["Massif"] if "Massif" in wide else None
+            style = render_figure_style_controls(wide, key_prefix="rock_pattern")
+            point_style = POINT_STYLE_PRESETS[style.point_style_name]
+            fig = build_pattern_figure(
+                pattern,
+                labels=labels,
+                group=groups,
+                title=f"Whole-rock {mode}",
+                ylabel="Sample / reference" if reference is not None else "Concentration",
+                marker=point_style.markers[0],
+                marker_size=max(2.0, style.marker_size / 14.0),
+                alpha=point_style.alpha,
+                linewidth=style.line_width,
+                grid=style.grid,
+                font_family=style.font_family,
+                font_size=style.font_size,
+                figure_size=(style.width_in, style.height_in),
+            )
+            st.pyplot(fig, width="stretch")
+            _download_figure(fig, f"whole_rock_{mode}", style, "rock_pattern")
+            plt.close(fig)
+        else:
+            st.info(
+                "Недостаточно trace-element данных с известными единицами для нормированного pattern. "
+                "Bare-колонки без единиц ПетроЛаб не считает ppm автоматически."
+            )
+
+    with tab_iso:
+        isotopes = isotope_wide(project_id)
+        numeric = [
+            column for column in isotopes.columns
+            if pd.to_numeric(isotopes[column], errors="coerce").notna().sum() >= 2
+            and not str(column).startswith("_")
+        ]
+        if len(numeric) >= 2:
+            x = st.selectbox("Изотопная X", numeric, key="rock_iso_x")
+            y = st.selectbox("Изотопная Y", [column for column in numeric if column != x], key="rock_iso_y")
+            style = render_figure_style_controls(isotopes, key_prefix="rock_iso")
+            fig = build_rock_scatter(
+                isotopes,
+                x,
+                y,
+                label_column="Rock" if style.label_points else None,
+                title=f"{y} vs {x}",
+                font_family=style.font_family,
+                font_size=style.font_size,
+                marker_size=style.marker_size,
+                grid=style.grid,
+                figure_size=(style.width_in, style.height_in),
+            )
+            st.pyplot(fig, width="stretch")
+            _download_figure(fig, f"isotope_{y}_vs_{x}", style, "rock_iso")
+            plt.close(fig)
+        else:
+            st.info("Добавьте как минимум две числовые изотопные величины у нескольких пород.")
+
+    with tab_rhodes:
+        links = list_mineral_links(int(selected_rock["id"]))
+        if not links:
+            st.info("Свяжите породу с минералогическим dataset.")
+            return
+        minerals = load_unified_with_derived(int(selected_rock["project_id"]), links)
+        olivine = (
+            minerals[minerals["Минерал"].astype(str).eq("olivine")].copy()
+            if "Минерал" in minerals else pd.DataFrame()
+        )
+        if olivine.empty or "Fo" not in olivine.columns:
+            st.info("Для Rhodes нужен связанный набор оливинов с сохранённым Fo.")
+            return
+        comp = composition_dict(int(selected_rock["id"]))
+        fe3 = st.slider(
+            "Доля Fe³⁺ в total Fe породы для Mg# proxy",
+            0.0,
+            0.5,
+            0.0,
+            0.01,
+            key="rock_rhodes_fe3",
+        )
+        mgnum = whole_rock_mg_number(comp, fe3_fraction=fe3)
+        if pd.isna(mgnum):
+            st.warning("Невозможно рассчитать whole-rock Mg#: нужны MgO и FeO/FeOt/Fe2O3t.")
+            return
+        rock_row = pd.DataFrame([{"Rock": selected_rock["name"], "Mg#_rock": mgnum}])
+        fig = build_rhodes_figure(rock_row, olivine)
+        st.pyplot(fig, width="stretch")
+        kd = measured_olivine_kd(olivine["Fo"], mgnum)
+        view_columns = [column for column in ["Sample", "Grain", "Point", "Fo"] if column in olivine.columns]
+        kd_table = olivine[view_columns].copy()
+        kd_table["Kd_FeMg_ol-rock_proxy"] = kd.to_numpy()
+        st.dataframe(kd_table, width="stretch", hide_index=True, height=320)
+        st.caption(
+            "Rhodes-style screening использует Kd-линии 0.27/0.30/0.33 вокруг классического "
+            "оливин–жидкость Fe–Mg обмена. Whole-rock состав не всегда равен составу расплава: "
+            "особая осторожность нужна для кумулятов, ксенокристов, контаминированных "
+            "лампрофиров и кимберлитов."
+        )
+        plt.close(fig)

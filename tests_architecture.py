@@ -19,12 +19,16 @@ for renderer in [
     "render_home_page", "render_projects_page", "render_sources_page", "render_analyses_page",
     "render_formulae_page", "render_plots_page", "render_ternary_page", "render_images_page",
     "render_minerals_page", "render_export_page", "render_change_log_page",
+    "render_science_plots_page", "render_statistics_page", "render_rocks_page",
+    "render_article_tables_page", "render_updates_page", "render_settings_page", "render_help_page",
 ]:
     assert renderer in app_text
 
 for page_name in [
     "home.py", "projects.py", "sources.py", "analyses.py", "formulae.py", "plots.py",
     "ternary.py", "plots_ternary.py", "images.py", "minerals.py", "export.py", "change_log.py",
+    "science_plots.py", "statistics.py", "rocks.py", "article_tables.py", "updates.py",
+    "settings.py", "help.py",
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
@@ -37,6 +41,10 @@ for function_name in [
 ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
 assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
+assert (ROOT / "petrolab" / "ui" / "data_scope.py").exists()
+assert (ROOT / "petrolab" / "ui" / "plot_style_controls.py").exists()
+assert (ROOT / "petrolab" / "ui" / "rock_plots.py").exists()
+assert (ROOT / "petrolab" / "ui" / "theme.py").exists()
 
 pure_files = [
     ROOT / "petrolab" / "column_schema.py",
@@ -47,6 +55,14 @@ pure_files = [
     ROOT / "petrolab" / "analysis_groups.py",
     ROOT / "petrolab" / "interactive_plotting.py",
     ROOT / "petrolab" / "plot_presets.py",
+    ROOT / "petrolab" / "visualization_presets.py",
+    ROOT / "petrolab" / "extended_plotting.py",
+    ROOT / "petrolab" / "scientific_overlays.py",
+    ROOT / "petrolab" / "scientific_plotting.py",
+    ROOT / "petrolab" / "statistics.py",
+    ROOT / "petrolab" / "article_tables.py",
+    ROOT / "petrolab" / "rock_plotting.py",
+    ROOT / "petrolab" / "storage_extensions.py",
     ROOT / "petrolab" / "ternary_data.py",
     ROOT / "petrolab" / "ternary_presets.py",
     ROOT / "petrolab" / "ternary_overlays.py",
@@ -56,9 +72,12 @@ pure_files = [
     ROOT / "petrolab" / "services" / "analysis_service.py",
     ROOT / "petrolab" / "services" / "formula_service.py",
     ROOT / "petrolab" / "services" / "image_service.py",
+    ROOT / "petrolab" / "services" / "rock_service.py",
+    ROOT / "petrolab" / "services" / "rock_image_service.py",
     ROOT / "petrolab" / "repositories" / "analysis_repository.py",
     ROOT / "petrolab" / "repositories" / "analysis_refresh_repository.py",
     ROOT / "petrolab" / "repositories" / "image_repository.py",
+    ROOT / "petrolab" / "repositories" / "rock_repository.py",
     *sorted((ROOT / "petrolab" / "minerals").rglob("*.py")),
 ]
 for path in pure_files:
@@ -66,8 +85,14 @@ for path in pure_files:
     assert "import streamlit" not in text, f"Streamlit dependency leaked into {path}"
     assert "from streamlit" not in text, f"Streamlit dependency leaked into {path}"
 
-# Scientific classification geometry/thresholds belong to source-aware registries/classifiers,
-# never to the generic renderer or Streamlit page.
+science_page_text = (pages_dir / "science_plots.py").read_text(encoding="utf-8")
+science_overlay_text = (ROOT / "petrolab" / "scientific_overlays.py").read_text(encoding="utf-8")
+for coefficient in ["51.9078", "52.8316", "3.375", "0.94"]:
+    assert coefficient in science_overlay_text
+    assert coefficient not in science_page_text, f"scientific coefficient {coefficient} leaked into UI"
+assert "10.1016/j.lithos.2004.04.025" in science_overlay_text
+assert "10.1016/j.lithos.2004.04.012" in science_overlay_text
+
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
 preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
 plotting_text = (ROOT / "petrolab" / "ternary_plotting.py").read_text(encoding="utf-8")
@@ -123,11 +148,28 @@ for marker in [
     "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe",
 ]:
     assert marker in ternary_workspace
+ternary_controls_text = ternary_controls.read_text(encoding="utf-8")
+assert "Подписи вершин" in ternary_controls_text
+assert "Подписи классификационных полей" in ternary_controls_text
 
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in analyses_page
 assert "active_derived_columns" in analyses_page
 assert "attach_work_groups" in analyses_page
+
+rocks_page = (pages_dir / "rocks.py").read_text(encoding="utf-8")
+for marker in ["set_mineral_links", "replace_isotopes", "render_rock_plots", "delete_rock_with_assets"]:
+    assert marker in rocks_page
+rock_plots_text = (ROOT / "petrolab" / "ui" / "rock_plots.py").read_text(encoding="utf-8")
+for marker in ["build_tas_figure", "build_rhodes_figure", "build_pattern_figure", "render_figure_style_controls"]:
+    assert marker in rock_plots_text
+rock_storage = (ROOT / "petrolab" / "storage_extensions.py").read_text(encoding="utf-8")
+for table_name in ["rock_samples", "rock_compositions", "rock_isotopes", "rock_mineral_links", "rock_images"]:
+    assert table_name in rock_storage
+
+statistics_module = (ROOT / "petrolab" / "statistics.py").read_text(encoding="utf-8")
+assert "KMeans" in statistics_module and "PCA" in statistics_module
+assert "analysis_rows" not in statistics_module, "statistics core must not write analytical storage"
 
 for path in [app_path, *sorted((ROOT / "petrolab").rglob("*.py"))]:
     text = path.read_text(encoding="utf-8")
@@ -135,15 +177,13 @@ for path in [app_path, *sorted((ROOT / "petrolab").rglob("*.py"))]:
 
 for path in (ROOT / "tools").glob("patch_*.py") if (ROOT / "tools").exists() else []:
     raise AssertionError(f"temporary patch script remains: {path.name}")
-for path in (ROOT / ".github" / "workflows").glob("apply-*.yml"):
-    raise AssertionError(f"temporary apply workflow remains: {path.name}")
-for path in (ROOT / ".github" / "workflows").glob("finalize-*.yml"):
-    raise AssertionError(f"temporary finalize workflow remains: {path.name}")
-for path in (ROOT / ".github" / "workflows").glob("pr-final-verification*.yml"):
-    raise AssertionError(f"temporary verification workflow remains: {path.name}")
+for pattern in ["apply-*.yml", "finalize-*.yml", "pr-final-verification*.yml"]:
+    for path in (ROOT / ".github" / "workflows").glob(pattern):
+        raise AssertionError(f"temporary workflow remains: {path.name}")
 
 app_lines = len(app_text.splitlines())
 assert app_lines <= 120, f"app.py grew to {app_lines} lines; keep workspace code in page modules"
+assert "PAGE_GROUPS" in app_text
 assert (ROOT / "CONTRIBUTING.md").exists()
 assert (ROOT / "ARCHITECTURE.md").exists()
 print(f"architecture tests: OK; app.py = {app_lines} lines")

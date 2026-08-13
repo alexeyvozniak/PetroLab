@@ -2,61 +2,33 @@ from __future__ import annotations
 
 from typing import Final
 
+from petrolab.visualization_presets import FIGURE_PRESETS
 
-JOURNAL_PRESETS: Final[dict[str, dict[str, float | bool]]] = {
-    "Свой": {
-        "figure_width": 7.8,
-        "figure_height": 5.8,
-        "font_size": 10,
-        "tick_size": 9,
-        "spine_width": 1.0,
-        "marker_size": 58,
-        "monochrome": False,
-        "show_grid": False,
+
+def _legacy_view(name: str) -> dict[str, object]:
+    preset = FIGURE_PRESETS[name]
+    return {
+        "figure_width": preset.width_in,
+        "figure_height": preset.height_in,
+        "font_family": preset.font_family,
+        "font_size": preset.font_size,
+        "tick_size": preset.tick_size,
+        "label_size": preset.label_size,
+        "spine_width": preset.spine_width,
+        "marker_size": preset.marker_size,
+        "monochrome": preset.monochrome,
+        "show_grid": preset.grid,
         "show_legend": True,
-    },
-    "Lithos": {
-        "figure_width": 7.2,
-        "figure_height": 5.4,
-        "font_size": 10,
-        "tick_size": 9,
-        "spine_width": 1.0,
-        "marker_size": 60,
-        "monochrome": False,
-        "show_grid": False,
-        "show_legend": True,
-    },
-    "Geodynamics & Tectonophysics": {
-        "figure_width": 7.0,
-        "figure_height": 5.3,
-        "font_size": 10,
-        "tick_size": 9,
-        "spine_width": 1.0,
-        "marker_size": 64,
-        "monochrome": False,
-        "show_grid": False,
-        "show_legend": True,
-    },
-    "ДАН": {
-        "figure_width": 6.7,
-        "figure_height": 5.0,
-        "font_size": 9,
-        "tick_size": 8,
-        "spine_width": 1.1,
-        "marker_size": 68,
-        "monochrome": True,
-        "show_grid": False,
-        "show_legend": True,
-    },
-    "Supplementary": {
-        "figure_width": 7.5,
-        "figure_height": 5.8,
-        "font_size": 10,
-        "tick_size": 9,
-        "spine_width": 1.0,
-        "marker_size": 54,
-        "monochrome": False,
-        "show_grid": True,
-        "show_legend": True,
-    },
+        "dpi": preset.dpi,
+    }
+
+
+JOURNAL_PRESETS: Final[dict[str, dict[str, object]]] = {
+    "Свой": _legacy_view("Custom"),
+    "Lithos": _legacy_view("Lithos"),
+    "Geodynamics & Tectonophysics": _legacy_view("Geodynamics & Tectonophysics"),
+    "ДАН": _legacy_view("ДАН"),
+    "Elsevier · 1 колонка": _legacy_view("Elsevier 1-column"),
+    "Elsevier · 2 колонки": _legacy_view("Elsevier 2-column"),
+    "Supplementary": _legacy_view("Supplementary"),
 }
