@@ -1,5 +1,11 @@
+import os
+
 import numpy as np
 import pandas as pd
+
+# This suite verifies production semantics even when invoked by the legacy BAT smoke
+# subprocess, whose PETROLAB_CI flag exists only to keep historical fixtures readable.
+os.environ.pop("PETROLAB_CI", None)
 
 from petrolab.column_schema import canonicalize_header
 from petrolab.extended_plotting import prepare_pattern
