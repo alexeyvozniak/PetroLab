@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -17,8 +18,8 @@ def main() -> None:
         os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
 
         from petrolab.article_tables import article_table_xlsx_bytes, format_dataframe_for_article
-        from petrolab.db import create_project, ensure_storage
-        from petrolab.extended_plotting import CI_CHONDRITE_1995, prepare_pattern
+        from petrolab.db import DB_PATH, create_project, ensure_storage
+        from petrolab.extended_plotting import CI_CHONDRITE_1995, PRIMITIVE_MANTLE_1989, prepare_pattern
         from petrolab.repositories.rock_repository import (
             composition_wide,
             create_rock,
@@ -29,7 +30,13 @@ def main() -> None:
             replace_isotopes,
         )
         from petrolab.rock_plotting import build_tas_figure, figure_bytes
-        from petrolab.scientific_overlays import XY_OVERLAYS, classify_grutter_g10
+        from petrolab.scientific_overlays import (
+            FE2O3_TO_FEO_EQUIVALENT,
+            XY_OVERLAYS,
+            classify_grutter_g10,
+            total_fe_as_feo,
+        )
+        from petrolab.scientific_plotting import build_scientific_xy_figure
         from petrolab.services.rock_image_service import list_rock_images, save_rock_image
         from petrolab.services.rock_service import (
             delete_rock_with_assets,
@@ -41,6 +48,10 @@ def main() -> None:
         from petrolab.visualization_presets import FIGURE_PRESETS, POINT_STYLE_PRESETS, TABLE_PRESETS
 
         ensure_storage()
+        with sqlite3.connect(DB_PATH) as con:
+            tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert {"rock_samples", "rock_compositions", "rock_isotopes", "rock_mineral_links", "rock_images"}.issubset(tables)
+
         project_id = create_project("Science test", "")
         rock_id = create_rock(project_id, "R1", massif="Kola", lithology="lamprophyre", age_ma=380.0)
         composition = {
@@ -115,18 +126,40 @@ def main() -> None:
         raw = prepare_pattern(traces, ["Pr"], None)
         assert raw.elements == ("Pr",)
 
+        # K, P and Ti are commonly available only as major-oxide wt.% in whole-rock data.
+        oxide_pattern = prepare_pattern(
+            pd.DataFrame({"K2O": [1.0], "P2O5": [0.5], "TiO2": [2.0]}),
+            ["K", "P", "Ti"],
+            PRIMITIVE_MANTLE_1989,
+        )
+        assert oxide_pattern.elements == ("K", "P", "Ti")
+        assert oxide_pattern.source_columns["K"].startswith("K2O wt.%")
+        assert 30.0 < float(oxide_pattern.data.loc[0, "K"]) < 35.0
+        assert 20.0 < float(oxide_pattern.data.loc[0, "P"]) < 25.0
+        assert 8.0 < float(oxide_pattern.data.loc[0, "Ti"]) < 10.5
+
         features = pd.DataFrame({"A": [1.0, 1.1, 5.0, 5.1], "B": [2.0, 2.1, 8.0, 8.1]})
         prepared = prepare_matrix(features, ["A", "B"], scaler="standard")
         pca = run_pca(prepared, 2)
         assert pca.scores.shape == (4, 2)
         clusters = run_clustering(prepared, method="kmeans", n_clusters=2)
         assert clusters.labels.nunique() == 2
+        single = prepare_matrix(pd.DataFrame({"A": [1.0], "B": [2.0]}), ["A", "B"])
+        for function in (run_pca, run_clustering):
+            try:
+                function(single)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("undersized statistical model must fail with a clear ValueError")
 
         table = format_dataframe_for_article(
-            pd.DataFrame({"SiO2": [40.1234], "Rb [µg/g]": [123.456]}),
+            pd.DataFrame({"SiO2": [40.1234], "Rb [µg/g]": [123.456], "AlIV": [1.2345]}),
             preset_name="Lithos",
         )
         assert float(table.loc[0, "SiO2"]) == 40.12
+        assert float(table.loc[0, "Rb [µg/g]"]) == 123.5
+        assert float(table.loc[0, "AlIV"]) == 1.23, "AlIV must not be mistaken for Li concentration"
         payload = article_table_xlsx_bytes(table, preset_name="Lithos", title="Test")
         path = root / "table.xlsx"
         path.write_bytes(payload)
@@ -141,6 +174,23 @@ def main() -> None:
         garnet = pd.DataFrame({"CaO": [3.0], "Cr2O3": [6.0], "MnO": [0.2], "MgO": [20.0], "FeO": [8.0]})
         classification = classify_grutter_g10(garnet)
         assert classification.iloc[0] == "G10A diagnostic"
+        split_fe = pd.DataFrame({"FeO": [6.0], "Fe2O3": [2.0]})
+        expected_total = 6.0 + 2.0 * FE2O3_TO_FEO_EQUIVALENT
+        assert np.isclose(float(total_fe_as_feo(split_fe).iloc[0]), expected_total)
+        assert np.isclose(
+            float(total_fe_as_feo(pd.DataFrame({"FeOt": [expected_total]})).iloc[0]),
+            expected_total,
+        )
+
+        mono_fig = build_scientific_xy_figure(
+            pd.DataFrame({"X": [1.0, 2.0], "Y": [2.0, 3.0], "Group": ["A", "B"]}),
+            x="X", y="Y", x_label="X", y_label="Y", group_column="Group",
+            point_style_name="balanced", monochrome=True,
+        )
+        assert len(mono_fig.axes[0].collections) == 2
+        for collection in mono_fig.axes[0].collections:
+            edges = collection.get_edgecolors()
+            assert len(edges) and np.allclose(edges[0][:3], [0.0, 0.0, 0.0])
 
     print("science workbench tests: OK")
 
