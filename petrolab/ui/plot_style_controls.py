@@ -30,33 +30,26 @@ class FigureStyleSelection:
     point_label_column: str | None
 
 
-def render_figure_style_controls(
-    dataframe: pd.DataFrame,
-    *,
-    key_prefix: str,
-    default_preset: str | None = None,
-) -> FigureStyleSelection:
+def render_figure_style_controls(dataframe: pd.DataFrame, *, key_prefix: str, default_preset: str | None = None) -> FigureStyleSelection:
     settings = load_settings()
     preferred_figure = default_preset or str(settings.get("default_figure_preset", "Lithos"))
     preferred_points = str(settings.get("default_point_style", "balanced"))
 
     with st.expander("Оформление рисунка", expanded=False):
         st.caption(
-            "Журнальный preset — удобная стартовая геометрия и типографика, а не гарантия соответствия "
-            "текущим author guidelines. Перед подачей статьи сверяйте требования конкретного журнала."
+            "Журнальный preset — стартовая геометрия и типографика, а не гарантия соответствия "
+            "текущим author guidelines. Перед подачей сверяйте требования журнала."
         )
         preset_names = list(FIGURE_PRESETS)
         preset_name = st.selectbox(
-            "Журнальный preset",
-            preset_names,
+            "Журнальный preset", preset_names,
             index=preset_names.index(preferred_figure) if preferred_figure in preset_names else 0,
             key=f"{key_prefix}_figure_preset",
         )
         preset = FIGURE_PRESETS[preset_name]
         point_style_names = list(POINT_STYLE_PRESETS)
         point_style_name = st.selectbox(
-            "Гармоничный набор маркеров",
-            point_style_names,
+            "Гармоничный набор маркеров", point_style_names,
             format_func=lambda name: POINT_STYLE_PRESETS[name].title,
             index=point_style_names.index(preferred_points) if preferred_points in point_style_names else 0,
             key=f"{key_prefix}_point_style",
@@ -64,17 +57,17 @@ def render_figure_style_controls(
         c1, c2, c3 = st.columns(3)
         font_options = ["Arial", "DejaVu Sans", "Times New Roman"]
         font_family = c1.selectbox(
-            "Шрифт",
-            font_options,
+            "Шрифт", font_options,
             index=font_options.index(preset.font_family) if preset.font_family in font_options else 0,
             key=f"{key_prefix}_font",
         )
         font_size = c2.slider("Основной шрифт", 6.0, 18.0, float(preset.font_size), 0.5, key=f"{key_prefix}_font_size")
         label_size = c3.slider("Подписи осей", 6.0, 20.0, float(preset.label_size), 0.5, key=f"{key_prefix}_label_size")
-        c4, c5, c6 = st.columns(3)
+        c4, c5, c6, c7 = st.columns(4)
         tick_size = c4.slider("Деления", 6.0, 16.0, float(preset.tick_size), 0.5, key=f"{key_prefix}_tick_size")
         marker_size = c5.slider("Размер точки", 10.0, 180.0, float(preset.marker_size), 2.0, key=f"{key_prefix}_marker_size")
         line_width = c6.slider("Толщина линий", 0.4, 3.0, float(preset.line_width), 0.1, key=f"{key_prefix}_line_width")
+        spine_width = c7.slider("Толщина рамки", 0.4, 3.0, float(preset.spine_width), 0.1, key=f"{key_prefix}_spine_width")
         d1, d2, d3 = st.columns(3)
         width_in = d1.slider("Ширина, inch", 2.5, 12.0, float(preset.width_in), 0.1, key=f"{key_prefix}_width")
         height_in = d2.slider("Высота, inch", 2.5, 10.0, float(preset.height_in), 0.1, key=f"{key_prefix}_height")
@@ -84,10 +77,7 @@ def render_figure_style_controls(
         grid = e1.checkbox("Сетка", value=bool(preset.grid), key=f"{key_prefix}_grid")
         monochrome = e2.checkbox("Ч/б", value=bool(preset.monochrome), key=f"{key_prefix}_mono")
         show_legend = e3.checkbox("Легенда", value=True, key=f"{key_prefix}_legend")
-        label_candidates = [
-            column for column in ["Sample", "Grain", "Point", "Generation", "Набор", "Рабочая группа"]
-            if column in dataframe.columns
-        ]
+        label_candidates = [column for column in ["Sample", "Grain", "Point", "Generation", "Набор", "Рабочая группа"] if column in dataframe.columns]
         label_points = st.checkbox("Подписывать точки", value=False, key=f"{key_prefix}_label_points")
         point_label_column = None
         if label_points and label_candidates:
@@ -102,7 +92,7 @@ def render_figure_style_controls(
         label_size=float(label_size),
         marker_size=float(marker_size),
         line_width=float(line_width),
-        spine_width=float(preset.spine_width),
+        spine_width=float(spine_width),
         width_in=float(width_in),
         height_in=float(height_in),
         dpi=dpi,
@@ -122,10 +112,7 @@ def render_custom_fields(key_prefix: str) -> pd.DataFrame:
         )
         default = pd.DataFrame(columns=["label", "x_min", "x_max", "y_min", "y_max"])
         edited = st.data_editor(
-            default,
-            num_rows="dynamic",
-            width="stretch",
-            hide_index=True,
+            default, num_rows="dynamic", width="stretch", hide_index=True,
             key=f"{key_prefix}_custom_fields",
             column_config={
                 "label": st.column_config.TextColumn("Подпись"),
