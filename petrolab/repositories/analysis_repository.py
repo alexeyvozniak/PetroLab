@@ -16,11 +16,7 @@ def apply_analysis_changes(
     *,
     synced_to_source: bool,
 ) -> None:
-    """Apply a whole edit batch in one SQLite transaction.
-
-    Every change may carry its own ``source_backup`` value. The transaction is
-    committed only after all analysis JSON values and change-log rows succeed.
-    """
+    """Apply a whole edit batch in one transaction after validating row ownership."""
     if not changes:
         return
 
@@ -32,11 +28,20 @@ def apply_analysis_changes(
     with connect() as con:
         for analysis_id, items in grouped.items():
             row = con.execute(
-                "SELECT data_json FROM analysis_rows WHERE analysis_id=?",
+                "SELECT dataset_id, data_json FROM analysis_rows WHERE analysis_id=?",
                 (analysis_id,),
             ).fetchone()
             if row is None:
                 raise KeyError(f"Анализ {analysis_id} не найден в базе")
+
+            actual_dataset_id = int(row["dataset_id"])
+            for change in items:
+                claimed_dataset_id = int(change["dataset_id"])
+                if claimed_dataset_id != actual_dataset_id:
+                    raise ValueError(
+                        f"Анализ {analysis_id} принадлежит dataset {actual_dataset_id}, "
+                        f"а изменение заявлено для dataset {claimed_dataset_id}."
+                    )
 
             data = json.loads(row["data_json"])
             for change in items:
@@ -49,7 +54,7 @@ def apply_analysis_changes(
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        int(change["dataset_id"]),
+                        actual_dataset_id,
                         analysis_id,
                         change["column_name"],
                         None if change.get("old_value") is None else str(change["old_value"]),
