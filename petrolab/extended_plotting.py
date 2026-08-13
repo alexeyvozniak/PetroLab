@@ -39,6 +39,16 @@ NORMALIZATION_REFERENCES = {
     "Primitive mantle · Sun & McDonough (1989)": PRIMITIVE_MANTLE_1989,
 }
 
+# Whole-rock major elements are commonly reported as oxide wt.%. For a normalized
+# multi-element plot the reference values above are elemental concentrations in µg/g.
+# These factors convert 1 wt.% oxide to µg/g of the named element, preserving explicit
+# provenance instead of pretending the oxide column is already ppm.
+_OXIDE_ELEMENT_EQUIVALENTS: dict[str, tuple[str, float]] = {
+    "K": ("K2O", (2.0 * 39.0983) / (2.0 * 39.0983 + 15.999) * 10_000.0),
+    "P": ("P2O5", (2.0 * 30.973761998) / (2.0 * 30.973761998 + 5.0 * 15.999) * 10_000.0),
+    "Ti": ("TiO2", 47.867 / (47.867 + 2.0 * 15.999) * 10_000.0),
+}
+
 
 @dataclass(frozen=True)
 class PatternResult:
@@ -55,29 +65,46 @@ def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(dataframe[column], errors="coerce")
 
 
-def resolve_element_column(dataframe: pd.DataFrame, element: str, *, allow_bare: bool = True) -> str | None:
-    """Resolve a trace element while preserving unit semantics.
-
-    Canonical concentration columns (``La [µg/g]``) are preferred. Bare ``La`` is
-    permitted only for unnormalised plots; a reference-normalised pattern requires a
-    known concentration unit so an unknown-unit column can never be treated as ppm.
-    """
+def _resolve_element_source(
+    dataframe: pd.DataFrame,
+    element: str,
+    *,
+    allow_bare: bool = True,
+) -> tuple[str, float, str] | None:
     canonical_candidates = [
         column for column in dataframe.columns
         if str(column).startswith(f"{element} [") and "µg/g" in str(column)
     ]
     for column in canonical_candidates:
         if _numeric(dataframe, str(column)).notna().any():
-            return str(column)
+            return str(column), 1.0, str(column)
+
     if allow_bare and element in dataframe.columns and _numeric(dataframe, element).notna().any():
-        return element
+        return element, 1.0, element
+
+    oxide_equivalent = _OXIDE_ELEMENT_EQUIVALENTS.get(element)
+    if oxide_equivalent is not None:
+        oxide_column, factor = oxide_equivalent
+        if oxide_column in dataframe.columns and _numeric(dataframe, oxide_column).notna().any():
+            return oxide_column, factor, f"{oxide_column} wt.% → {element} [µg/g]"
     return None
+
+
+def resolve_element_column(dataframe: pd.DataFrame, element: str, *, allow_bare: bool = True) -> str | None:
+    """Resolve the physical source column for an element without guessing unknown units.
+
+    Canonical concentration columns (``La [µg/g]``) are preferred. Bare ``La`` is
+    permitted only when the caller allows unknown units. K, P and Ti may additionally
+    be derived from K2O/P2O5/TiO2 wt.% using explicit stoichiometric factors.
+    """
+    source = _resolve_element_source(dataframe, element, allow_bare=allow_bare)
+    return source[0] if source is not None else None
 
 
 def available_elements(dataframe: pd.DataFrame, preferred: Iterable[str], *, require_known_units: bool = False) -> list[str]:
     return [
         element for element in preferred
-        if resolve_element_column(dataframe, element, allow_bare=not require_known_units) is not None
+        if _resolve_element_source(dataframe, element, allow_bare=not require_known_units) is not None
     ]
 
 
@@ -88,18 +115,21 @@ def prepare_pattern(
 ) -> PatternResult:
     requested = tuple(elements)
     resolved = {
-        element: resolve_element_column(dataframe, element, allow_bare=reference is None)
+        element: _resolve_element_source(dataframe, element, allow_bare=reference is None)
         for element in requested
     }
-    missing = tuple(element for element, column in resolved.items() if column is None)
-    usable = tuple(element for element, column in resolved.items() if column is not None)
-    source_columns = {element: str(resolved[element]) for element in usable}
+    missing = tuple(element for element, source in resolved.items() if source is None)
+    usable = tuple(element for element, source in resolved.items() if source is not None)
+    source_columns = {element: str(resolved[element][2]) for element in usable if resolved[element] is not None}
     if not usable:
         return PatternResult(pd.DataFrame(index=dataframe.index), (), len(dataframe), missing, {})
 
     out = pd.DataFrame(index=dataframe.index)
     for element in usable:
-        values = _numeric(dataframe, source_columns[element])
+        source = resolved[element]
+        assert source is not None
+        source_column, factor, _ = source
+        values = _numeric(dataframe, source_column) * float(factor)
         if reference is not None:
             divisor = float(reference.get(element, np.nan))
             values = values / divisor if np.isfinite(divisor) and divisor > 0 else np.nan
