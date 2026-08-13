@@ -54,39 +54,43 @@ def _text(value) -> str:
     return str(value)
 
 
-def create_rock(project_id: int, name: str, **metadata) -> int:
-    clean_name = str(name).strip()
-    if not clean_name:
-        raise ValueError("Название породы не может быть пустым")
-    now = _utcnow()
-    fields = {
+def _rock_fields(metadata: dict) -> dict[str, object]:
+    fields: dict[str, object] = {
         "description": "", "massif": "", "locality": "", "lithology": "",
         "latitude": None, "longitude": None, "age_ma": None, "age_uncertainty_ma": None,
         "age_method": "", "chemistry_method": "", "isotope_method": "", "laboratory": "", "notes": "",
     }
     fields.update({key: value for key, value in metadata.items() if key in fields})
-    with rock_connection() as con:
-        cur = con.execute(
-            """
-            INSERT INTO rock_samples(
-                project_id, name, description, massif, locality, lithology, latitude, longitude,
-                age_ma, age_uncertainty_ma, age_method, chemistry_method, isotope_method,
-                laboratory, notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                int(project_id), clean_name, _text(fields["description"]), _text(fields["massif"]),
-                _text(fields["locality"]), _text(fields["lithology"]), _nullable_float(fields["latitude"]),
-                _nullable_float(fields["longitude"]), _nullable_float(fields["age_ma"]),
-                _nullable_float(fields["age_uncertainty_ma"]), _text(fields["age_method"]),
-                _text(fields["chemistry_method"]), _text(fields["isotope_method"]),
-                _text(fields["laboratory"]), _text(fields["notes"]), now, now,
-            ),
-        )
-        return int(cur.lastrowid)
+    return fields
 
 
-def update_rock(rock_id: int, **metadata) -> None:
+def _create_rock_in_connection(con: sqlite3.Connection, project_id: int, name: str, metadata: dict) -> int:
+    clean_name = str(name).strip()
+    if not clean_name:
+        raise ValueError("Название породы не может быть пустым")
+    now = _utcnow()
+    fields = _rock_fields(metadata)
+    cur = con.execute(
+        """
+        INSERT INTO rock_samples(
+            project_id, name, description, massif, locality, lithology, latitude, longitude,
+            age_ma, age_uncertainty_ma, age_method, chemistry_method, isotope_method,
+            laboratory, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(project_id), clean_name, _text(fields["description"]), _text(fields["massif"]),
+            _text(fields["locality"]), _text(fields["lithology"]), _nullable_float(fields["latitude"]),
+            _nullable_float(fields["longitude"]), _nullable_float(fields["age_ma"]),
+            _nullable_float(fields["age_uncertainty_ma"]), _text(fields["age_method"]),
+            _text(fields["chemistry_method"]), _text(fields["isotope_method"]),
+            _text(fields["laboratory"]), _text(fields["notes"]), now, now,
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def _update_rock_in_connection(con: sqlite3.Connection, rock_id: int, metadata: dict) -> None:
     allowed = {
         "name", "description", "massif", "locality", "lithology", "latitude", "longitude",
         "age_ma", "age_uncertainty_ma", "age_method", "chemistry_method", "isotope_method",
@@ -104,8 +108,39 @@ def update_rock(rock_id: int, **metadata) -> None:
         return
     values["updated_at"] = _utcnow()
     assignments = ", ".join(f"{key}=?" for key in values)
+    con.execute(f"UPDATE rock_samples SET {assignments} WHERE id=?", (*values.values(), int(rock_id)))
+
+
+def _replace_composition_in_connection(
+    con: sqlite3.Connection,
+    rock_id: int,
+    composition: dict[str, float],
+    *,
+    units: dict[str, str] | None = None,
+    method: str = "",
+    source: str = "",
+) -> None:
+    units = units or {}
+    now = _utcnow()
+    con.execute("DELETE FROM rock_compositions WHERE rock_id=?", (int(rock_id),))
+    for analyte, value in composition.items():
+        numeric = _nullable_float(value)
+        if numeric is None:
+            continue
+        con.execute(
+            "INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (int(rock_id), str(analyte), numeric, units.get(str(analyte), ""), method, source, now),
+        )
+
+
+def create_rock(project_id: int, name: str, **metadata) -> int:
     with rock_connection() as con:
-        con.execute(f"UPDATE rock_samples SET {assignments} WHERE id=?", (*values.values(), int(rock_id)))
+        return _create_rock_in_connection(con, project_id, name, metadata)
+
+
+def update_rock(rock_id: int, **metadata) -> None:
+    with rock_connection() as con:
+        _update_rock_in_connection(con, rock_id, metadata)
 
 
 def delete_rock(rock_id: int) -> None:
@@ -144,18 +179,65 @@ def replace_composition(
     method: str = "",
     source: str = "",
 ) -> None:
-    units = units or {}
-    now = _utcnow()
     with rock_connection() as con:
-        con.execute("DELETE FROM rock_compositions WHERE rock_id=?", (int(rock_id),))
-        for analyte, value in composition.items():
-            numeric = _nullable_float(value)
-            if numeric is None:
-                continue
-            con.execute(
-                "INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (int(rock_id), str(analyte), numeric, units.get(str(analyte), ""), method, source, now),
+        _replace_composition_in_connection(
+            con, rock_id, composition, units=units, method=method, source=source,
+        )
+
+
+def apply_rock_import_batch(
+    project_id: int,
+    prepared_rows: Iterable[dict],
+    *,
+    on_conflict: str,
+    chemistry_method: str = "",
+    source: str = "",
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[str, ...]]:
+    """Persist a prepared whole-rock import in one SQLite transaction.
+
+    Each row must contain ``name``, ``metadata``, ``composition`` and ``units``.
+    A failure on any row rolls back all creates, updates and composition replacements.
+    """
+    if on_conflict not in {"update", "skip", "error"}:
+        raise ValueError("Неизвестная политика совпадающих названий пород")
+    rows = list(prepared_rows)
+    created: list[int] = []
+    updated: list[int] = []
+    skipped: list[str] = []
+    with rock_connection() as con:
+        existing_rows = con.execute(
+            "SELECT id, name FROM rock_samples WHERE project_id=?", (int(project_id),)
+        ).fetchall()
+        existing = {str(row["name"]): int(row["id"]) for row in existing_rows}
+        for row in rows:
+            name = str(row["name"]).strip()
+            if not name:
+                raise ValueError("Название породы не может быть пустым")
+            metadata = dict(row.get("metadata") or {})
+            composition = dict(row.get("composition") or {})
+            units = dict(row.get("units") or {})
+            rock_id = existing.get(name)
+            if rock_id is not None:
+                if on_conflict == "error":
+                    raise ValueError(f"Порода «{name}» уже существует")
+                if on_conflict == "skip":
+                    skipped.append(name)
+                    continue
+                _update_rock_in_connection(con, rock_id, metadata)
+                updated.append(rock_id)
+            else:
+                rock_id = _create_rock_in_connection(con, project_id, name, metadata)
+                existing[name] = rock_id
+                created.append(rock_id)
+            _replace_composition_in_connection(
+                con,
+                rock_id,
+                composition,
+                units=units,
+                method=chemistry_method,
+                source=source,
             )
+    return tuple(created), tuple(updated), tuple(skipped)
 
 
 def upsert_composition_values(rock_id: int, rows: Iterable[dict]) -> None:

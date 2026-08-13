@@ -148,35 +148,44 @@ def build_interactive_ternary(
     return figure
 
 
-def _draw_ternary_grid(ax, step: int = 20) -> None:
+def _draw_ternary_grid(ax, step: int = 20, line_width: float = 1.0) -> None:
     height = sqrt(3.0) / 2.0
-    ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=1.0)
+    ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=line_width, color="black")
     for percent in range(step, 100, step):
         fraction = percent / 100.0
         y = height * fraction
-        ax.plot([0.5 * fraction, 1 - 0.5 * fraction], [y, y], linewidth=0.4, alpha=0.35)
+        ax.plot([0.5 * fraction, 1 - 0.5 * fraction], [y, y], linewidth=max(0.3, line_width * 0.45), alpha=0.35, color="black")
         ax.plot(
             [1 - fraction, 0.5 * (1 - fraction)],
             [0, height * (1 - fraction)],
-            linewidth=0.4,
+            linewidth=max(0.3, line_width * 0.45),
             alpha=0.35,
+            color="black",
         )
         ax.plot(
             [fraction, 0.5 + 0.5 * fraction],
             [0, height * (1 - fraction)],
-            linewidth=0.4,
+            linewidth=max(0.3, line_width * 0.45),
             alpha=0.35,
+            color="black",
         )
 
 
-def _draw_matplotlib_overlay(ax, overlay: TernaryOverlay, font_size: float) -> None:
+def _draw_matplotlib_overlay(ax, overlay: TernaryOverlay, font_size: float, line_width: float) -> None:
     for line in overlay.lines:
         x, y = ternary_to_cartesian(
             [point.a for point in line.points],
             [point.b for point in line.points],
             [point.c for point in line.points],
         )
-        ax.plot(x, y, linewidth=line.width, linestyle=line.style, alpha=0.8)
+        ax.plot(
+            x,
+            y,
+            linewidth=max(float(line.width), line_width),
+            linestyle=line.style,
+            alpha=0.8,
+            color="black",
+        )
     for label in overlay.labels:
         x, y = ternary_to_cartesian(
             [label.position.a],
@@ -209,69 +218,75 @@ def build_publication_ternary(
     label_col: str | None = None,
     annotate_top_n: int = 25,
     figure_size: tuple[float, float] = (7.0, 6.2),
+    font_family: str = "Arial",
     font_size: float = 10.0,
     title_size: float = 11.0,
+    line_width: float = 0.9,
+    monochrome: bool = False,
     overlay: TernaryOverlay | None = None,
 ) -> Figure:
     """Build an editable Matplotlib ternary figure for PNG/SVG publication export."""
     style_map = style_map or {}
-    figure, ax = plt.subplots(figsize=figure_size)
-    height = sqrt(3.0) / 2.0
-    if show_grid:
-        _draw_ternary_grid(ax)
-    else:
-        ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=1.0)
+    with plt.rc_context({"font.family": font_family, "font.size": font_size}):
+        figure, ax = plt.subplots(figsize=figure_size)
+        height = sqrt(3.0) / 2.0
+        if show_grid:
+            _draw_ternary_grid(ax, line_width=line_width)
+        else:
+            ax.plot([0, 1, 0.5, 0], [0, 0, height, 0], linewidth=line_width, color="black")
 
-    if overlay is not None:
-        _draw_matplotlib_overlay(ax, overlay, font_size)
+        if overlay is not None:
+            _draw_matplotlib_overlay(ax, overlay, font_size, line_width)
 
-    for group_name, frame in _group_frames(dataframe, group_col):
-        style = style_map.get(str(group_name), {})
-        marker = str(style.get("marker", "o"))
-        size = marker_size * float(style.get("size_multiplier", 1.0) or 1.0)
-        alpha = float(style.get("alpha", 0.9) or 0.9)
-        filled = bool(style.get("filled", True))
-        scatter_kwargs = {
-            "s": size,
-            "marker": marker,
-            "alpha": alpha,
-            "label": str(group_name),
-            "linewidths": 0.8,
-        }
-        if not filled:
-            scatter_kwargs["facecolors"] = "none"
-        ax.scatter(frame[TERNARY_X], frame[TERNARY_Y], **scatter_kwargs)
+        for group_name, frame in _group_frames(dataframe, group_col):
+            style = style_map.get(str(group_name), {})
+            marker = str(style.get("marker", "o"))
+            size = marker_size * float(style.get("size_multiplier", 1.0) or 1.0)
+            alpha = float(style.get("alpha", 0.9) or 0.9)
+            filled = bool(style.get("filled", True))
+            scatter_kwargs: dict[str, object] = {
+                "s": size,
+                "marker": marker,
+                "alpha": alpha,
+                "label": str(group_name),
+                "linewidths": 0.8,
+            }
+            if not filled or monochrome:
+                scatter_kwargs["facecolors"] = "none"
+            if monochrome:
+                scatter_kwargs["edgecolors"] = "black"
+            ax.scatter(frame[TERNARY_X], frame[TERNARY_Y], **scatter_kwargs)
 
-    ax.text(-0.03, -0.025, a_label, ha="right", va="top", fontsize=font_size)
-    ax.text(1.03, -0.025, b_label, ha="left", va="top", fontsize=font_size)
-    ax.text(0.5, height + 0.035, c_label, ha="center", va="bottom", fontsize=font_size)
+        ax.text(-0.03, -0.025, a_label, ha="right", va="top", fontsize=font_size)
+        ax.text(1.03, -0.025, b_label, ha="left", va="top", fontsize=font_size)
+        ax.text(0.5, height + 0.035, c_label, ha="center", va="bottom", fontsize=font_size)
 
-    if annotate and label_col and label_col in dataframe.columns:
-        for _, row in dataframe.head(max(int(annotate_top_n), 0)).iterrows():
-            value = row.get(label_col)
-            if pd.isna(value):
-                continue
-            ax.annotate(
-                str(value),
-                (float(row[TERNARY_X]), float(row[TERNARY_Y])),
-                xytext=(3, 3),
-                textcoords="offset points",
+        if annotate and label_col and label_col in dataframe.columns:
+            for _, row in dataframe.head(max(int(annotate_top_n), 0)).iterrows():
+                value = row.get(label_col)
+                if pd.isna(value):
+                    continue
+                ax.annotate(
+                    str(value),
+                    (float(row[TERNARY_X]), float(row[TERNARY_Y])),
+                    xytext=(3, 3),
+                    textcoords="offset points",
+                    fontsize=max(font_size - 1.0, 6.0),
+                )
+
+        if title:
+            ax.set_title(title, fontsize=title_size)
+        if show_legend and (group_col and group_col in dataframe.columns):
+            ax.legend(
+                frameon=False,
                 fontsize=max(font_size - 1.0, 6.0),
+                bbox_to_anchor=(1.02, 1),
+                loc="upper left",
             )
 
-    if title:
-        ax.set_title(title, fontsize=title_size)
-    if show_legend and (group_col and group_col in dataframe.columns):
-        ax.legend(
-            frameon=False,
-            fontsize=max(font_size - 1.0, 6.0),
-            bbox_to_anchor=(1.02, 1),
-            loc="upper left",
-        )
-
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(-0.08, 1.08)
-    ax.set_ylim(-0.08, height + 0.09)
-    ax.axis("off")
-    figure.tight_layout()
-    return figure
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(-0.08, 1.08)
+        ax.set_ylim(-0.08, height + 0.09)
+        ax.axis("off")
+        figure.tight_layout()
+        return figure

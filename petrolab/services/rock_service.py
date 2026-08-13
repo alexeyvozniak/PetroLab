@@ -8,13 +8,11 @@ import pandas as pd
 
 from petrolab.column_schema import describe_header
 from petrolab.repositories.rock_repository import (
-    create_rock,
+    apply_rock_import_batch,
     delete_rock,
     get_composition,
     list_mineral_links,
     list_rocks,
-    replace_composition,
-    update_rock,
 )
 from petrolab.services.rock_image_service import list_rock_images
 
@@ -23,6 +21,10 @@ MAJOR_OXIDES = {
     "SiO2", "TiO2", "Al2O3", "Cr2O3", "Fe2O3", "Fe2O3t", "FeO", "FeOt",
     "MnO", "MgO", "CaO", "Na2O", "K2O", "P2O5", "NiO", "BaO", "SrO",
 }
+M_MGO = 40.304
+M_FEO = 71.844
+M_FE2O3 = 159.688
+FE2O3_TO_FEO_EQUIVALENT = 2.0 * M_FEO / M_FE2O3
 
 
 @dataclass(frozen=True)
@@ -112,12 +114,12 @@ def import_rocks_wide(
         )
 
     metadata_columns = metadata_columns or {}
-    created: list[int] = []
-    updated: list[int] = []
-    skipped: list[str] = []
     warnings: list[str] = []
     excluded = {name_column, *metadata_columns.values()}
+    prepared_rows: list[dict] = []
 
+    # Prepare every row before opening the write transaction. A conversion/validation
+    # failure therefore cannot leave a partially imported batch behind.
     for _, row in dataframe.iterrows():
         raw_name = row.get(name_column, "")
         try:
@@ -128,10 +130,6 @@ def import_rocks_wide(
         name = str(raw_name).strip()
         if not name:
             continue
-        if name in existing and on_conflict == "skip":
-            skipped.append(name)
-            continue
-
         metadata = {
             key: row.get(column, "")
             for key, column in metadata_columns.items()
@@ -140,20 +138,22 @@ def import_rocks_wide(
         metadata["chemistry_method"] = chemistry_method
         metadata["laboratory"] = laboratory
         composition, units, row_warnings = canonicalize_rock_row(row, excluded)
-
-        if name in existing:
-            rock_id = int(existing[name]["id"])
-            update_rock(rock_id, **metadata)
-            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
-            updated.append(rock_id)
-        else:
-            rock_id = create_rock(project_id, name, **metadata)
-            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
-            created.append(rock_id)
-            existing[name] = {"id": rock_id, "name": name}
         warnings.extend(f"{name}: {message}" for message in row_warnings)
+        prepared_rows.append({
+            "name": name,
+            "metadata": metadata,
+            "composition": composition,
+            "units": units,
+        })
 
-    return RockImportResult(tuple(created), tuple(updated), tuple(skipped), tuple(warnings))
+    created, updated, skipped = apply_rock_import_batch(
+        project_id,
+        prepared_rows,
+        on_conflict=on_conflict,
+        chemistry_method=chemistry_method,
+        source=source,
+    )
+    return RockImportResult(created, updated, skipped, tuple(warnings))
 
 
 def delete_rock_with_assets(rock_id: int) -> None:
@@ -187,20 +187,59 @@ def composition_dict(rock_id: int) -> dict[str, float]:
     }
 
 
-def whole_rock_mg_number(composition: dict[str, float], fe3_fraction: float = 0.0) -> float:
-    mgo = float(composition.get("MgO", np.nan))
-    if not np.isfinite(mgo):
+def _finite_value(composition: dict[str, float], key: str) -> float | None:
+    try:
+        value = float(composition.get(key, np.nan))
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def inferred_whole_rock_fe3_fraction(composition: dict[str, float]) -> float | None:
+    """Infer Fe3+/total Fe only where the supplied iron semantics make it possible."""
+    ferric_oxide = _finite_value(composition, "Fe2O3")
+    ferric_moles = ferric_oxide * 2.0 / M_FE2O3 if ferric_oxide is not None else None
+    feot = _finite_value(composition, "FeOt")
+    if feot is not None and ferric_moles is not None:
+        total_moles = feot / M_FEO
+        if total_moles > 0 and 0 <= ferric_moles <= total_moles:
+            return float(ferric_moles / total_moles)
+    feo = _finite_value(composition, "FeO")
+    if feo is not None:
+        ferrous_moles = feo / M_FEO
+        if ferric_moles is None:
+            return 0.0
+        total_moles = ferrous_moles + ferric_moles
+        return float(ferric_moles / total_moles) if total_moles > 0 else None
+    return None
+
+
+def _total_fe_as_feo(composition: dict[str, float]) -> float | None:
+    feot = _finite_value(composition, "FeOt")
+    if feot is not None:
+        return feot
+    fe2o3t = _finite_value(composition, "Fe2O3t")
+    if fe2o3t is not None:
+        return fe2o3t * FE2O3_TO_FEO_EQUIVALENT
+    feo = _finite_value(composition, "FeO")
+    fe2o3 = _finite_value(composition, "Fe2O3")
+    if feo is None and fe2o3 is None:
+        return None
+    return (feo or 0.0) + (fe2o3 or 0.0) * FE2O3_TO_FEO_EQUIVALENT
+
+
+def whole_rock_mg_number(composition: dict[str, float], fe3_fraction: float | None = None) -> float:
+    mgo = _finite_value(composition, "MgO")
+    total_feo = _total_fe_as_feo(composition)
+    if mgo is None or total_feo is None:
         return np.nan
-    if np.isfinite(float(composition.get("FeO", np.nan))):
-        feo = float(composition["FeO"])
-    elif np.isfinite(float(composition.get("FeOt", np.nan))):
-        feo = float(composition["FeOt"])
-    elif np.isfinite(float(composition.get("Fe2O3t", np.nan))):
-        feo = float(composition["Fe2O3t"]) * (2.0 * 71.844 / 159.688)
-    else:
-        return np.nan
-    fe2_moles = (feo / 71.844) * max(0.0, 1.0 - float(fe3_fraction))
-    mg_moles = mgo / 40.304
+    fraction = inferred_whole_rock_fe3_fraction(composition) if fe3_fraction is None else float(fe3_fraction)
+    if fraction is None:
+        fraction = 0.0
+    if not 0.0 <= float(fraction) <= 1.0:
+        raise ValueError("Доля Fe3+ должна быть в диапазоне 0–1")
+    fe2_moles = (total_feo / M_FEO) * (1.0 - float(fraction))
+    mg_moles = mgo / M_MGO
     denominator = mg_moles + fe2_moles
     return float(mg_moles / denominator) if denominator > 0 else np.nan
 
@@ -222,10 +261,14 @@ def rhodes_lines(rock_mg_number: float, kd_values: tuple[float, ...] = (0.27, 0.
 
 
 def measured_olivine_kd(fo_percent: pd.Series, rock_mg_number: float) -> pd.Series:
+    mg_number = float(rock_mg_number)
+    if not 0 < mg_number < 1:
+        raise ValueError("Для Kd whole-rock/melt Mg# должен быть между 0 и 1")
     fo = pd.to_numeric(fo_percent, errors="coerce") / 100.0
-    liquid_fe_mg = (1.0 - float(rock_mg_number)) / float(rock_mg_number)
+    liquid_fe_mg = (1.0 - mg_number) / mg_number
     olivine_fe_mg = (1.0 - fo) / fo
-    return olivine_fe_mg / liquid_fe_mg
+    result = olivine_fe_mg / liquid_fe_mg
+    return result.replace([np.inf, -np.inf], np.nan)
 
 
 def rock_summary(project_id: int | None = None) -> pd.DataFrame:

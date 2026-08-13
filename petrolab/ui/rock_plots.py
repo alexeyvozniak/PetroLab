@@ -15,7 +15,12 @@ from petrolab.extended_plotting import (
 )
 from petrolab.repositories.rock_repository import composition_wide, isotope_wide, list_mineral_links
 from petrolab.rock_plotting import build_rhodes_figure, build_rock_scatter, build_tas_figure, figure_bytes
-from petrolab.services.rock_service import composition_dict, measured_olivine_kd, whole_rock_mg_number
+from petrolab.services.rock_service import (
+    composition_dict,
+    inferred_whole_rock_fe3_fraction,
+    measured_olivine_kd,
+    whole_rock_mg_number,
+)
 from petrolab.ui.plot_style_controls import render_figure_style_controls
 from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
@@ -38,6 +43,23 @@ def _download_figure(fig, filename_stem: str, style, key_prefix: str) -> None:
     )
 
 
+def _rock_scatter_style_kwargs(style) -> dict:
+    return {
+        "font_family": style.font_family,
+        "font_size": style.font_size,
+        "tick_size": style.tick_size,
+        "label_size": style.label_size,
+        "marker_size": style.marker_size,
+        "line_width": style.line_width,
+        "spine_width": style.spine_width,
+        "point_style_name": style.point_style_name,
+        "monochrome": style.monochrome,
+        "show_legend": style.show_legend,
+        "grid": style.grid,
+        "figure_size": (style.width_in, style.height_in),
+    }
+
+
 def render_rock_plots(project_id: int, selected_rock: dict) -> None:
     """Render bulk-rock and mineral–rock plots without owning rock CRUD state."""
     wide = composition_wide(project_id)
@@ -58,11 +80,7 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
                 wide,
                 group_column="Massif" if "Massif" in wide else None,
                 label_column="Rock" if label_points else None,
-                font_family=style.font_family,
-                font_size=style.font_size,
-                marker_size=style.marker_size,
-                grid=style.grid,
-                figure_size=(style.width_in, style.height_in),
+                **_rock_scatter_style_kwargs(style),
             )
             st.pyplot(fig, width="stretch")
             _download_figure(fig, "TAS", style, "rock_tas")
@@ -86,6 +104,9 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             x = c1.selectbox("X", numeric, index=numeric.index(x_default), key="rock_harker_x")
             y_choices = [column for column in numeric if column != x]
             y = c2.selectbox("Y", y_choices, key="rock_harker_y")
+            l1, l2 = st.columns(2)
+            x_label = l1.text_input("Подпись X", value=x, key="rock_harker_xlabel")
+            y_label = l2.text_input("Подпись Y", value=y, key="rock_harker_ylabel")
             style = render_figure_style_controls(wide, key_prefix="rock_harker")
             fig = build_rock_scatter(
                 wide,
@@ -94,11 +115,9 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
                 group_column="Massif" if "Massif" in wide else None,
                 label_column=style.point_label_column if style.label_points else None,
                 title=f"{y} vs {x}",
-                font_family=style.font_family,
-                font_size=style.font_size,
-                marker_size=style.marker_size,
-                grid=style.grid,
-                figure_size=(style.width_in, style.height_in),
+                x_label=x_label,
+                y_label=y_label,
+                **_rock_scatter_style_kwargs(style),
             )
             st.pyplot(fig, width="stretch")
             _download_figure(fig, f"{y}_vs_{x}", style, "rock_harker")
@@ -121,6 +140,9 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
         if len(available) >= 2:
             elements = st.multiselect("Элементы", list(order), default=available, key="rock_pattern_elements")
             pattern = prepare_pattern(wide, elements, reference)
+            converted = [label for label in pattern.source_columns.values() if "→" in label]
+            if converted:
+                st.caption("Стехиометрические преобразования: " + "; ".join(converted))
             labels = wide["Rock"] if "Rock" in wide else None
             groups = wide["Massif"] if "Massif" in wide else None
             style = render_figure_style_controls(wide, key_prefix="rock_pattern")
@@ -136,6 +158,7 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
                 alpha=point_style.alpha,
                 linewidth=style.line_width,
                 grid=style.grid,
+                monochrome=style.monochrome,
                 font_family=style.font_family,
                 font_size=style.font_size,
                 figure_size=(style.width_in, style.height_in),
@@ -146,7 +169,8 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
         else:
             st.info(
                 "Недостаточно trace-element данных с известными единицами для нормированного pattern. "
-                "Bare-колонки без единиц ПетроЛаб не считает ppm автоматически."
+                "Bare-колонки без единиц ПетроЛаб не считает ppm автоматически. K, P и Ti могут быть "
+                "получены из K2O/P2O5/TiO2 wt.% с явным стехиометрическим пересчётом."
             )
 
     with tab_iso:
@@ -159,6 +183,9 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
         if len(numeric) >= 2:
             x = st.selectbox("Изотопная X", numeric, key="rock_iso_x")
             y = st.selectbox("Изотопная Y", [column for column in numeric if column != x], key="rock_iso_y")
+            l1, l2 = st.columns(2)
+            x_label = l1.text_input("Подпись X", value=x, key="rock_iso_xlabel")
+            y_label = l2.text_input("Подпись Y", value=y, key="rock_iso_ylabel")
             style = render_figure_style_controls(isotopes, key_prefix="rock_iso")
             fig = build_rock_scatter(
                 isotopes,
@@ -166,11 +193,9 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
                 y,
                 label_column="Rock" if style.label_points else None,
                 title=f"{y} vs {x}",
-                font_family=style.font_family,
-                font_size=style.font_size,
-                marker_size=style.marker_size,
-                grid=style.grid,
-                figure_size=(style.width_in, style.height_in),
+                x_label=x_label,
+                y_label=y_label,
+                **_rock_scatter_style_kwargs(style),
             )
             st.pyplot(fig, width="stretch")
             _download_figure(fig, f"isotope_{y}_vs_{x}", style, "rock_iso")
@@ -192,21 +217,33 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             st.info("Для Rhodes нужен связанный набор оливинов с сохранённым Fo.")
             return
         comp = composition_dict(int(selected_rock["id"]))
+        inferred_fe3 = inferred_whole_rock_fe3_fraction(comp)
+        default_fe3 = float(inferred_fe3) if inferred_fe3 is not None else 0.0
+        if inferred_fe3 is not None:
+            st.caption(f"По раздельно заданному железу автоматически оценено Fe³⁺/ΣFe = {inferred_fe3:.3f}. Значение можно изменить вручную.")
+        else:
+            st.caption("Валентностное распределение total Fe не задано: Fe³⁺/ΣFe — пользовательское допущение для Mg# proxy.")
         fe3 = st.slider(
             "Доля Fe³⁺ в total Fe породы для Mg# proxy",
             0.0,
-            0.5,
-            0.0,
+            1.0,
+            default_fe3,
             0.01,
             key="rock_rhodes_fe3",
         )
         mgnum = whole_rock_mg_number(comp, fe3_fraction=fe3)
         if pd.isna(mgnum):
-            st.warning("Невозможно рассчитать whole-rock Mg#: нужны MgO и FeO/FeOt/Fe2O3t.")
+            st.warning("Невозможно рассчитать whole-rock Mg#: нужны MgO и FeO/FeOt/Fe2O3/Fe2O3t.")
             return
         rock_row = pd.DataFrame([{"Rock": selected_rock["name"], "Mg#_rock": mgnum}])
-        fig = build_rhodes_figure(rock_row, olivine)
+        style = render_figure_style_controls(olivine, key_prefix="rock_rhodes")
+        fig = build_rhodes_figure(
+            rock_row,
+            olivine,
+            **_rock_scatter_style_kwargs(style),
+        )
         st.pyplot(fig, width="stretch")
+        _download_figure(fig, "rhodes_olivine_rock", style, "rock_rhodes")
         kd = measured_olivine_kd(olivine["Fo"], mgnum)
         view_columns = [column for column in ["Sample", "Grain", "Point", "Fo"] if column in olivine.columns]
         kd_table = olivine[view_columns].copy()

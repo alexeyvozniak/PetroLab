@@ -8,6 +8,11 @@ import numpy as np
 import pandas as pd
 
 
+M_FE_O = 71.844
+M_FE2_O3 = 159.688
+FE2O3_TO_FEO_EQUIVALENT = 2.0 * M_FE_O / M_FE2_O3
+
+
 @dataclass(frozen=True)
 class XYOverlay:
     overlay_id: str
@@ -38,9 +43,6 @@ def _classify_wyatt(dataframe: pd.DataFrame) -> pd.Series:
     boundary = pd.Series(_wyatt_reference_y(mg.to_numpy(dtype=float)), index=dataframe.index)
     valid = mg.between(4.0, 15.0) & ti.notna()
     result = pd.Series("outside calibrated MgO range", index=dataframe.index, dtype="string")
-    # Wyatt et al. describe the MgO-rich side of the bounding arc as kimberlitic.
-    # With MgO on x and TiO2 on y, that relationship is represented by points on
-    # the appropriate side of the reference arc; the line is primarily a screening aid.
     result.loc[valid & (ti >= boundary)] = "reference-line side A"
     result.loc[valid & (ti < boundary)] = "reference-line side B"
     return result
@@ -51,13 +53,34 @@ def _ca_int(cao: pd.Series, cr: pd.Series) -> pd.Series:
     return pd.Series(np.where(condition, 13.5 * cao / (cr + 13.5), cao - 0.25 * cr), index=cao.index)
 
 
+def _numeric_column(dataframe: pd.DataFrame, column: str) -> pd.Series:
+    if column not in dataframe.columns:
+        return pd.Series(np.nan, index=dataframe.index, dtype=float)
+    return pd.to_numeric(dataframe[column], errors="coerce")
+
+
+def total_fe_as_feo(dataframe: pd.DataFrame) -> pd.Series:
+    """Return total Fe expressed on an FeO basis without confusing reporting semantics.
+
+    Grütter Mg# uses total iron. Prefer a supplied FeOt value; otherwise recover the
+    same atom inventory from Fe2O3t, or combine separately reported FeO + Fe2O3.
+    """
+    feot = _numeric_column(dataframe, "FeOt")
+    fe2o3t = _numeric_column(dataframe, "Fe2O3t") * FE2O3_TO_FEO_EQUIVALENT
+    feo = _numeric_column(dataframe, "FeO")
+    ferric_as_feo = _numeric_column(dataframe, "Fe2O3") * FE2O3_TO_FEO_EQUIVALENT
+    split_total = feo.add(ferric_as_feo, fill_value=0.0)
+    split_total = split_total.where(feo.notna() | ferric_as_feo.notna())
+    return feot.combine_first(fe2o3t).combine_first(split_total)
+
+
 def classify_grutter_g10(dataframe: pd.DataFrame) -> pd.Series:
-    cao = pd.to_numeric(dataframe.get("CaO"), errors="coerce")
-    cr = pd.to_numeric(dataframe.get("Cr2O3"), errors="coerce")
-    mno = pd.to_numeric(dataframe.get("MnO"), errors="coerce") if "MnO" in dataframe else pd.Series(np.nan, index=dataframe.index)
-    mg = pd.to_numeric(dataframe.get("MgO"), errors="coerce")
-    fe = pd.to_numeric(dataframe.get("FeOt"), errors="coerce") if "FeOt" in dataframe else pd.to_numeric(dataframe.get("FeO"), errors="coerce")
-    mgnum = (mg / 40.304) / ((mg / 40.304) + (fe / 71.844))
+    cao = _numeric_column(dataframe, "CaO")
+    cr = _numeric_column(dataframe, "Cr2O3")
+    mno = _numeric_column(dataframe, "MnO")
+    mg = _numeric_column(dataframe, "MgO")
+    fe_total = total_fe_as_feo(dataframe)
+    mgnum = (mg / 40.304) / ((mg / 40.304) + (fe_total / M_FE_O))
     ca_int = _ca_int(cao, cr)
     g10 = cr.ge(1.0) & cr.lt(22.0) & ca_int.ge(0.0) & ca_int.lt(3.375) & mgnum.between(0.75, 0.95)
     above = cr >= (5.0 + 0.94 * cao)

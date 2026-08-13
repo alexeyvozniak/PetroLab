@@ -86,7 +86,7 @@ SCIENTIFIC_PLOT_PRESETS: Final[dict[str, ScientificPlotPreset]] = {
         x_label="Al₂O₃, wt.%",
         y_label="FeOₜ, wt.%",
         source="Mitchell (1995), Kimberlites, Orangeites, and Related Rocks",
-        note="Если FeOt отсутствует, пользователь может выбрать FeO вручную. Поля не аппроксимируются по рисункам.",
+        note="FeOt и FeO не взаимозаменяются автоматически. Если total Fe отсутствует, выберите другую ось вручную и проверьте подпись.",
     ),
     "mica_mgnum_ti": ScientificPlotPreset(
         preset_id="mica_mgnum_ti",
@@ -188,9 +188,21 @@ SCIENTIFIC_PLOT_PRESETS: Final[dict[str, ScientificPlotPreset]] = {
         source="Barnes & Roeder (2001), Journal of Petrology 42, 2279–2302",
         doi="10.1093/petrology/42.12.2279",
     ),
+    "olivine_fo_nio": ScientificPlotPreset(
+        preset_id="olivine_fo_nio",
+        title="Оливин: Fo–NiO",
+        mineral_key="olivine",
+        plot_type="xy",
+        x="Fo",
+        y="NiO",
+        x_label="Fo, mol.%",
+        y_label="NiO, wt.%",
+        source="Рабочая диаграмма для оценки мантийного cargo и магматической эволюции в кимберлитах/лампрофирах",
+        note="EPMA-вариант с NiO, wt.%. Не смешивать автоматически с Ni в µg/g.",
+    ),
     "olivine_fo_ni": ScientificPlotPreset(
         preset_id="olivine_fo_ni",
-        title="Оливин: Fo–Ni",
+        title="Оливин: Fo–Ni (trace concentration)",
         mineral_key="olivine",
         plot_type="xy",
         x="Fo",
@@ -198,7 +210,7 @@ SCIENTIFIC_PLOT_PRESETS: Final[dict[str, ScientificPlotPreset]] = {
         x_label="Fo, mol.%",
         y_label="Ni, µg/g",
         source="Рабочая диаграмма для различения мантийного cargo и магматической эволюции в кимберлитах/лампрофирах",
-        note="Не является самостоятельной формальной классификацией; интерпретировать совместно с текстурой и zoning.",
+        note="Требует Ni с известной concentration unit. NiO не подставляется вместо Ni автоматически.",
     ),
     "cpx_na_cr": ScientificPlotPreset(
         preset_id="cpx_na_cr",
@@ -255,9 +267,9 @@ FIGURE_PRESETS: Final[dict[str, FigurePreset]] = {
 
 
 TABLE_PRESETS: Final[dict[str, TablePreset]] = {
-    "Lithos": TablePreset("Lithos", "Arial", 8.5, 8.5, 2, 1, True, note="Компактная основная/дополнительная таблица."),
-    "Geodynamics & Tectonophysics": TablePreset("Geodynamics & Tectonophysics", "Arial", 9, 9, 2, 1, True),
-    "ДАН": TablePreset("ДАН", "Arial", 9, 9, 2, 1, True, note="Строгая ч/б таблица без декоративного оформления."),
-    "Elsevier Supplementary": TablePreset("Elsevier Supplementary", "Arial", 8, 8, 2, 2, True),
+    "Lithos": TablePreset("Lithos", "Arial", 8.5, 8.5, 2, 1, True, note="Компактная основная/дополнительная таблица; финально сверяйте актуальные author guidelines журнала."),
+    "Geodynamics & Tectonophysics": TablePreset("Geodynamics & Tectonophysics", "Arial", 9, 9, 2, 1, True, note="Стартовый preset оформления; финально сверяйте актуальные требования журнала."),
+    "ДАН": TablePreset("ДАН", "Arial", 9, 9, 2, 1, True, note="Строгая ч/б основа; финально сверяйте актуальные требования редакции."),
+    "Elsevier Supplementary": TablePreset("Elsevier Supplementary", "Arial", 8, 8, 2, 2, True, note="Стартовый supplementary preset; конкретный журнал Elsevier может иметь дополнительные требования."),
     "Рабочая": TablePreset("Рабочая", "Arial", 10, 10, 3, 2, False),
 }

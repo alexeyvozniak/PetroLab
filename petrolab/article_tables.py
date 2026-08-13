@@ -7,19 +7,19 @@ import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from petrolab.column_schema import describe_header
 from petrolab.visualization_presets import TABLE_PRESETS, TablePreset
 
 
-TRACE_HINTS = (
-    "ppm", "µg/g", "ug/g", "ppb", "li", "be", "sc", "v", "co", "ni", "cu", "zn", "ga",
-    "rb", "sr", "y", "zr", "nb", "mo", "cs", "ba", "la", "ce", "pr", "nd", "sm", "eu",
-    "gd", "tb", "dy", "ho", "er", "tm", "yb", "lu", "hf", "ta", "pb", "th", "u",
-)
-
-
 def _is_trace(column: str) -> bool:
-    lowered = str(column).lower().replace("₂", "2").replace("₃", "3")
-    return any(hint in lowered for hint in TRACE_HINTS)
+    """Return True only for a concentration column with an explicit trace-element unit.
+
+    Do not infer trace chemistry from short letter substrings in arbitrary derived
+    column names (for example ``AlIV`` contains ``Li`` case-insensitively). The same
+    header semantics used by the importer are the source of truth here as well.
+    """
+    descriptor = describe_header(column)
+    return descriptor.quantity_kind in {"trace_element", "element_concentration"}
 
 
 def format_dataframe_for_article(
@@ -31,11 +31,21 @@ def format_dataframe_for_article(
     preset = TABLE_PRESETS[preset_name]
     result = dataframe[list(columns)].copy() if columns is not None else dataframe.copy()
     for column in result.columns:
-        values = pd.to_numeric(result[column], errors="coerce")
-        if values.notna().sum() == 0:
+        original = result[column].copy()
+        values = pd.to_numeric(original, errors="coerce")
+        numeric_mask = values.notna()
+        if not numeric_mask.any():
             continue
         decimals = preset.decimals_trace if _is_trace(str(column)) else preset.decimals_major
-        result[column] = values.round(decimals)
+        # Round only cells that are genuinely numeric. Qualifiers such as '<0.01',
+        # 'bdl' or analytical comments are scientific information and must survive.
+        rounded = values.round(decimals)
+        if numeric_mask.all():
+            result[column] = rounded
+        else:
+            mixed = original.astype(object)
+            mixed.loc[numeric_mask] = rounded.loc[numeric_mask]
+            result[column] = mixed
     return result
 
 

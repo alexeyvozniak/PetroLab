@@ -8,6 +8,7 @@ import pandas as pd
 
 from petrolab.plot_text import matplotlib_label
 from petrolab.services.rock_service import rhodes_equilibrium_fo
+from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
 
 # Field-boundary vertices after Le Bas et al. (1986) / Le Maitre et al. IUGS TAS.
@@ -50,6 +51,29 @@ def _numeric(dataframe: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(dataframe[column], errors="coerce") if column in dataframe else pd.Series(np.nan, index=dataframe.index)
 
 
+def _scatter_style(index: int, point_style_name: str, marker_size: float, monochrome: bool) -> dict[str, object]:
+    preset = POINT_STYLE_PRESETS[point_style_name]
+    kwargs: dict[str, object] = {
+        "marker": preset.markers[index % len(preset.markers)],
+        "s": marker_size * preset.size_multiplier,
+        "alpha": preset.alpha,
+        "linewidths": 0.8,
+    }
+    if not preset.filled or monochrome:
+        kwargs["facecolors"] = "none"
+    if monochrome:
+        kwargs["edgecolors"] = "black"
+    return kwargs
+
+
+def _finish_axes(ax, *, tick_size: float, spine_width: float, grid: bool, grid_alpha: float = 0.2) -> None:
+    ax.tick_params(labelsize=tick_size)
+    for spine in ax.spines.values():
+        spine.set_linewidth(spine_width)
+    if grid:
+        ax.grid(True, alpha=grid_alpha)
+
+
 def build_tas_figure(
     dataframe: pd.DataFrame,
     *,
@@ -57,7 +81,14 @@ def build_tas_figure(
     label_column: str | None = "Rock",
     font_family: str = "Arial",
     font_size: float = 8.5,
+    tick_size: float = 8.0,
+    label_size: float = 9.0,
     marker_size: float = 45.0,
+    line_width: float = 0.9,
+    spine_width: float = 0.9,
+    point_style_name: str = "balanced",
+    monochrome: bool = False,
+    show_legend: bool = True,
     show_labels: bool = True,
     grid: bool = False,
     figure_size: tuple[float, float] = (7.3, 5.6),
@@ -70,19 +101,28 @@ def build_tas_figure(
         fig, ax = plt.subplots(figsize=figure_size)
         for path in TAS_SOLID_PATHS:
             x, y = zip(*path)
-            ax.plot(x, y, color="black", lw=0.9)
+            ax.plot(x, y, color="black", lw=line_width)
         for path in TAS_DASHED_PATHS:
             x, y = zip(*path)
-            ax.plot(x, y, color="black", lw=0.8, ls="--")
+            ax.plot(x, y, color="black", lw=max(0.5, line_width * 0.9), ls="--")
         if show_labels:
             for text, (x, y) in TAS_LABELS.items():
                 ax.text(x, y, text, ha="center", va="center", fontsize=max(6, font_size - 1))
         if group_column and group_column in work.columns:
-            for name, subset in work.groupby(group_column, dropna=False, sort=False):
-                ax.scatter(subset["SiO2"], subset["Total alkalis"], s=marker_size, label=str(name), zorder=5)
-            ax.legend(frameon=False, fontsize=max(6, font_size - 1))
+            groups = list(work.groupby(group_column, dropna=False, sort=False))
+            for index, (name, subset) in enumerate(groups):
+                ax.scatter(
+                    subset["SiO2"], subset["Total alkalis"],
+                    label=str(name), zorder=5,
+                    **_scatter_style(index, point_style_name, marker_size, monochrome),
+                )
+            if show_legend:
+                ax.legend(frameon=False, fontsize=max(6, font_size - 1))
         else:
-            ax.scatter(work["SiO2"], work["Total alkalis"], s=marker_size, zorder=5)
+            ax.scatter(
+                work["SiO2"], work["Total alkalis"], zorder=5,
+                **_scatter_style(0, point_style_name, marker_size, monochrome),
+            )
         if label_column and label_column in work.columns:
             for _, row in work.iterrows():
                 label = str(row.get(label_column, "")).strip()
@@ -90,11 +130,10 @@ def build_tas_figure(
                     ax.annotate(label, (row["SiO2"], row["Total alkalis"]), xytext=(3, 3), textcoords="offset points", fontsize=max(6, font_size - 1))
         ax.set_xlim(35, 80)
         ax.set_ylim(0, 16)
-        ax.set_xlabel(matplotlib_label("SiO₂, wt.%"))
-        ax.set_ylabel(matplotlib_label("Na₂O + K₂O, wt.%"))
+        ax.set_xlabel(matplotlib_label("SiO₂, wt.%"), fontsize=label_size)
+        ax.set_ylabel(matplotlib_label("Na₂O + K₂O, wt.%"), fontsize=label_size)
         ax.set_title("TAS · Le Bas et al. (1986), IUGS")
-        if grid:
-            ax.grid(True, alpha=0.15)
+        _finish_axes(ax, tick_size=tick_size, spine_width=spine_width, grid=grid, grid_alpha=0.15)
         fig.tight_layout()
         return fig
 
@@ -111,7 +150,14 @@ def build_rock_scatter(
     y_label: str | None = None,
     font_family: str = "Arial",
     font_size: float = 9.0,
+    tick_size: float = 8.0,
+    label_size: float = 9.0,
     marker_size: float = 50.0,
+    line_width: float = 0.9,
+    spine_width: float = 0.9,
+    point_style_name: str = "balanced",
+    monochrome: bool = False,
+    show_legend: bool = True,
     grid: bool = False,
     figure_size: tuple[float, float] = (7.2, 5.2),
 ):
@@ -122,21 +168,25 @@ def build_rock_scatter(
     with plt.rc_context({"font.family": font_family, "font.size": font_size}):
         fig, ax = plt.subplots(figsize=figure_size)
         if group_column and group_column in work.columns:
-            for name, subset in work.groupby(group_column, dropna=False, sort=False):
-                ax.scatter(subset[x], subset[y], s=marker_size, label=str(name))
-            ax.legend(frameon=False, fontsize=max(6, font_size - 1))
+            groups = list(work.groupby(group_column, dropna=False, sort=False))
+            for index, (name, subset) in enumerate(groups):
+                ax.scatter(
+                    subset[x], subset[y], label=str(name),
+                    **_scatter_style(index, point_style_name, marker_size, monochrome),
+                )
+            if show_legend:
+                ax.legend(frameon=False, fontsize=max(6, font_size - 1))
         else:
-            ax.scatter(work[x], work[y], s=marker_size)
+            ax.scatter(work[x], work[y], **_scatter_style(0, point_style_name, marker_size, monochrome))
         if label_column and label_column in work.columns:
             for _, row in work.iterrows():
                 label = str(row.get(label_column, "")).strip()
                 if label and label.lower() != "nan":
                     ax.annotate(label, (row[x], row[y]), xytext=(3, 3), textcoords="offset points", fontsize=max(6, font_size - 1))
-        ax.set_xlabel(matplotlib_label(x_label or x))
-        ax.set_ylabel(matplotlib_label(y_label or y))
+        ax.set_xlabel(matplotlib_label(x_label or x), fontsize=label_size)
+        ax.set_ylabel(matplotlib_label(y_label or y), fontsize=label_size)
         ax.set_title(matplotlib_label(title))
-        if grid:
-            ax.grid(True, alpha=0.2)
+        _finish_axes(ax, tick_size=tick_size, spine_width=spine_width, grid=grid)
         fig.tight_layout()
         return fig
 
@@ -148,27 +198,48 @@ def build_rhodes_figure(
     rock_mg_column: str = "Mg#_rock",
     fo_column: str = "Fo",
     kd_values: tuple[float, ...] = (0.27, 0.30, 0.33),
+    font_family: str = "Arial",
+    font_size: float = 9.0,
+    tick_size: float = 8.0,
+    label_size: float = 9.0,
+    marker_size: float = 40.0,
+    line_width: float = 1.0,
+    spine_width: float = 0.9,
+    point_style_name: str = "balanced",
+    monochrome: bool = False,
+    show_legend: bool = True,
+    grid: bool = True,
     figure_size: tuple[float, float] = (7.0, 5.2),
 ):
-    with plt.rc_context({"font.family": "Arial", "font.size": 9}):
+    point_style = POINT_STYLE_PRESETS[point_style_name]
+    with plt.rc_context({"font.family": font_family, "font.size": font_size}):
         fig, ax = plt.subplots(figsize=figure_size)
         x_line = np.linspace(0.35, 0.9, 250)
-        for kd in kd_values:
+        line_styles = ("-", "--", ":", "-.")
+        for index, kd in enumerate(kd_values):
             y_line = [rhodes_equilibrium_fo(value, kd) for value in x_line]
-            ax.plot(x_line, y_line, lw=1.0, label=f"Kd={kd:.2f}")
+            kwargs: dict[str, object] = {"lw": line_width, "ls": line_styles[index % len(line_styles)], "label": f"Kd={kd:.2f}"}
+            if monochrome:
+                kwargs["color"] = "black"
+            ax.plot(x_line, y_line, **kwargs)
         if rock_mg_column in rock_dataframe.columns and fo_column in olivine_dataframe.columns:
-            for _, rock in rock_dataframe.iterrows():
+            for index, (_, rock) in enumerate(rock_dataframe.iterrows()):
                 mgnum = pd.to_numeric(pd.Series([rock.get(rock_mg_column)]), errors="coerce").iloc[0]
                 if pd.isna(mgnum):
                     continue
                 values = pd.to_numeric(olivine_dataframe[fo_column], errors="coerce").dropna()
                 if not values.empty:
-                    ax.scatter(np.full(len(values), float(mgnum)), values, s=34, alpha=0.8, label=str(rock.get("Rock", "rock")))
-        ax.set_xlabel("Whole-rock / melt proxy Mg#")
-        ax.set_ylabel("Olivine Fo, mol.%")
+                    ax.scatter(
+                        np.full(len(values), float(mgnum)), values,
+                        label=str(rock.get("Rock", "rock")),
+                        **_scatter_style(index, point_style_name, marker_size, monochrome),
+                    )
+        ax.set_xlabel("Whole-rock / melt proxy Mg#", fontsize=label_size)
+        ax.set_ylabel("Olivine Fo, mol.%", fontsize=label_size)
         ax.set_title("Rhodes-style olivine–liquid equilibrium screening")
-        ax.legend(frameon=False, fontsize=8)
-        ax.grid(True, alpha=0.18)
+        if show_legend:
+            ax.legend(frameon=False, fontsize=max(6, font_size - 1))
+        _finish_axes(ax, tick_size=tick_size, spine_width=spine_width, grid=grid, grid_alpha=0.18)
         fig.tight_layout()
         return fig
 

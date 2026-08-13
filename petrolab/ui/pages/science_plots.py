@@ -15,7 +15,6 @@ from petrolab.extended_plotting import (
     build_pattern_figure,
     figure_bytes,
     prepare_pattern,
-    resolve_element_column,
 )
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.io_utils import numeric_candidates
@@ -91,19 +90,17 @@ def _mineral_filtered_presets(dataframe: pd.DataFrame) -> dict:
 
 
 def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]) -> list[str]:
+    """Return only columns that preserve the preset quantity and unit semantics."""
     candidates: list[str] = []
     if requested in numeric:
         candidates.append(requested)
-    if requested == "FeOt" and "FeO" in numeric:
-        candidates.append("FeO")
-    if requested == "Ni":
-        for candidate in ["Ni [µg/g]", "NiO", "Ni"]:
-            if candidate in numeric and candidate not in candidates:
-                candidates.append(candidate)
-    if requested and requested not in candidates:
-        canonical_trace = resolve_element_column(dataframe, requested, allow_bare=True)
-        if canonical_trace and canonical_trace in numeric:
-            candidates.append(canonical_trace)
+    # Explicit canonical concentration units are safe aliases of a requested element.
+    # Oxide-vs-element and total-Fe-vs-ferrous substitutions are not.
+    prefix = f"{requested} ["
+    for column in numeric:
+        text = str(column)
+        if text.startswith(prefix) and "µg/g" in text and text not in candidates:
+            candidates.append(text)
     return candidates
 
 
@@ -132,8 +129,7 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     y_candidates = _axis_candidates(dataframe, preset.y, numeric)
     x_default = x_candidates[0] if x_candidates else numeric[0]
     y_default = y_candidates[0] if y_candidates else next((column for column in numeric if column != x_default), numeric[0])
-    missing_preferred = not x_candidates or not y_candidates
-    if missing_preferred:
+    if not x_candidates or not y_candidates:
         missing = [name for name, candidates in [(preset.x, x_candidates), (preset.y, y_candidates)] if not candidates]
         st.warning(
             "В выбранных данных нет ожидаемых колонок шаблона: " + ", ".join(missing) +
@@ -256,13 +252,17 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     if len(available) < 2:
         st.info(
             "Недостаточно элементов с подходящими числовыми концентрациями. Для нормированного REE/spider "
-            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent."
+            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent; K, P и Ti также "
+            "могут быть стехиометрически получены из K2O, P2O5 и TiO2 wt.% с явным provenance."
         )
         return
     selected = st.multiselect("Элементы", list(preferred), default=available, key="pattern_elements")
     pattern = prepare_pattern(dataframe, selected, reference)
     if pattern.missing_elements:
         st.caption("Не использованы: " + ", ".join(pattern.missing_elements))
+    converted = [label for label in pattern.source_columns.values() if "→" in label]
+    if converted:
+        st.caption("Стехиометрические преобразования: " + "; ".join(converted))
     st.caption(f"Вошло кривых: {len(pattern.data)} · исключено пустых строк: {pattern.excluded_rows}")
 
     categories = _categorical_candidates(dataframe)
@@ -274,6 +274,7 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     style = render_figure_style_controls(dataframe, key_prefix="pattern")
     ylabel = "Concentration" if reference is None else ("Sample / CI chondrite" if mode == "REE" else "Sample / primitive mantle")
     title = st.text_input("Название", value="REE pattern" if mode == "REE" else "Multi-element pattern", key="pattern_title")
+    point_style = POINT_STYLE_PRESETS[style.point_style_name]
     figure = build_pattern_figure(
         pattern,
         labels=labels,
@@ -283,10 +284,11 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         log_y=st.checkbox("Логарифмическая Y", value=True, key="pattern_log"),
         show_legend=style.show_legend,
         linewidth=style.line_width,
-        alpha=POINT_STYLE_PRESETS[style.point_style_name].alpha,
-        marker=POINT_STYLE_PRESETS[style.point_style_name].markers[0],
+        alpha=point_style.alpha,
+        marker=point_style.markers[0],
         marker_size=max(2.0, style.marker_size / 14.0),
         grid=style.grid,
+        monochrome=style.monochrome,
         font_family=style.font_family,
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
@@ -317,6 +319,8 @@ def _render_histogram(dataframe: pd.DataFrame) -> None:
         group_column=group,
         density=density,
         grid=style.grid,
+        monochrome=style.monochrome,
+        show_legend=style.show_legend,
         font_family=style.font_family,
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
