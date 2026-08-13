@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
 from pathlib import Path
@@ -73,8 +74,10 @@ def open_page(app, group: str, page: str) -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_ui_") as tmp:
-        base = Path(tmp)
+    tmp = tempfile.TemporaryDirectory(prefix="petrolab_ui_")
+    app = None
+    try:
+        base = Path(tmp.name)
         seed_database(base)
         from streamlit.testing.v1 import AppTest
 
@@ -92,6 +95,10 @@ def main() -> None:
             for page in pages:
                 open_page(app, group, page)
         print("streamlit UI smoke test: OK")
+    finally:
+        app = None
+        gc.collect()
+        tmp.cleanup()
 
 
 if __name__ == "__main__":
