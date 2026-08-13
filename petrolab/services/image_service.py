@@ -16,6 +16,7 @@ from petrolab.repositories.image_repository import (
     delete_image_record,
     get_image_record,
     list_image_records,
+    replace_image_analysis_links,
 )
 
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
@@ -33,7 +34,7 @@ class ImagePayload:
 @dataclass(frozen=True)
 class ImageScope:
     scope_type: str
-    analysis_id: str | None = None  # backward compatibility for old callers
+    analysis_id: str | None = None
     analysis_ids: tuple[str, ...] = ()
     scope_column: str = ""
     scope_value: str = ""
@@ -79,7 +80,12 @@ def create_assigned_image_batch(
     dataset_id: int,
     assignments: list[ImageAssignment],
 ) -> ImageBatchResult:
-    """Atomically validate and store images that may each have a different scope."""
+    """Prevalidate the full batch, then store it with compensating rollback on failure.
+
+    Filesystem writes and SQLite records cannot form one ACID transaction. PetroLab
+    therefore validates every image/scope before writing anything and removes all files
+    and records already created if a later item fails.
+    """
     dataset = _validate_dataset(project_id, dataset_id)
     if not assignments:
         raise ValueError("Не выбрано ни одного изображения")
@@ -124,6 +130,17 @@ def create_assigned_image_batch(
     return ImageBatchResult(tuple(created_ids))
 
 
+def relink_image_asset(asset_id: int, analysis_ids: list[str]) -> None:
+    """Repair an existing image by assigning it to valid points in its own dataset."""
+    record = get_image_record(int(asset_id))
+    dataset = get_dataset(int(record["dataset_id"]))
+    scope = _validate_analysis_scope(
+        dataset,
+        ImageScope(SCOPE_ANALYSIS, analysis_ids=tuple(str(value) for value in analysis_ids)),
+    )
+    replace_image_analysis_links(int(asset_id), _analysis_ids(scope))
+
+
 def delete_image_asset(asset_id: int) -> None:
     record = get_image_record(int(asset_id))
     path = Path(record["stored_path"])
@@ -150,7 +167,6 @@ def list_all_images() -> list[dict]:
 
 
 def image_export_records() -> list[dict]:
-    """Return flat, Excel-safe image metadata without mutating service records."""
     exported: list[dict] = []
     for record in list_image_records():
         row = dict(record)
@@ -238,10 +254,6 @@ def _validate_payload(image: ImagePayload) -> None:
         raise ValueError(f"Неподдерживаемый формат изображения: {suffix}")
     if not image.data:
         raise ValueError(f"Файл {filename} пустой")
-
-    # Do not trust the extension alone. A truncated or renamed non-image file should fail
-    # before any part of the batch is written to disk/database. Pillow.verify() checks the
-    # container structure without decoding the full raster into memory.
     try:
         with Image.open(io.BytesIO(image.data)) as opened:
             opened.verify()
