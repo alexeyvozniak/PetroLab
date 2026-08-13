@@ -38,7 +38,7 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
     "pyroxene_wo_en_fs": TernaryPreset(
         preset_id="pyroxene_wo_en_fs",
         title_ru="Пироксены · En–Fs–Wo · IMA/Morimoto",
-        mineral_keys=("cpx", "opx"),
+        mineral_keys=("cpx", "opx", "clinopyroxene", "orthopyroxene"),
         a_col=MORIMOTO_EN,
         b_col=MORIMOTO_FS,
         c_col=MORIMOTO_WO,
@@ -135,8 +135,26 @@ TERNARY_PRESETS: dict[str, TernaryPreset] = {
 }
 
 
-def available_ternary_presets(columns: list[str] | tuple[str, ...] | set[str]) -> list[TernaryPreset]:
-    available = set(map(str, columns))
+def _preset_mineral_mask(dataframe: pd.DataFrame, preset: TernaryPreset) -> pd.Series:
+    if not preset.mineral_keys or "Минерал" not in dataframe.columns:
+        return pd.Series(True, index=dataframe.index, dtype=bool)
+    return dataframe["Минерал"].astype("string").isin(preset.mineral_keys).fillna(False)
+
+
+def available_ternary_presets(
+    data: pd.DataFrame | list[str] | tuple[str, ...] | set[str],
+) -> list[TernaryPreset]:
+    """Return presets whose source columns and, when known, mineral scope are applicable."""
+    if isinstance(data, pd.DataFrame):
+        available = set(map(str, data.columns))
+        return [
+            preset
+            for preset in TERNARY_PRESETS.values()
+            if set(preset.source_requirements).issubset(available)
+            and bool(_preset_mineral_mask(data, preset).any())
+        ]
+
+    available = set(map(str, data))
     return [
         preset
         for preset in TERNARY_PRESETS.values()
@@ -157,28 +175,47 @@ def _numeric_optional_zero_if_absent(dataframe: pd.DataFrame, column: str) -> pd
     return pd.to_numeric(dataframe[column], errors="coerce")
 
 
+def _normalize_preset_components(
+    dataframe: pd.DataFrame,
+    preset: TernaryPreset,
+    components: tuple[str, str, str],
+) -> pd.DataFrame:
+    if preset.normalization != "normalize":
+        return dataframe
+    out = dataframe.copy()
+    numeric = out[list(components)].apply(pd.to_numeric, errors="coerce")
+    total = numeric.sum(axis=1, min_count=len(components))
+    valid = total.gt(0) & np.isfinite(total)
+    for column in components:
+        out[column] = (100.0 * numeric[column] / total).where(valid, np.nan)
+    return out
+
+
 def apply_preset_projection(
     dataframe: pd.DataFrame,
     preset: TernaryPreset,
 ) -> tuple[pd.DataFrame, tuple[str, str, str]]:
-    """Return a view with any source-specific ternary projection columns added.
+    """Return a mineral-scoped view with any source-specific projection columns added.
 
     This never edits persisted analytical or formula data. Source-specific projections are
-    view-only fields used by the selected diagram and its export.
+    view-only fields used by the selected diagram and its export. A mineral-specific preset
+    cannot silently project rows belonging to another mineral in a unified dataframe.
     """
-    result = dataframe.copy()
+    result = dataframe.loc[_preset_mineral_mask(dataframe, preset)].copy()
+    components = (preset.a_col, preset.b_col, preset.c_col)
+
     if preset.projection_id == "garnet_ti_grew2013_fig5":
         missing = [column for column in preset.source_requirements if column not in result.columns]
         if missing:
             raise ValueError("Для Ti-гранатовой диаграммы Grew et al. не хватает: " + ", ".join(missing))
         applicable = result["TiGrt_Fig5_applicable"].fillna(False).astype(bool)
-        for column in (preset.a_col, preset.b_col, preset.c_col):
+        for column in components:
             values = pd.to_numeric(result[column], errors="coerce")
             result[column] = values.where(applicable, np.nan)
-        return result, (preset.a_col, preset.b_col, preset.c_col)
+        return _normalize_preset_components(result, preset, components), components
 
     if preset.projection_id != "morimoto_pyroxene_1988":
-        return result, (preset.a_col, preset.b_col, preset.c_col)
+        return _normalize_preset_components(result, preset, components), components
 
     missing = [column for column in preset.source_requirements if column not in result.columns]
     if missing:
