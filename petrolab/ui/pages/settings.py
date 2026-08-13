@@ -4,61 +4,97 @@ import streamlit as st
 
 from petrolab.extended_plotting import NORMALIZATION_REFERENCES
 from petrolab.settings_service import load_settings, save_settings
+from petrolab.ui.layout import render_page_header
 from petrolab.visualization_presets import FIGURE_PRESETS, POINT_STYLE_PRESETS, TABLE_PRESETS
 
 
+def _index(options, value, fallback=0):
+    return options.index(value) if value in options else fallback
+
+
 def render_settings_page() -> None:
-    st.title("Настройки")
-    st.write("Настройки хранятся локально рядом с базой ПетроЛаба и не попадают в GitHub или исходные Excel.")
+    render_page_header(
+        "Настройки",
+        "Локальные настройки интерфейса, рисунков и анализа. Они не изменяют исходные Excel.",
+        eyebrow="Система",
+    )
     settings = load_settings()
-    with st.form("petrolab_settings"):
-        st.subheader("Оформление по умолчанию")
-        c1, c2, c3 = st.columns(3)
-        figure = c1.selectbox(
-            "Рисунки",
-            list(FIGURE_PRESETS),
-            index=list(FIGURE_PRESETS).index(settings.get("default_figure_preset", "Lithos")) if settings.get("default_figure_preset") in FIGURE_PRESETS else 0,
-        )
-        table = c2.selectbox(
-            "Таблицы",
-            list(TABLE_PRESETS),
-            index=list(TABLE_PRESETS).index(settings.get("default_table_preset", "Lithos")) if settings.get("default_table_preset") in TABLE_PRESETS else 0,
-        )
-        point = c3.selectbox(
-            "Точки",
-            list(POINT_STYLE_PRESETS),
-            format_func=lambda key: POINT_STYLE_PRESETS[key].title,
-            index=list(POINT_STYLE_PRESETS).index(settings.get("default_point_style", "balanced")) if settings.get("default_point_style") in POINT_STYLE_PRESETS else 0,
-        )
-        density = st.segmented_control(
+    interface_tab, figures_tab, tables_tab, analysis_tab = st.tabs(
+        ["Интерфейс", "Рисунки", "Таблицы", "Анализ"]
+    )
+
+    with interface_tab:
+        density_labels = {"Комфортная": "comfortable", "Компактная": "compact"}
+        current_density = str(settings.get("ui_density", "comfortable"))
+        density_label = st.segmented_control(
             "Плотность интерфейса",
-            ["comfortable", "compact"],
-            default=settings.get("ui_density", "comfortable"),
+            list(density_labels),
+            default="Компактная" if current_density == "compact" else "Комфортная",
         )
-        show_help = st.checkbox("Показывать поясняющие подсказки", value=bool(settings.get("show_help_hints", True)))
-        show_updates = st.checkbox("Показывать последние изменения на главной", value=bool(settings.get("show_release_notes_on_home", True)))
+        show_help = st.checkbox(
+            "Показывать поясняющие подсказки",
+            value=bool(settings.get("show_help_hints", True)),
+        )
+        show_updates = st.checkbox(
+            "Показывать «Что нового» на главной",
+            value=bool(settings.get("show_release_notes_on_home", True)),
+        )
+        st.caption("Компактный режим уменьшает отступы, но не размер текста и элементов управления.")
+
+    with figures_tab:
+        figure_options = list(FIGURE_PRESETS)
+        point_options = list(POINT_STYLE_PRESETS)
+        figure = st.selectbox(
+            "Шаблон рисунка по умолчанию",
+            figure_options,
+            index=_index(figure_options, settings.get("default_figure_preset", "Lithos")),
+        )
+        point = st.selectbox(
+            "Стиль точек по умолчанию",
+            point_options,
+            format_func=lambda key: POINT_STYLE_PRESETS[key].title,
+            index=_index(point_options, settings.get("default_point_style", "balanced")),
+        )
+        preview = POINT_STYLE_PRESETS[point]
+        st.caption("Маркеры: " + "  ".join(preview.markers[:8]))
+
+    with tables_tab:
+        table_options = list(TABLE_PRESETS)
+        table = st.selectbox(
+            "Шаблон таблицы по умолчанию",
+            table_options,
+            index=_index(table_options, settings.get("default_table_preset", "Lithos")),
+        )
+        st.caption("Шаблон задаёт стартовое оформление, но не удаляет научные колонки.")
+
+    with analysis_tab:
+        references = list(NORMALIZATION_REFERENCES)
         ree_ref = st.selectbox(
             "Нормировка REE по умолчанию",
-            list(NORMALIZATION_REFERENCES),
-            index=list(NORMALIZATION_REFERENCES).index(settings.get("default_ree_reference", list(NORMALIZATION_REFERENCES)[1])) if settings.get("default_ree_reference") in NORMALIZATION_REFERENCES else 1,
+            references,
+            index=_index(references, settings.get("default_ree_reference", references[1]), 1),
         )
-        outlier = st.selectbox("Автоматический поиск выбросов", ["MAD", "IQR", "NONE"], index=["MAD", "IQR", "NONE"].index(settings.get("default_outlier_method", "MAD")))
-        if st.form_submit_button("Сохранить настройки", type="primary"):
-            save_settings({
-                "default_figure_preset": figure,
-                "default_table_preset": table,
-                "default_point_style": point,
-                "ui_density": density,
-                "show_help_hints": show_help,
-                "show_release_notes_on_home": show_updates,
-                "default_ree_reference": ree_ref,
-                "default_outlier_method": outlier,
-            })
-            st.success("Настройки сохранены. Обновите страницу, если меняли плотность интерфейса.")
+        outlier_options = ["MAD", "IQR", "NONE"]
+        outlier_labels = {"MAD": "MAD — робастный z-score", "IQR": "IQR — правило Тьюки", "NONE": "Не искать автоматически"}
+        outlier = st.selectbox(
+            "Поиск выбросов по умолчанию",
+            outlier_options,
+            index=_index(outlier_options, settings.get("default_outlier_method", "MAD")),
+            format_func=lambda value: outlier_labels[value],
+        )
+        st.caption("Автоматический поиск выбросов только отмечает точки и не удаляет данные.")
 
-    st.subheader("Что именно делает preset")
-    st.markdown(
-        "- **Preset рисунка** задаёт стартовые размеры, шрифт, толщины, размер маркеров и DPI. Всё можно изменить перед экспортом.\n"
-        "- **Preset точек** задаёт гармоничную последовательность форм и заливки. Он не переименовывает группы.\n"
-        "- **Preset таблицы** задаёт шрифт, округление и ориентацию страницы. Он не удаляет колонки автоматически."
-    )
+    st.divider()
+    if st.button("Сохранить настройки", type="primary"):
+        save_settings({
+            "default_figure_preset": figure,
+            "default_table_preset": table,
+            "default_point_style": point,
+            "ui_density": density_labels.get(density_label or "Комфортная", "comfortable"),
+            "show_help_hints": show_help,
+            "show_release_notes_on_home": show_updates,
+            "default_ree_reference": ree_ref,
+            "default_outlier_method": outlier,
+        })
+        st.success("Настройки сохранены.")
+        st.rerun()
