@@ -41,6 +41,10 @@ def render_figure_style_controls(
     preferred_points = str(settings.get("default_point_style", "balanced"))
 
     with st.expander("Оформление рисунка", expanded=False):
+        st.caption(
+            "Журнальный preset — удобная стартовая геометрия и типографика, а не гарантия соответствия "
+            "текущим author guidelines. Перед подачей статьи сверяйте требования конкретного журнала."
+        )
         preset_names = list(FIGURE_PRESETS)
         preset_name = st.selectbox(
             "Журнальный preset",
