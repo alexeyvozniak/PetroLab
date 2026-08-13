@@ -226,6 +226,39 @@ def _install_science_policy() -> None:
         return result
     science._render_scientific_xy = strict_xy
 
+    original_box_builder = science.build_boxplot_figure
+    def explicit_box_builder(dataframe, value_columns, *, group_column=None, **kwargs):
+        if group_column and len(value_columns) > 1:
+            science.st.warning(
+                "Grouped boxplot требует ровно один числовой параметр. График не построен: выберите один Y или отключите группировку."
+            )
+            fig, ax = science.plt.subplots(figsize=kwargs.get("figure_size", (8.0, 5.0)))
+            ax.text(0.5, 0.5, "Выберите один Y для grouped boxplot", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            return fig
+        return original_box_builder(dataframe, value_columns, group_column=group_column, **kwargs)
+    science.build_boxplot_figure = explicit_box_builder
+
+    def add_svg_export(renderer, *, prefix: str, filename: str):
+        def wrapped(dataframe):
+            original_close = science.plt.close
+            def close(fig=None):
+                if fig is not None:
+                    dpi = int(science.st.session_state.get(f"{prefix}_dpi", 600))
+                    science.st.download_button(
+                        "SVG", science.figure_bytes(fig, "svg", dpi),
+                        file_name=f"{filename}.svg", mime="image/svg+xml", key=f"{prefix}_svg",
+                    )
+                return original_close(fig)
+            science.plt.close = close
+            try:
+                return renderer(dataframe)
+            finally:
+                science.plt.close = original_close
+        return wrapped
+    science._render_histogram = add_svg_export(science._render_histogram, prefix="hist", filename="histogram")
+    science._render_boxplot = add_svg_export(science._render_boxplot, prefix="box", filename="boxplot")
+
 
 def install() -> None:
     from petrolab.ui.pages import plots as page
@@ -257,6 +290,13 @@ def install() -> None:
         return original_build_scatter(work, x, y, group, **kwargs)
     page.build_scatter = finite_publication_scatter
 
+    original_delete_recipe = page.delete_plot_recipe
+    def delete_recipe_and_clear(recipe_id: int):
+        original_delete_recipe(int(recipe_id))
+        page.st.session_state.loaded_recipe = None
+        page.st.session_state.plot_interactive_excluded_ids = []
+    page.delete_plot_recipe = delete_recipe_and_clear
+
     original_render = page.render_plots_page
     def guarded_render():
         recipe = page.st.session_state.get("loaded_recipe") or {}
@@ -271,7 +311,18 @@ def install() -> None:
                     page.st.session_state.plot_interactive_excluded_ids = []
                     page.st.rerun()
                 return
-        return original_render()
+
+        original_caption = page.st.caption
+        def accurate_caption(text, *args, **kwargs):
+            value = str(text)
+            if value.startswith("В график войдёт "):
+                value = value.replace("В график войдёт ", "После фильтров, до проверки log-axis, осталось ")
+            return original_caption(value, *args, **kwargs)
+        page.st.caption = accurate_caption
+        try:
+            return original_render()
+        finally:
+            page.st.caption = original_caption
     page.render_plots_page = guarded_render
 
     if not hasattr(page, "_petrolab_original_interactive_workspace"):
