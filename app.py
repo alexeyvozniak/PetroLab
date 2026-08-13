@@ -8,6 +8,7 @@ import streamlit as st
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
+from petrolab.ui.destructive_page_policy import install as install_destructive_page_policy
 from petrolab.ui.import_page_policy import install as install_import_page_policy
 from petrolab.ui.navigation import render_sidebar
 from petrolab.ui.pages import (
@@ -42,6 +43,7 @@ if not getattr(legacy_plots, "_petrolab_plot_policy_installed", False):
     legacy_plots._petrolab_plot_policy_installed = True
 else:
     legacy_plots._petrolab_workspace_call_index = 0
+install_destructive_page_policy()
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))

@@ -10,7 +10,13 @@ import pandas as pd
 
 def seed_database(base: Path) -> None:
     os.environ["PETROLAB_DATA_DIR"] = str(base / "data")
-    from petrolab.db import add_dataset, create_project, ensure_storage, replace_dataset_rows
+    from petrolab.db import (
+        add_dataset,
+        create_project,
+        ensure_storage,
+        replace_dataset_rows,
+        save_plot_recipe,
+    )
     from petrolab.repositories.rock_repository import create_rock, replace_composition
 
     ensure_storage()
@@ -32,6 +38,11 @@ def seed_database(base: Path) -> None:
         header_row=1, column_map={}, sync_enabled=False,
     )
     replace_dataset_rows(dataset_id, frame, source_rows=[2, 3, 4])
+    save_plot_recipe(
+        "UI destructive recipe",
+        {"x": "SiO2", "y": "TiO2", "dataset_ids": [dataset_id]},
+        project_id,
+    )
     rock_id = create_rock(project_id, "UI rock", massif="Kola", lithology="lamprophyre")
     replace_composition(
         rock_id,
@@ -55,6 +66,50 @@ def open_page(app, label: str) -> None:
     assert_no_exceptions(app, label)
 
 
+def _selectbox(app, label: str):
+    for widget in app.selectbox:
+        if widget.label == label:
+            return widget
+    raise AssertionError(f"Selectbox not found: {label}")
+
+
+def _button(app, label: str):
+    for widget in app.button:
+        if widget.label == label:
+            return widget
+    raise AssertionError(f"Button not found: {label}")
+
+
+def assert_recipe_delete_requires_second_click(app) -> None:
+    from petrolab.db import list_plot_recipes
+
+    open_page(app, "XY-диаграммы")
+    selector = _selectbox(app, "Загрузить рецепт")
+    option = next(value for value in selector.options if str(value).startswith("UI destructive recipe"))
+    selector.set_value(option)
+    app.run(timeout=30)
+    assert_no_exceptions(app, "XY-диаграммы / recipe selection")
+
+    before = list_plot_recipes()
+    assert any(record["name"] == "UI destructive recipe" for record in before)
+    _button(app, "Удалить рецепт").click()
+    app.run(timeout=30)
+    assert_no_exceptions(app, "XY-диаграммы / first delete click")
+    after_first = list_plot_recipes()
+    assert any(record["name"] == "UI destructive recipe" for record in after_first), (
+        "First destructive click must not delete the recipe"
+    )
+    assert any("Удаление рецепта" in str(item.value) for item in app.warning), (
+        "First destructive click must expose a confirmation warning"
+    )
+
+    _button(app, "Удалить рецепт").click()
+    app.run(timeout=30)
+    assert_no_exceptions(app, "XY-диаграммы / confirmed recipe delete")
+    after_second = list_plot_recipes()
+    assert not any(record["name"] == "UI destructive recipe" for record in after_second)
+
+
 def main() -> None:
     tmp = tempfile.TemporaryDirectory(prefix="petrolab_ui_")
     app = None
@@ -65,6 +120,7 @@ def main() -> None:
 
         app = AppTest.from_file("app.py", default_timeout=30).run(timeout=30)
         assert_no_exceptions(app, "Главная")
+        assert_recipe_delete_requires_second_click(app)
         pages = [
             "Главная", "Импорт", "База анализов", "Расчёты",
             "XY-диаграммы", "Треугольные", "Научные диаграммы", "Статистика",
