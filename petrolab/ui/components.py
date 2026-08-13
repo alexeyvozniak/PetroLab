@@ -19,12 +19,7 @@ def _sync_active_project(widget_key: str) -> None:
 
 
 def render_project_selector(key: str = "project_select") -> dict | None:
-    """Render one page-local widget backed by a global active-project context.
-
-    Individual pages keep their historical widget keys for Streamlit compatibility, while
-    the selected project itself is shared through ``active_project_id``. A page switch no
-    longer resets the user's scientific context or resurrects a stale page-specific choice.
-    """
+    """Render one page-local widget backed by a global active-project context."""
     projects = list_projects()
     if not projects:
         st.info("Создайте первый проект.")
@@ -41,9 +36,6 @@ def render_project_selector(key: str = "project_select") -> dict | None:
         active_id = ids[0]
     st.session_state[_ACTIVE_PROJECT_KEY] = active_id
 
-    # Page-specific widget state may survive navigation. Synchronize it from the global
-    # context before rendering; the on_change callback updates the global value first when
-    # the user deliberately chooses another project.
     if st.session_state.get(key) != active_id:
         st.session_state[key] = active_id
 
@@ -61,7 +53,6 @@ def render_project_selector(key: str = "project_select") -> dict | None:
 
 
 def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:
-    """UI-friendly wrapper around the image service relation resolver."""
     return related_images_for_row(selected_row, project_id=project_id)
 
 
@@ -70,17 +61,22 @@ def render_asset_gallery(
     max_items: int = 20,
     width: int | str = "stretch",
 ) -> None:
-    """Render stored images responsively while tolerating missing/unreadable files."""
+    """Render stored images and make broken analytical links explicit."""
     if not assets:
         st.caption("Связанных изображений нет.")
         return
-    # Legacy callers may still request a large pixel width. Convert it to responsive
-    # layout instead of letting individual pages make different mobile decisions.
+    if len(assets) > max_items:
+        st.caption(f"Показано {max_items} из {len(assets)} изображений.")
     effective_width: int | str = "stretch" if isinstance(width, int) and width > 700 else width
     for asset in assets[:max_items]:
+        if str(asset.get("link_status") or "") == "detached":
+            st.warning(
+                "Привязка изображения требует восстановления. "
+                + str(asset.get("link_status_reason") or "Связанная аналитическая сущность больше не найдена.")
+            )
         path = Path(asset["stored_path"])
         if not path.exists():
-            st.caption(f"Файл изображения не найден: {asset['original_filename']}")
+            st.warning(f"Файл изображения не найден: {asset['original_filename']}")
             continue
         try:
             st.image(
