@@ -18,7 +18,7 @@ def main() -> None:
         os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
 
         from petrolab.article_tables import article_table_xlsx_bytes, format_dataframe_for_article
-        from petrolab.db import DB_PATH, create_project, ensure_storage
+        from petrolab.db import DB_PATH, create_project
         from petrolab.extended_plotting import (
             CI_CHONDRITE_1995,
             PRIMITIVE_MANTLE_1989,
@@ -53,6 +53,7 @@ def main() -> None:
             whole_rock_mg_number,
         )
         from petrolab.statistics import prepare_matrix, run_clustering, run_pca
+        from petrolab.storage import ensure_storage
         from petrolab.ui.pages.science_plots import _axis_candidates
         from petrolab.visualization_presets import (
             FIGURE_PRESETS,
