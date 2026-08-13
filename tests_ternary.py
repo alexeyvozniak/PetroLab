@@ -42,6 +42,19 @@ assert set(prepared.invalid[TERNARY_REASON]) == {"missing_component", "negative_
 for _, row in prepared.valid.iterrows():
     near(row[TERNARY_A] + row[TERNARY_B] + row[TERNARY_C], 100.0)
 
+# Infinite components are invalid rather than leaking NaN coordinates downstream.
+non_finite = pd.DataFrame(
+    {
+        "A": [float("inf"), 40.0],
+        "B": [20.0, 30.0],
+        "C": [30.0, 30.0],
+    }
+)
+non_finite_prepared = prepare_ternary(non_finite, "A", "B", "C", normalization="normalize")
+assert non_finite_prepared.valid_rows == 1
+assert non_finite_prepared.invalid_rows == 1
+assert non_finite_prepared.invalid.iloc[0][TERNARY_REASON] == "non_finite"
+
 # Auto-detection of fractions and already-normalized percentages.
 fraction = prepare_ternary(raw.iloc[[1]], "Wo", "En", "Fs", normalization="auto")
 assert fraction.normalization_applied == "fraction_to_100"

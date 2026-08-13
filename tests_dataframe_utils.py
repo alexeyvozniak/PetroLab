@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 from petrolab.dataframe_utils import (
     apply_column_filters,
     apply_quick_filter,
     compute_changes,
+    dataset_label,
     display_value,
     row_identity,
+    values_equal,
 )
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
+from petrolab.ui.editability import common_editable_source_columns
 
 
 original = pd.DataFrame(
@@ -35,12 +40,66 @@ assert changes[0]["new_value"] == 40.5
 quick = apply_quick_filter(original, "k2")
 assert list(quick["Sample"]) == ["K2"]
 
+literal = pd.DataFrame(
+    {
+        "Sample": ["A[1]", "A1", "B.2"],
+        "Generation": ["core", "rim", "core"],
+    }
+)
+assert apply_quick_filter(literal, "[")["Sample"].tolist() == ["A[1]"]
+
 filtered = apply_column_filters(original, {"Sample": ["K1"]})
 assert list(filtered["Sample"]) == ["K1"]
 
 assert row_identity(original.iloc[0]).startswith("Sample: K1")
 assert display_value(pd.NA) == ""
 assert display_value(12) == "12"
+assert values_equal(float("inf"), float("inf"))
+assert values_equal(float("-inf"), float("-inf"))
+assert not values_equal(float("inf"), float("-inf"))
+
+label = dataset_label(
+    {
+        "id": 42,
+        "project_name": "Kola",
+        "name": "Mica",
+        "row_count": 602,
+        "source_filename": "mica.xlsx",
+    }
+)
+assert label.endswith("ID 42")
+
+# The unified editor is column-oriented. For mixed schemas, only the physical source
+# intersection is writable; otherwise an empty union cell could become a DB-only pseudo-source.
+dataset_a = {
+    "id": 1,
+    "column_map_json": json.dumps(
+        {
+            "Sample": {"original": "Sample"},
+            "SiO2": {"original": "SiO2"},
+            "La [µg/g]": {"original": "La ppm"},
+            "__schema__": {"semantic": {"Sample": "Sample"}},
+        }
+    ),
+}
+dataset_b = {
+    "id": 2,
+    "column_map_json": json.dumps(
+        {
+            "Sample": {"original": "Sample"},
+            "SiO2": {"original": "SiO2"},
+        }
+    ),
+}
+assert common_editable_source_columns([dataset_a, dataset_b], [1]) == {
+    "Sample",
+    "SiO2",
+    "La [µg/g]",
+}
+assert common_editable_source_columns([dataset_a, dataset_b], [1, 2]) == {
+    "Sample",
+    "SiO2",
+}
 
 # Manual ranges are reversible views; the source dataframe remains untouched.
 chem = pd.DataFrame(

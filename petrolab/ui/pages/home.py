@@ -56,4 +56,5 @@ def render_home_page() -> None:
     ].copy()
     view["mineral_key"] = view["mineral_key"].map(mineral_labels()).fillna(view["mineral_key"])
     view.columns = ["Проект", "Набор", "Минерал", "Строк", "Источник", "Лист", "Тип связи"]
-    st.dataframe(view.tail(50), width="stretch", hide_index=True, height=360)
+    # list_datasets() is already newest-first; keep that order when limiting the dashboard.
+    st.dataframe(view.head(50), width="stretch", hide_index=True, height=360)

@@ -12,6 +12,48 @@ from petrolab.derived import formula_provenance_rows, load_unified_with_derived
 from petrolab.services.image_service import image_export_records
 
 
+def _selected_project_ids(datasets: list[dict], dataset_ids: list[int]) -> set[int]:
+    wanted = {int(value) for value in dataset_ids}
+    return {
+        int(dataset["project_id"])
+        for dataset in datasets
+        if int(dataset["id"]) in wanted
+    }
+
+
+def _dataset_scoped_records(records: list[dict], dataset_ids: list[int]) -> list[dict]:
+    wanted = {int(value) for value in dataset_ids}
+    scoped: list[dict] = []
+    for record in records:
+        value = record.get("dataset_id")
+        if value is None:
+            continue
+        try:
+            dataset_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if dataset_id in wanted:
+            scoped.append(record)
+    return scoped
+
+
+def _project_scoped_records(records: list[dict], project_ids: set[int]) -> list[dict]:
+    """Keep selected-project metadata plus records explicitly saved as global."""
+    scoped: list[dict] = []
+    for record in records:
+        value = record.get("project_id")
+        if value is None:
+            scoped.append(record)
+            continue
+        try:
+            project_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if project_id in project_ids:
+            scoped.append(record)
+    return scoped
+
+
 def render_export_page() -> None:
     st.title("Экспорт общей базы")
     datasets = list_datasets()
@@ -25,6 +67,7 @@ def render_export_page() -> None:
     if not dataset_ids:
         return
 
+    project_ids = _selected_project_ids(datasets, dataset_ids)
     dataframe = load_unified_with_derived(dataset_ids=dataset_ids)
     st.dataframe(dataframe.head(80), width="stretch", hide_index=True)
     export_dataframe = dataframe[[column for column in dataframe.columns if not str(column).startswith("_")]].copy()
@@ -32,13 +75,16 @@ def render_export_page() -> None:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         export_dataframe.to_excel(writer, index=False, sheet_name="Все анализы")
-        pd.DataFrame(image_export_records()).to_excel(writer, index=False, sheet_name="Изображения")
+
+        images = _dataset_scoped_records(image_export_records(), dataset_ids)
+        if images:
+            pd.DataFrame(images).to_excel(writer, index=False, sheet_name="Изображения")
 
         provenance = formula_provenance_rows(dataset_ids)
         if provenance:
             pd.DataFrame(provenance).to_excel(writer, index=False, sheet_name="Методы пересчёта")
 
-        recipes = list_plot_recipes()
+        recipes = _project_scoped_records(list_plot_recipes(), project_ids)
         if recipes:
             pd.DataFrame(
                 [
@@ -54,7 +100,7 @@ def render_export_page() -> None:
                 ]
             ).to_excel(writer, index=False, sheet_name="Рецепты графиков")
 
-        profiles = list_style_profiles()
+        profiles = _project_scoped_records(list_style_profiles(), project_ids)
         if profiles:
             pd.DataFrame(
                 [
@@ -71,6 +117,10 @@ def render_export_page() -> None:
                 ]
             ).to_excel(writer, index=False, sheet_name="Профили стилей")
 
+    st.caption(
+        "Экспорт включает только выбранные datasets, их изображения и project-local metadata. "
+        "Глобальные recipes/styles включаются как общие настройки PetroLab."
+    )
     st.download_button(
         "Единый Excel",
         buffer.getvalue(),

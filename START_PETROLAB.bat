@@ -35,6 +35,8 @@ if "%PETROLAB_CI%"=="1" (
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_dataframe_utils.py
     if errorlevel 1 goto fail
+    "%VENV_PY%" tests_article_tables.py
+    if errorlevel 1 goto fail
     "%VENV_PY%" tests_column_schema.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_import_service.py
@@ -44,6 +46,10 @@ if "%PETROLAB_CI%"=="1" (
     "%VENV_PY%" tests_analysis_service.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_image_service.py
+    if errorlevel 1 goto fail
+    "%VENV_PY%" tests_source_sync_conflicts.py
+    if errorlevel 1 goto fail
+    "%VENV_PY%" tests_statistics.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_ternary.py
     if errorlevel 1 goto fail

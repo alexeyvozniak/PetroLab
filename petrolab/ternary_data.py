@@ -48,12 +48,17 @@ def _row_reason(raw: pd.DataFrame, numeric: pd.DataFrame) -> pd.Series:
     reasons = pd.Series("", index=raw.index, dtype="object")
     missing_mask = raw.isna().any(axis=1)
     non_numeric_mask = (~raw.isna()).any(axis=1) & numeric.isna().any(axis=1) & ~missing_mask
+    non_finite_mask = pd.Series(
+        ~np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1),
+        index=numeric.index,
+    )
     negative_mask = numeric.lt(0).any(axis=1)
     sum_values = numeric.sum(axis=1, min_count=3)
     zero_sum_mask = sum_values.le(0) & sum_values.notna()
 
     reasons.loc[missing_mask] = "missing_component"
     reasons.loc[non_numeric_mask & reasons.eq("")] = "non_numeric"
+    reasons.loc[non_finite_mask & reasons.eq("")] = "non_finite"
     reasons.loc[negative_mask & reasons.eq("")] = "negative_component"
     reasons.loc[zero_sum_mask & reasons.eq("")] = "sum_not_positive"
     return reasons
@@ -141,6 +146,26 @@ def prepare_ternary(
     valid_sums = numeric_sums.loc[valid_mask].astype(float)
     applied = _normalization_mode(valid_sums, normalization)
     normalized = _normalize_components(valid_numeric, valid_sums, applied)
+    finite_normalized = np.isfinite(normalized.to_numpy(dtype=float)).all(axis=1)
+    if not finite_normalized.all():
+        failed_index = normalized.index[~finite_normalized]
+        invalid_extra = source.loc[failed_index].copy()
+        invalid_extra[TERNARY_REASON] = "non_finite"
+        invalid = pd.concat([invalid, invalid_extra], axis=0)
+        keep_index = normalized.index[finite_normalized]
+        valid = valid.loc[keep_index].copy()
+        valid_numeric = valid_numeric.loc[keep_index]
+        valid_sums = valid_sums.loc[keep_index]
+        normalized = normalized.loc[keep_index]
+
+    if valid.empty:
+        return TernaryPreparation(
+            valid=valid,
+            invalid=invalid,
+            source_columns=columns,
+            normalization_requested=str(normalization),
+            normalization_applied=applied,
+        )
 
     valid[TERNARY_A] = normalized.iloc[:, 0].to_numpy(dtype=float)
     valid[TERNARY_B] = normalized.iloc[:, 1].to_numpy(dtype=float)
@@ -165,6 +190,7 @@ def invalid_reason_counts(preparation: TernaryPreparation) -> pd.DataFrame:
     labels = {
         "missing_component": "нет одного из компонентов",
         "non_numeric": "нечисловое значение",
+        "non_finite": "бесконечное/невалидное числовое значение",
         "negative_component": "отрицательный компонент",
         "sum_not_positive": "сумма компонентов ≤ 0",
     }

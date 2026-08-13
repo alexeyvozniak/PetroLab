@@ -11,6 +11,21 @@ from petrolab.column_schema import describe_header
 from petrolab.visualization_presets import TABLE_PRESETS, TablePreset
 
 
+IDENTIFIER_COLUMNS = {
+    "Project",
+    "Проект",
+    "Rock",
+    "Sample",
+    "Grain",
+    "Point",
+    "Generation",
+    "Набор",
+    "Минерал",
+    "Massif",
+    "Lithology",
+}
+
+
 def _is_trace(column: str) -> bool:
     """Return True only for a concentration column with an explicit trace-element unit.
 
@@ -22,6 +37,10 @@ def _is_trace(column: str) -> bool:
     return descriptor.quantity_kind in {"trace_element", "element_concentration"}
 
 
+def _is_identifier(column: object) -> bool:
+    return str(column) in IDENTIFIER_COLUMNS or str(column).startswith("_")
+
+
 def format_dataframe_for_article(
     dataframe: pd.DataFrame,
     *,
@@ -31,6 +50,10 @@ def format_dataframe_for_article(
     preset = TABLE_PRESETS[preset_name]
     result = dataframe[list(columns)].copy() if columns is not None else dataframe.copy()
     for column in result.columns:
+        if _is_identifier(column):
+            # Identifiers are labels, not measurements. Numeric-looking IDs such as
+            # "001" or "007" must keep their exact textual representation.
+            continue
         original = result[column].copy()
         values = pd.to_numeric(original, errors="coerce")
         numeric_mask = values.notna()
@@ -83,6 +106,8 @@ def article_table_xlsx_bytes(
             width = min(max(max((len(value) for value in sample), default=8) + 2, 8), 24)
             ws.column_dimensions[get_column_letter(idx)].width = width
         ws.freeze_panes = ws.cell(header_row + 1, 1)
+        if preset.repeat_header:
+            ws.print_title_rows = f"{header_row}:{header_row}"
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0
