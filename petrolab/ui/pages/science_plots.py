@@ -94,7 +94,7 @@ def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]
     candidates: list[str] = []
     if requested in numeric:
         candidates.append(requested)
-    # Trace-element aliases with an explicit canonical concentration unit are safe.
+    # Explicit canonical concentration units are safe aliases of a requested element.
     # Oxide-vs-element and total-Fe-vs-ferrous substitutions are not.
     prefix = f"{requested} ["
     for column in numeric:
@@ -129,8 +129,7 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     y_candidates = _axis_candidates(dataframe, preset.y, numeric)
     x_default = x_candidates[0] if x_candidates else numeric[0]
     y_default = y_candidates[0] if y_candidates else next((column for column in numeric if column != x_default), numeric[0])
-    missing_preferred = not x_candidates or not y_candidates
-    if missing_preferred:
+    if not x_candidates or not y_candidates:
         missing = [name for name, candidates in [(preset.x, x_candidates), (preset.y, y_candidates)] if not candidates]
         st.warning(
             "В выбранных данных нет ожидаемых колонок шаблона: " + ", ".join(missing) +
@@ -275,6 +274,7 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     style = render_figure_style_controls(dataframe, key_prefix="pattern")
     ylabel = "Concentration" if reference is None else ("Sample / CI chondrite" if mode == "REE" else "Sample / primitive mantle")
     title = st.text_input("Название", value="REE pattern" if mode == "REE" else "Multi-element pattern", key="pattern_title")
+    point_style = POINT_STYLE_PRESETS[style.point_style_name]
     figure = build_pattern_figure(
         pattern,
         labels=labels,
@@ -284,10 +284,11 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         log_y=st.checkbox("Логарифмическая Y", value=True, key="pattern_log"),
         show_legend=style.show_legend,
         linewidth=style.line_width,
-        alpha=POINT_STYLE_PRESETS[style.point_style_name].alpha,
-        marker=POINT_STYLE_PRESETS[style.point_style_name].markers[0],
+        alpha=point_style.alpha,
+        marker=point_style.markers[0],
         marker_size=max(2.0, style.marker_size / 14.0),
         grid=style.grid,
+        monochrome=style.monochrome,
         font_family=style.font_family,
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
@@ -318,6 +319,8 @@ def _render_histogram(dataframe: pd.DataFrame) -> None:
         group_column=group,
         density=density,
         grid=style.grid,
+        monochrome=style.monochrome,
+        show_legend=style.show_legend,
         font_family=style.font_family,
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
