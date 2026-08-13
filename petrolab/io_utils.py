@@ -17,6 +17,10 @@ COMMON_OXIDES = {
 }
 
 _PANDAS_DUPLICATE_RE = re.compile(r"^(?P<base>.+)\.(?P<index>[1-9]\d*)$")
+_CENSORED_VALUE_RE = re.compile(
+    r"^\s*(?P<operator><=|>=|<|>|≤|≥)\s*"
+    r"(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
+)
 _SCIENTIFIC_KINDS = {"oxide", "trace_element", "element_concentration"}
 
 
@@ -55,6 +59,30 @@ def _import_descriptor(value: object) -> tuple[ColumnDescriptor, str]:
     )
 
 
+def _scaled_scientific_value(value: object, factor: float) -> object:
+    """Scale numeric chemistry while preserving explicit detection-limit qualifiers."""
+    if pd.isna(value):
+        return pd.NA
+    if isinstance(value, str):
+        text = value.strip()
+        match = _CENSORED_VALUE_RE.match(text)
+        if match:
+            scaled = float(match.group("value")) * float(factor)
+            return f"{match.group('operator')}{scaled:.12g}"
+        try:
+            return float(text) * float(factor)
+        except ValueError:
+            return value
+    try:
+        return float(value) * float(factor)
+    except (TypeError, ValueError):
+        return value
+
+
+def _normalize_scientific_series(series: pd.Series, factor: float) -> pd.Series:
+    return series.map(lambda value: _scaled_scientific_value(value, factor))
+
+
 def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Normalize scientific headers, units, and retain reversible Excel provenance."""
     out = df.copy()
@@ -87,10 +115,7 @@ def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str
     out.columns = normalized
     for name, descriptor in descriptors:
         if descriptor.quantity_kind in _SCIENTIFIC_KINDS:
-            numeric = pd.to_numeric(out[name], errors="coerce")
-            if descriptor.to_canonical_factor != 1.0:
-                numeric = numeric * descriptor.to_canonical_factor
-            out[name] = numeric
+            out[name] = _normalize_scientific_series(out[name], descriptor.to_canonical_factor)
 
     return out, mapping
 
@@ -139,7 +164,10 @@ def _numeric_optional(df: pd.DataFrame, column: str) -> pd.Series:
 
 
 def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
-    out = numericize_scientific_columns(df)
+    # QC is computed from a numeric view, but the returned dataframe preserves source
+    # semantics such as '<0.01' rather than destructively replacing them with NaN.
+    out = df.copy()
+    numeric = numericize_scientific_columns(df)
     duplicate_oxides = _duplicate_oxide_inputs(out.columns)
     if duplicate_oxides:
         out["QC химии"] = (
@@ -147,19 +175,19 @@ def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     non_fe_oxides = [
-        column for column in oxide_columns(out)
+        column for column in oxide_columns(numeric)
         if column not in {"F", "Cl", "H2O", "FeO", "FeOt", "Fe2O3", "Fe2O3t"}
     ]
     base_sum = (
-        out[non_fe_oxides].sum(axis=1, min_count=1)
+        numeric[non_fe_oxides].sum(axis=1, min_count=1)
         if non_fe_oxides
         else pd.Series(float("nan"), index=out.index, dtype=float)
     )
 
-    feo = _numeric_optional(out, "FeO")
-    fe2o3 = _numeric_optional(out, "Fe2O3")
-    feot = _numeric_optional(out, "FeOt")
-    fe2o3t = _numeric_optional(out, "Fe2O3t")
+    feo = _numeric_optional(numeric, "FeO")
+    fe2o3 = _numeric_optional(numeric, "Fe2O3")
+    feot = _numeric_optional(numeric, "FeOt")
+    fe2o3t = _numeric_optional(numeric, "Fe2O3t")
 
     total_overlap = feot.notna() & fe2o3t.notna()
     total_any = feot.notna() | fe2o3t.notna()
