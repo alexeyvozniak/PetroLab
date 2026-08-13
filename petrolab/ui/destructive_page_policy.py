@@ -24,6 +24,8 @@ def _render_pending(name: str, text: str) -> None:
     st.warning(text)
     if st.button("Отмена", key=f"cancel_{name}"):
         st.session_state.pop(key, None)
+        if name == "rock_links":
+            st.session_state.pop("_pending_removed_rock_links_count", None)
         st.rerun()
 
 
@@ -126,8 +128,6 @@ def install() -> None:
                 "rock_links",
                 f"Будет удалено связей минерал–порода: {count}. Нажмите «Сохранить связи минерал–порода» ещё раз или отмените действие.",
             )
-            if _pending_key("rock_links") not in st.session_state:
-                st.session_state.pop("_pending_removed_rock_links_count", None)
         _render_pending(
             "rock_image",
             "Фотография породы будет удалена с диска и из базы. Нажмите «Удалить» ещё раз или отмените действие.",
