@@ -49,6 +49,8 @@ if "%PETROLAB_CI%"=="1" (
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_source_sync_conflicts.py
     if errorlevel 1 goto fail
+    "%VENV_PY%" tests_statistics.py
+    if errorlevel 1 goto fail
     "%VENV_PY%" tests_ternary.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_ternary_overlays.py
