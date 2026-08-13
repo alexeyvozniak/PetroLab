@@ -61,8 +61,11 @@ def main() -> None:
         )
 
         ensure_storage()
-        with sqlite3.connect(DB_PATH) as con:
+        con = sqlite3.connect(DB_PATH)
+        try:
             tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            con.close()
         assert {"rock_samples", "rock_compositions", "rock_isotopes", "rock_mineral_links", "rock_images"}.issubset(tables)
 
         project_id = create_project("Science test", "")
@@ -218,6 +221,7 @@ def main() -> None:
         path.write_bytes(payload)
         workbook = load_workbook(path)
         assert "Table" in workbook.sheetnames
+        workbook.close()
 
         axis_frame = pd.DataFrame({
             "FeO": [8.0, 9.0], "NiO": [0.2, 0.3], "Ni [µg/g]": [1800.0, 2100.0],
@@ -254,6 +258,10 @@ def main() -> None:
         for collection in mono_fig.axes[0].collections:
             edges = collection.get_edgecolors()
             assert len(edges) and np.allclose(edges[0][:3], [0.0, 0.0, 0.0])
+
+        for figure in [fig, mono_tas, mono_pattern, mono_hist, mono_fig]:
+            plt = __import__("matplotlib.pyplot", fromlist=["close"])
+            plt.close(figure)
 
     print("science workbench tests: OK")
 
