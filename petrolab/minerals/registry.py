@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .base import MineralModule
 
 MINERALS: dict[str, MineralModule] = {
@@ -88,6 +90,13 @@ MINERALS: dict[str, MineralModule] = {
         "Универсальный режим: импорт, QC и диаграммы без минералоспецифических предположений.",
         (),
     ),
+}
+
+# Registry modules are the import/refresh descriptors. Keep them source-only: scientific
+# derivatives are calculated and versioned through the dedicated formula/derived layer.
+MINERALS = {
+    key: replace(module, derive_basic_indices=False)
+    for key, module in MINERALS.items()
 }
 
 
