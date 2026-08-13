@@ -96,40 +96,78 @@ def _seed_test_data(root: Path) -> None:
 
 
 def _visible_exact_text(driver: webdriver.Chrome, text: str):
-    elements = driver.find_elements(By.XPATH, f"//*[normalize-space(text())='{text}']")
-    return [element for element in elements if element.is_displayed()]
+    """Return small visible DOM elements whose rendered textContent equals ``text``."""
+    return driver.execute_script(
+        """
+        const wanted = arguments[0];
+        return Array.from(document.querySelectorAll('body *'))
+          .filter((element) => {
+            if ((element.textContent || '').trim() !== wanted) return false;
+            const style = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' &&
+                   rect.width > 0 && rect.height > 0 &&
+                   rect.bottom > 0 && rect.right > 0 &&
+                   rect.top < window.innerHeight && rect.left < window.innerWidth;
+          })
+          .sort((a, b) => {
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return (ar.width * ar.height) - (br.width * br.height);
+          });
+        """,
+        text,
+    )
+
+
+def _click_text_control(driver: webdriver.Chrome, element) -> None:
+    """Click the visible text node or a compact clickable ancestor and let the event bubble."""
+    driver.execute_script(
+        """
+        let element = arguments[0];
+        let candidate = element;
+        for (let i = 0; element && i < 6; i += 1, element = element.parentElement) {
+          const rect = element.getBoundingClientRect();
+          if (rect.width >= 80 && rect.height >= 24 && rect.height <= 90) {
+            candidate = element;
+          }
+        }
+        candidate.click();
+        """,
+        element,
+    )
 
 
 def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
-    """Select a sidebar navigation group without relying on Streamlit's internal widget library."""
+    """Select a sidebar navigation group by user-visible text, not widget internals."""
     driver.set_window_size(1280, 900)
     driver.refresh()
     wait = WebDriverWait(driver, 20)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        selectbox = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stSelectbox"]')
-            )
-        )
-        current_labels = [label for label in GROUP_LABELS if label in selectbox.text]
-        if group_label not in current_labels:
-            if not current_labels:
-                raise AssertionError(f"Could not determine current navigation group from: {selectbox.text!r}")
-            current = current_labels[0]
-            current_elements = [
-                element for element in _visible_exact_text(driver, current)
-                if selectbox in element.find_elements(By.XPATH, "ancestor::*[@data-testid='stSelectbox']")
-            ]
-            if not current_elements:
-                current_elements = _visible_exact_text(driver, current)
-            if not current_elements:
-                raise AssertionError(f"Visible current group label {current!r} not found")
-            driver.execute_script("arguments[0].click();", current_elements[-1])
+        current_matches = {
+            label: _visible_exact_text(driver, label)
+            for label in GROUP_LABELS
+        }
+        current_matches = {label: elements for label, elements in current_matches.items() if elements}
+        if group_label not in current_matches:
+            if len(current_matches) != 1:
+                raise AssertionError(
+                    f"Expected exactly one visible navigation group before opening the selector; "
+                    f"found {list(current_matches)}"
+                )
+            current_element = next(iter(current_matches.values()))[0]
+            _click_text_control(driver, current_element)
             wait.until(lambda d: bool(_visible_exact_text(d, group_label)))
             desired = _visible_exact_text(driver, group_label)
-            driver.execute_script("arguments[0].click();", desired[-1])
+            _click_text_control(driver, desired[0])
+            wait.until(
+                lambda d: group_label in {
+                    label for label in GROUP_LABELS if _visible_exact_text(d, label)
+                }
+            )
             time.sleep(1.2)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
     except Exception:
