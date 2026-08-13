@@ -4,7 +4,7 @@ import copy
 
 import pandas as pd
 
-from petrolab.column_schema import apply_semantic_mapping
+from petrolab.column_schema import apply_semantic_mapping, infer_semantic_mapping
 from petrolab.dataframe_utils import (
     apply_column_filters,
     apply_quick_filter,
@@ -112,5 +112,12 @@ assert semantic_metadata["Point"]["original"] == "Точка"
 assert semantic_metadata["Generation"]["original"] == "Gen"
 assert semantic_metadata["__schema__"]["measurement"] == {"Fe2O3": "Fe2O3t"}
 assert semantic_metadata["__schema__"]["semantic"] == semantic_stored
+
+# Canonical role names are safe. Multiple non-canonical strong aliases are not: the
+# importer must refuse to choose between Spot and Analysis merely because one appears first.
+assert infer_semantic_mapping(["Point", "Analysis"]) ["Point"] == "Point"
+ambiguous = infer_semantic_mapping(["Spot", "Analysis", "SiO2"])
+assert "Point" not in ambiguous
+assert infer_semantic_mapping(["Образец", "Gen"]) == {"Sample": "Образец", "Generation": "Gen"}
 
 print("dataframe utility tests: OK")
