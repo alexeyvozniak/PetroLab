@@ -200,3 +200,8 @@ def install() -> None:
 
     svc.import_linked_sheets = import_linked_sheets
     svc.import_uploaded_sheets = import_uploaded_sheets
+
+    # Dataset recovery belongs to the same source lifecycle: install it together with the
+    # import contract so legacy CSV snapshots can never invent physical Excel row numbers.
+    from petrolab.recovery_runtime import install as install_recovery
+    install_recovery()
