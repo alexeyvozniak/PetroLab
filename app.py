@@ -40,10 +40,10 @@ st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide"
 install_import_page_policy()
 if not getattr(legacy_plots, "_petrolab_plot_policy_installed", False):
     install_plot_page_policy()
-    install_destructive_page_policy()
     legacy_plots._petrolab_plot_policy_installed = True
 else:
     legacy_plots._petrolab_workspace_call_index = 0
+install_destructive_page_policy()
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
