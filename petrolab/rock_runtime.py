@@ -25,6 +25,11 @@ def install() -> None:
             numeric = pd.to_numeric(pd.Series([raw_value]), errors="coerce").iloc[0]
             if pd.isna(numeric):
                 continue
+            if descriptor.quantity_kind == "element_unknown_unit":
+                raise ValueError(
+                    f"Колонка «{column}» содержит числовые концентрации элемента без единицы. "
+                    "Укажите ppm/µg/g, ppb/ng/g, ppt/pg/g или wt% в заголовке до импорта."
+                )
             canonical = descriptor.canonical_name
             if canonical in composition:
                 raise ValueError(
@@ -105,12 +110,19 @@ def install() -> None:
             return None
         unit = repo._text(row.get("unit")).strip()
         direct = describe_header(analyte)
+        if direct.quantity_kind == "element_unknown_unit" and not unit:
+            raise ValueError(
+                f"Для элемента {direct.canonical_name} укажите единицу концентрации "
+                "(например, µg/g, ppb/ng/g, ppt/pg/g или wt%)."
+            )
         base = direct.canonical_name.split(" [", 1)[0]
         descriptor = describe_header(f"{base} [{unit}]" if unit else analyte)
         if descriptor.quantity_kind in {"oxide", "trace_element", "element_concentration"}:
             analyte = descriptor.canonical_name
             numeric *= float(descriptor.to_canonical_factor)
             unit = descriptor.canonical_unit or descriptor.source_unit
+        elif descriptor.quantity_kind == "element_unknown_unit":
+            raise ValueError(f"Для элемента {base} не удалось определить единицу концентрации")
         return {
             "analyte": analyte, "value": numeric, "unit": unit,
             "method": repo._text(row.get("method")), "source": repo._text(row.get("source")),
