@@ -6,6 +6,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
 from petrolab.extended_plotting import (
+    NORMALIZATION_AXIS_LABELS,
     NORMALIZATION_REFERENCES,
     REE_ORDER,
     SPIDER_ORDER,
@@ -80,13 +81,12 @@ def _mineral_filtered_presets(dataframe: pd.DataFrame) -> dict:
     if "Минерал" not in dataframe.columns:
         return presets
     present = set(dataframe["Минерал"].dropna().astype(str))
-    filtered = {
+    return {
         key: preset
         for key, preset in presets.items()
         if preset.mineral_key is None
         or MINERAL_PRESET_ALIASES.get(str(preset.mineral_key), str(preset.mineral_key)) in present
     }
-    return filtered or presets
 
 
 def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]) -> list[str]:
@@ -94,8 +94,6 @@ def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]
     candidates: list[str] = []
     if requested in numeric:
         candidates.append(requested)
-    # Explicit canonical concentration units are safe aliases of a requested element.
-    # Oxide-vs-element and total-Fe-vs-ferrous substitutions are not.
     prefix = f"{requested} ["
     for column in numeric:
         text = str(column)
@@ -144,7 +142,8 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     y_label_default = preset.y_label if y in y_candidates else y
     x_label = l1.text_input("Подпись X", value=x_label_default or x, key="science_xy_xlabel")
     y_label = l2.text_input("Подпись Y", value=y_label_default or y, key="science_xy_ylabel")
-    title = st.text_input("Название рисунка", value=preset.title, key="science_xy_title")
+    title_default = preset.title if x in x_candidates and y in y_candidates else f"{x}–{y}"
+    title = st.text_input("Название рисунка", value=title_default, key="science_xy_title")
 
     categories = _categorical_candidates(dataframe)
     group_column = st.selectbox("Группировать точки", ["Без группировки"] + categories, key="science_xy_group")
@@ -215,20 +214,8 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     )
     st.pyplot(publication, width="stretch")
     b1, b2 = st.columns(2)
-    b1.download_button(
-        "PNG",
-        figure_bytes(publication, "png", style.dpi),
-        file_name=f"{preset_id}.png",
-        mime="image/png",
-        key="science_xy_png",
-    )
-    b2.download_button(
-        "SVG",
-        figure_bytes(publication, "svg", style.dpi),
-        file_name=f"{preset_id}.svg",
-        mime="image/svg+xml",
-        key="science_xy_svg",
-    )
+    b1.download_button("PNG", figure_bytes(publication, "png", style.dpi), file_name=f"{preset_id}.png", mime="image/png", key="science_xy_png")
+    b2.download_button("SVG", figure_bytes(publication, "svg", style.dpi), file_name=f"{preset_id}.svg", mime="image/svg+xml", key="science_xy_svg")
     plt.close(publication)
 
 
@@ -248,22 +235,29 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         key="pattern_ref",
     )
     reference = NORMALIZATION_REFERENCES[reference_name]
-    available = available_elements(dataframe, preferred, require_known_units=reference is not None)
+    available = available_elements(
+        dataframe,
+        preferred,
+        require_known_units=reference is not None,
+        reference=reference,
+    )
     if len(available) < 2:
         st.info(
-            "Недостаточно элементов с подходящими числовыми концентрациями. Для нормированного REE/spider "
-            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent; K, P и Ti также "
-            "могут быть стехиометрически получены из K2O, P2O5 и TiO2 wt.% с явным provenance."
+            "Недостаточно элементов с подходящими числовыми концентрациями и выбранной нормировкой. "
+            "Для нормированного REE/spider ПетроЛаб использует только колонки с известной единицей "
+            "ppm/µg/g-equivalent и элементы, присутствующие в reference."
         )
         return
     selected = st.multiselect("Элементы", list(preferred), default=available, key="pattern_elements")
     pattern = prepare_pattern(dataframe, selected, reference)
     if pattern.missing_elements:
-        st.caption("Не использованы: " + ", ".join(pattern.missing_elements))
+        st.caption("Не использованы — нет данных/известной единицы: " + ", ".join(pattern.missing_elements))
+    if pattern.missing_reference_elements:
+        st.caption("Не использованы — отсутствуют в выбранной нормировке: " + ", ".join(pattern.missing_reference_elements))
     converted = [label for label in pattern.source_columns.values() if "→" in label]
     if converted:
         st.caption("Стехиометрические преобразования: " + "; ".join(converted))
-    st.caption(f"Вошло кривых: {len(pattern.data)} · исключено пустых строк: {pattern.excluded_rows}")
+    st.caption(f"Вошло кривых: {len(pattern.data)} · исключено неполных строк: {pattern.excluded_rows}")
 
     categories = _categorical_candidates(dataframe)
     group = st.selectbox("Легенда/группа", ["Каждый анализ"] + categories, key="pattern_group")
@@ -272,7 +266,7 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     label_column = st.selectbox("Подпись отдельной кривой", ["Индекс"] + label_candidates, key="pattern_label")
     labels = None if label_column == "Индекс" else dataframe[label_column]
     style = render_figure_style_controls(dataframe, key_prefix="pattern")
-    ylabel = "Concentration" if reference is None else ("Sample / CI chondrite" if mode == "REE" else "Sample / primitive mantle")
+    ylabel = NORMALIZATION_AXIS_LABELS[reference_name]
     title = st.text_input("Название", value="REE pattern" if mode == "REE" else "Multi-element pattern", key="pattern_title")
     point_style = POINT_STYLE_PRESETS[style.point_style_name]
     figure = build_pattern_figure(
@@ -326,7 +320,9 @@ def _render_histogram(dataframe: pd.DataFrame) -> None:
         figure_size=(style.width_in, style.height_in),
     )
     st.pyplot(fig, width="stretch")
-    st.download_button("Скачать PNG", figure_bytes(fig, "png", style.dpi), file_name="histogram.png", mime="image/png", key="hist_png")
+    c1, c2 = st.columns(2)
+    c1.download_button("PNG", figure_bytes(fig, "png", style.dpi), file_name="histogram.png", mime="image/png", key="hist_png")
+    c2.download_button("SVG", figure_bytes(fig, "svg", style.dpi), file_name="histogram.svg", mime="image/svg+xml", key="hist_svg")
     plt.close(fig)
 
 
@@ -340,7 +336,8 @@ def _render_boxplot(dataframe: pd.DataFrame) -> None:
     group = st.selectbox("Группировка", ["Нет"] + categories, key="box_group")
     group = None if group == "Нет" else group
     if group and len(columns) > 1:
-        st.caption("При группировке boxplot использует один числовой параметр; оставьте одну колонку.")
+        st.warning("Для boxplot с группировкой выберите ровно один числовой параметр.")
+        return
     style = render_figure_style_controls(dataframe, key_prefix="box")
     if not columns:
         return
@@ -355,7 +352,9 @@ def _render_boxplot(dataframe: pd.DataFrame) -> None:
         figure_size=(style.width_in, style.height_in),
     )
     st.pyplot(fig, width="stretch")
-    st.download_button("Скачать PNG", figure_bytes(fig, "png", style.dpi), file_name="boxplot.png", mime="image/png", key="box_png")
+    c1, c2 = st.columns(2)
+    c1.download_button("PNG", figure_bytes(fig, "png", style.dpi), file_name="boxplot.png", mime="image/png", key="box_png")
+    c2.download_button("SVG", figure_bytes(fig, "svg", style.dpi), file_name="boxplot.svg", mime="image/svg+xml", key="box_svg")
     plt.close(fig)
 
 
