@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -26,6 +27,7 @@ from petrolab.db import (
     connect,
     create_project,
     ensure_storage,
+    list_datasets,
     load_dataset_dataframe,
     replace_dataset_rows,
 )
@@ -33,6 +35,7 @@ from petrolab.derived import formula_status, load_unified_with_derived, save_for
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.services.formula_service import FE2O3T_TO_FEOT, calculate_formula_safe
+from petrolab.services.import_service import import_uploaded_sheets
 
 
 def near(a, b, tol=1e-8):
@@ -81,6 +84,39 @@ renamed, mapped, stored = apply_measurement_overrides(
 assert "Fe2O3t" in renamed.columns and "Fe2O3" not in renamed.columns
 assert stored == {"Fe2O3": "Fe2O3t"}
 assert mapped["__schema__"]["measurement"] == stored
+
+# Multi-sheet import must be preflighted as one batch. A conflict on the second sheet
+# must not leave the first sheet imported or create an orphan managed source file.
+preflight_project = create_project("Batch preflight test")
+workbook_bytes = io.BytesIO()
+with pd.ExcelWriter(workbook_bytes, engine="openpyxl") as writer:
+    pd.DataFrame({"Sample": ["A1"], "SiO2": [50.0], "Fe2O3": [8.0]}).to_excel(
+        writer, sheet_name="Good", index=False
+    )
+    pd.DataFrame({"Sample": ["B1"], "SiO2": [51.0], "Fe2O3": [8.0], "Fe2O3t": [9.0]}).to_excel(
+        writer, sheet_name="Bad", index=False
+    )
+try:
+    import_uploaded_sheets(
+        project_id=preflight_project,
+        file_bytes=workbook_bytes.getvalue(),
+        filename="two_sheets.xlsx",
+        sheet_names=["Good", "Bad"],
+        mineral_key="generic",
+        dataset_name="Batch",
+        header_row=1,
+        measurement_maps={
+            "Good": {"Fe2O3": "Fe2O3"},
+            "Bad": {"Fe2O3": "Fe2O3t"},
+        },
+    )
+except ValueError as exc:
+    assert "Bad" in str(exc) and "Fe2O3t" in str(exc)
+else:
+    raise AssertionError("Second-sheet schema conflict must abort the entire import preflight")
+assert list_datasets(preflight_project) == []
+managed_dir = _ROOT / "data" / f"project_{preflight_project}" / "managed_sources"
+assert not managed_dir.exists() or not any(managed_dir.iterdir())
 
 # Persisted formula fields are current only while the source analysis version is unchanged.
 project_id = create_project("Derived formula test")
