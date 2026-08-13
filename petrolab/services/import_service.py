@@ -79,6 +79,8 @@ class _PreparedSheet:
     dataframe: pd.DataFrame
     column_map: dict
     source_rows: list[int]
+    mineral_key: str
+    header_row: int
 
 
 def validate_source_path(path: str | Path) -> Path:
@@ -164,6 +166,7 @@ def _prepare_sheet(
     *,
     sheet_name: str,
     mineral_key: str,
+    header_row: int,
     semantic_map: Mapping[str, str] | None,
     measurement_map: Mapping[str, str] | None,
 ) -> _PreparedSheet:
@@ -177,7 +180,37 @@ def _prepare_sheet(
     except Exception as exc:
         label = sheet_name or "CSV/активный лист"
         raise ValueError(f"Лист «{label}» не прошёл preflight импорта: {exc}") from exc
-    return _PreparedSheet(sheet_name, calculated, mapped_column_map, source_rows)
+    return _PreparedSheet(
+        sheet_name,
+        calculated,
+        mapped_column_map,
+        source_rows,
+        mineral_key,
+        int(header_row),
+    )
+
+
+def _sheet_header_row(
+    sheet_name: str,
+    default: int,
+    header_rows: Mapping[str, int] | None,
+) -> int:
+    value = (header_rows or {}).get(sheet_name, default)
+    result = int(value)
+    if result < 1:
+        raise ValueError(f"Лист «{sheet_name or 'CSV'}»: строка заголовков должна быть >= 1")
+    return result
+
+
+def _sheet_mineral_key(
+    sheet_name: str,
+    default: str,
+    mineral_keys: Mapping[str, str] | None,
+) -> str:
+    value = str((mineral_keys or {}).get(sheet_name, default))
+    if value not in MINERALS:
+        raise KeyError(f"Лист «{sheet_name or 'CSV'}»: неизвестный минерал {value}")
+    return value
 
 
 def _prepare_linked_batch(
@@ -186,13 +219,17 @@ def _prepare_linked_batch(
     *,
     header_row: int,
     mineral_key: str,
+    header_rows: Mapping[str, int] | None,
+    mineral_keys: Mapping[str, str] | None,
     semantic_maps: Mapping[str, Mapping[str, str]] | None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None,
 ) -> list[_PreparedSheet]:
     prepared: list[_PreparedSheet] = []
     for sheet_name in sheet_names:
+        current_header = _sheet_header_row(sheet_name, header_row, header_rows)
+        current_mineral = _sheet_mineral_key(sheet_name, mineral_key, mineral_keys)
         dataframe, column_map, source_rows = read_tabular_path(
-            source, sheet_name or None, int(header_row)
+            source, sheet_name or None, current_header
         )
         prepared.append(
             _prepare_sheet(
@@ -200,7 +237,8 @@ def _prepare_linked_batch(
                 column_map,
                 source_rows,
                 sheet_name=sheet_name,
-                mineral_key=mineral_key,
+                mineral_key=current_mineral,
+                header_row=current_header,
                 semantic_map=(semantic_maps or {}).get(sheet_name, {}),
                 measurement_map=(measurement_maps or {}).get(sheet_name, {}),
             )
@@ -215,13 +253,17 @@ def _prepare_uploaded_batch(
     *,
     header_row: int,
     mineral_key: str,
+    header_rows: Mapping[str, int] | None,
+    mineral_keys: Mapping[str, str] | None,
     semantic_maps: Mapping[str, Mapping[str, str]] | None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None,
 ) -> list[_PreparedSheet]:
     prepared: list[_PreparedSheet] = []
     for sheet_name in sheet_names:
+        current_header = _sheet_header_row(sheet_name, header_row, header_rows)
+        current_mineral = _sheet_mineral_key(sheet_name, mineral_key, mineral_keys)
         dataframe, column_map, source_rows = read_tabular_with_map(
-            file_bytes, filename, sheet_name or None, int(header_row)
+            file_bytes, filename, sheet_name or None, current_header
         )
         prepared.append(
             _prepare_sheet(
@@ -229,7 +271,8 @@ def _prepare_uploaded_batch(
                 column_map,
                 source_rows,
                 sheet_name=sheet_name,
-                mineral_key=mineral_key,
+                mineral_key=current_mineral,
+                header_row=current_header,
                 semantic_map=(semantic_maps or {}).get(sheet_name, {}),
                 measurement_map=(measurement_maps or {}).get(sheet_name, {}),
             )
@@ -247,6 +290,8 @@ def import_linked_sheets(
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
+    header_rows: Mapping[str, int] | None = None,
+    mineral_keys: Mapping[str, str] | None = None,
 ) -> ImportBatchResult:
     source = validate_source_path(path)
     if not sheet_names:
@@ -259,6 +304,8 @@ def import_linked_sheets(
         sheet_names,
         header_row=int(header_row),
         mineral_key=mineral_key,
+        header_rows=header_rows,
+        mineral_keys=mineral_keys,
         semantic_maps=semantic_maps,
         measurement_maps=measurement_maps,
     )
@@ -271,7 +318,7 @@ def import_linked_sheets(
                 project_id=project_id,
                 df=item.dataframe,
                 dataset_name=name,
-                mineral_key=mineral_key,
+                mineral_key=item.mineral_key,
                 source_filename=source.name,
                 source_sheet=item.sheet_name or "",
                 source_hash=source_hash,
@@ -279,7 +326,7 @@ def import_linked_sheets(
                 source_rows=item.source_rows,
                 source_path=str(source),
                 source_kind="linked",
-                header_row=int(header_row),
+                header_row=item.header_row,
                 sync_enabled=source.suffix.lower() in SYNCABLE_SUFFIXES,
             )
         )
@@ -297,6 +344,8 @@ def import_uploaded_sheets(
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
+    header_rows: Mapping[str, int] | None = None,
+    mineral_keys: Mapping[str, str] | None = None,
 ) -> ImportBatchResult:
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
@@ -310,6 +359,8 @@ def import_uploaded_sheets(
         sheet_names,
         header_row=int(header_row),
         mineral_key=mineral_key,
+        header_rows=header_rows,
+        mineral_keys=mineral_keys,
         semantic_maps=semantic_maps,
         measurement_maps=measurement_maps,
     )
@@ -323,7 +374,7 @@ def import_uploaded_sheets(
                 project_id=project_id,
                 df=item.dataframe,
                 dataset_name=name,
-                mineral_key=mineral_key,
+                mineral_key=item.mineral_key,
                 source_filename=Path(filename).name,
                 source_sheet=item.sheet_name or "",
                 source_hash=source_hash,
@@ -331,7 +382,7 @@ def import_uploaded_sheets(
                 source_rows=item.source_rows,
                 source_path=str(managed_path),
                 source_kind="managed_copy",
-                header_row=int(header_row),
+                header_row=item.header_row,
                 sync_enabled=managed_path.suffix.lower() in SYNCABLE_SUFFIXES,
             )
         )
