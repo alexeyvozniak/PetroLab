@@ -57,9 +57,11 @@ if "%PETROLAB_CI%"=="1" (
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_science_workbench.py
     if errorlevel 1 goto fail
-    "%VENV_PY%" tests_ui_layout.py
+    "%VENV_PY%" tests_storage_isotopes.py
     if errorlevel 1 goto fail
-    "%VENV_PY%" tests_smoke.py
+    "%VENV_PY%" tests_v011_integrity.py
+    if errorlevel 1 goto fail
+    "%VENV_PY%" tests_ui_layout.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_streamlit.py
     if errorlevel 1 goto fail
