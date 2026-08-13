@@ -49,7 +49,7 @@ def build_scientific_xy_figure(
 
         for index, (group_name, subset) in enumerate(groups):
             marker = point_style.markers[index % len(point_style.markers)]
-            face = "none" if (not point_style.filled or monochrome) else None
+            open_marker = not point_style.filled or monochrome
             kwargs: dict[str, object] = {
                 "marker": marker,
                 "s": marker_size * point_style.size_multiplier,
@@ -57,8 +57,12 @@ def build_scientific_xy_figure(
                 "linewidths": 0.8,
                 "label": str(group_name),
             }
-            if face == "none":
+            if open_marker:
                 kwargs["facecolors"] = "none"
+            if monochrome:
+                # Shape/fill, not the Matplotlib color cycle, must carry group identity
+                # in a black-and-white publication preset.
+                kwargs["edgecolors"] = "black"
             ax.scatter(subset[x], subset[y], **kwargs)
 
         overlay = draw_xy_overlay(ax, overlay_id)
