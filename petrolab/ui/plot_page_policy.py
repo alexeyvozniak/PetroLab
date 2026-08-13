@@ -50,48 +50,42 @@ def _install_outlier_controls(page) -> None:
             ranged = page.apply_numeric_ranges(dataframe, ranges) if ranges else dataframe
             page.st.caption(f"После ручных диапазонов: {len(ranged)} из {len(dataframe)} точек.")
 
-            auto_options = {"Нет": "NONE", "MAD — робастный modified z-score": "MAD", "IQR — правило Тьюки": "IQR"}
-            reverse = {value: label for label, value in auto_options.items()}
+            options = {"Нет": "NONE", "MAD — робастный modified z-score": "MAD", "IQR — правило Тьюки": "IQR"}
+            reverse = {value: label for label, value in options.items()}
             configured = str(load_settings().get("default_outlier_method", "MAD")).upper()
             saved_method = str(cfg.get("auto_method", configured)).upper()
             auto_label = page.st.selectbox(
-                "Автоматически искать выбросы", list(auto_options),
-                index=list(auto_options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method",
+                "Автоматически искать выбросы", list(options),
+                index=list(options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method",
             )
-            auto_method = auto_options[auto_label]
+            auto_method = options[auto_label]
             auto_columns, outlier_ids = [], []
             threshold = 0.0
             exclude_auto = bool(cfg.get("exclude_auto", False))
             outlier_scope = str(cfg.get("scope", "all"))
             outlier_group = str(cfg.get("scope_group", ""))
-
             if auto_method != "NONE":
-                saved_auto_columns = cfg.get("auto_columns", [x, y])
                 auto_columns = page.st.multiselect(
                     "Колонки для автоматической проверки", numeric_columns,
-                    default=[column for column in saved_auto_columns if column in numeric_columns] or [x, y], key="outlier_columns",
+                    default=[c for c in cfg.get("auto_columns", [x, y]) if c in numeric_columns] or [x, y], key="outlier_columns",
                 )
-                default_threshold = float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5))
                 threshold = page.st.number_input(
-                    "Порог MAD" if auto_method == "MAD" else "Множитель IQR",
-                    min_value=0.1, max_value=20.0, value=default_threshold, step=0.1, key="outlier_threshold",
+                    "Порог MAD" if auto_method == "MAD" else "Множитель IQR", min_value=0.1, max_value=20.0,
+                    value=float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5)), step=0.1, key="outlier_threshold",
                 )
-                group_candidates = [
-                    column for column in [page.WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"]
-                    if column in ranged.columns and ranged[column].nunique(dropna=True) > 1
+                candidates = [
+                    c for c in [page.WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"]
+                    if c in ranged.columns and ranged[c].nunique(dropna=True) > 1
                 ]
                 scope_label = page.st.selectbox(
                     "Область статистики выбросов",
-                    ["По всей выборке", "Внутри групп"] if group_candidates else ["По всей выборке"],
-                    index=1 if outlier_scope == "group" and group_candidates else 0, key="outlier_scope",
+                    ["По всей выборке", "Внутри групп"] if candidates else ["По всей выборке"],
+                    index=1 if outlier_scope == "group" and candidates else 0, key="outlier_scope",
                 )
                 scope_group = None
                 if scope_label == "Внутри групп":
-                    default_group = outlier_group if outlier_group in group_candidates else group_candidates[0]
-                    scope_group = page.st.selectbox(
-                        "Группа для локальной статистики", group_candidates,
-                        index=group_candidates.index(default_group), key="outlier_scope_group",
-                    )
+                    default_group = outlier_group if outlier_group in candidates else candidates[0]
+                    scope_group = page.st.selectbox("Группа для локальной статистики", candidates, index=candidates.index(default_group), key="outlier_scope_group")
                     page.st.caption("MAD/IQR считается отдельно внутри каждой выбранной геологической/рабочей группы.")
                 result = _grouped_outliers(page, ranged, auto_columns, auto_method, float(threshold), scope_group)
                 flagged = ranged.loc[result.outlier_mask].copy()
@@ -99,7 +93,7 @@ def _install_outlier_controls(page) -> None:
                     outlier_ids = flagged["_analysis_id"].astype(str).tolist()
                 page.st.info(f"Автоматически отмечено как возможные выбросы: {len(flagged)}. Это статистическая подсказка, а не решение об удалении.")
                 if not flagged.empty:
-                    preview = [column for column in ["Sample", "Grain", "Point", "Generation", *auto_columns] if column in flagged.columns]
+                    preview = [c for c in ["Sample", "Grain", "Point", "Generation", *auto_columns] if c in flagged.columns]
                     page.st.dataframe(flagged[preview].head(200), width="stretch", hide_index=True, height=260)
                 exclude_auto = page.st.checkbox("Исключить автоматически отмеченные точки из этого графика", value=exclude_auto, key="exclude_auto_outliers")
                 outlier_scope = "group" if scope_group else "all"
@@ -115,18 +109,13 @@ def _install_outlier_controls(page) -> None:
             saved_manual = {str(value) for value in cfg.get("manual_excluded_ids", [])}
             hidden_saved = saved_manual - set(candidate_map.values())
             defaults = [label for label, analysis_id in candidate_map.items() if analysis_id in saved_manual]
-            manual_labels = page.st.multiselect(
-                "Исключить отдельные точки вручную", list(candidate_map), default=defaults,
-                key="manual_outlier_exclusions",
-            ) if candidate_map else []
+            manual_labels = page.st.multiselect("Исключить отдельные точки вручную", list(candidate_map), default=defaults, key="manual_outlier_exclusions") if candidate_map else []
             manual_ids = [candidate_map[label] for label in manual_labels]
-            if hidden_saved:
-                keep_hidden = page.st.checkbox(
-                    f"Сохранять {len(hidden_saved)} ранее исключённых точек вне текущего chooser",
-                    value=True, key="keep_hidden_manual_exclusions",
-                )
-                if keep_hidden:
-                    manual_ids.extend(sorted(hidden_saved))
+            if hidden_saved and page.st.checkbox(
+                f"Сохранять {len(hidden_saved)} ранее исключённых точек вне текущего chooser", value=True,
+                key="keep_hidden_manual_exclusions",
+            ):
+                manual_ids.extend(sorted(hidden_saved))
 
         filtered = ranged
         excluded_ids = set(manual_ids)
@@ -148,22 +137,109 @@ def _install_outlier_controls(page) -> None:
     page._outlier_controls = controls
 
 
+def _install_science_policy() -> None:
+    from petrolab.ui.pages import science_plots as science
+
+    def strict_presets(dataframe):
+        presets = {k: p for k, p in science.SCIENTIFIC_PLOT_PRESETS.items() if p.plot_type == "xy"}
+        if "Минерал" not in dataframe.columns:
+            return presets
+        present = set(dataframe["Минерал"].dropna().astype(str))
+        return {
+            k: p for k, p in presets.items()
+            if p.mineral_key is None
+            or science.MINERAL_PRESET_ALIASES.get(str(p.mineral_key), str(p.mineral_key)) in present
+        }
+    science._mineral_filtered_presets = strict_presets
+
+    original_available = science.available_elements
+    science.available_elements = lambda dataframe, preferred, *, require_known_units=False, reference=None: original_available(
+        dataframe, preferred, require_known_units=True, reference=reference
+    )
+
+    original_pattern = science.build_pattern_figure
+    ylabel_by_ref = {
+        "Без нормировки": "Concentration [µg/g equivalent]",
+        "CI-хондрит · McDonough & Sun (1995)": "Sample / CI chondrite",
+        "Primitive mantle · Sun & McDonough (1989)": "Sample / primitive mantle",
+    }
+    line_styles = ("-", "--", ":", "-.")
+
+    def consistent_pattern(pattern, *, labels=None, group=None, **kwargs):
+        ref = science.st.session_state.get("pattern_ref")
+        if ref in ylabel_by_ref:
+            kwargs["ylabel"] = ylabel_by_ref[ref]
+        fig = original_pattern(pattern, labels=labels, group=group, **kwargs)
+        if group is None or pattern.data.empty or not fig.axes:
+            return fig
+        groups = group.reindex(pattern.data.index).astype("string").fillna("Без группы").replace("", "Без группы")
+        names = list(dict.fromkeys(groups.tolist()))
+        colors = science.plt.rcParams["axes.prop_cycle"].by_key().get("color", ["black"])
+        styles = {name: (colors[i % len(colors)], line_styles[i % len(line_styles)]) for i, name in enumerate(names)}
+        for line, name in zip(fig.axes[0].lines, groups.tolist()):
+            color, linestyle = styles[name]
+            if kwargs.get("monochrome", False):
+                line.set_color("black"); line.set_linestyle(linestyle)
+            else:
+                line.set_color(color)
+        return fig
+    science.build_pattern_figure = consistent_pattern
+
+    original_xy = science._render_scientific_xy
+    def strict_xy(dataframe):
+        preset_id = science.st.session_state.get("science_xy_preset")
+        preset = strict_presets(dataframe).get(preset_id)
+        if preset is None:
+            return original_xy(dataframe)
+        x = science.st.session_state.get("science_xy_x")
+        y = science.st.session_state.get("science_xy_y")
+        if x is None or y is None:
+            return original_xy(dataframe)
+        numeric = science.numeric_candidates(dataframe)
+        matches = x in science._axis_candidates(dataframe, preset.x, numeric) and y in science._axis_candidates(dataframe, preset.y, numeric)
+        if matches:
+            return original_xy(dataframe)
+        science.st.session_state["science_xy_title"] = ""
+        science.st.session_state["science_xy_xlabel"] = str(x)
+        science.st.session_state["science_xy_ylabel"] = str(y)
+        original_caption = science.st.caption
+        original_info = science.st.info
+        original_builder = science.build_scientific_xy_figure
+        def caption(text, *args, **kwargs):
+            value = str(text)
+            if value.startswith("Источник схемы:") or value.startswith("Overlay:"):
+                return None
+            return original_caption(text, *args, **kwargs)
+        def builder(*args, **kwargs):
+            kwargs["overlay_id"] = None
+            return original_builder(*args, **kwargs)
+        science.st.caption = caption
+        science.st.info = lambda *args, **kwargs: None
+        science.build_scientific_xy_figure = builder
+        try:
+            result = original_xy(dataframe)
+        finally:
+            science.st.caption = original_caption
+            science.st.info = original_info
+            science.build_scientific_xy_figure = original_builder
+        original_caption("Пользовательские оси: литературное название, source citation и overlay preset'а отключены.")
+        return result
+    science._render_scientific_xy = strict_xy
+
+
 def install() -> None:
     from petrolab.ui.pages import plots as page
     from petrolab.outliers import OutlierResult
 
     page.OutlierResult = OutlierResult
-
-    def style_map_from_df(dataframe):
-        return {
-            str(row["Группа"]): {
-                "marker": row["Маркер"], "size_multiplier": float(row["Размер ×"]),
-                "alpha": float(row["Alpha"]), "filled": bool(row["Заливка"]),
-                "color": _GROUP_COLORS[index % len(_GROUP_COLORS)],
-            }
-            for index, (_, row) in enumerate(dataframe.iterrows())
+    page._style_map_from_df = lambda dataframe: {
+        str(row["Группа"]): {
+            "marker": row["Маркер"], "size_multiplier": float(row["Размер ×"]),
+            "alpha": float(row["Alpha"]), "filled": bool(row["Заливка"]),
+            "color": _GROUP_COLORS[index % len(_GROUP_COLORS)],
         }
-    page._style_map_from_df = style_map_from_df
+        for index, (_, row) in enumerate(dataframe.iterrows())
+    }
     _install_outlier_controls(page)
 
     original_build_scatter = page.build_scatter
@@ -202,7 +278,6 @@ def install() -> None:
         page._petrolab_original_interactive_workspace = page._render_interactive_workspace
     original_workspace = page._petrolab_original_interactive_workspace
     page._petrolab_workspace_call_index = 0
-
     def dashboard_workspace(dataframe, project_id, x, y, group_col, x_label, y_label, title, log_x, log_y, style_map):
         call_index = int(page._petrolab_workspace_call_index)
         page._petrolab_workspace_call_index = call_index + 1
@@ -210,19 +285,13 @@ def install() -> None:
             return original_workspace(dataframe, project_id, x, y, group_col, x_label, y_label, title, log_x, log_y, style_map)
         page.st.subheader("Интерактивный график")
         page.st.caption("Кликните точку или выделите область. Для исключений и рабочих групп используйте «Расширенный редактор».")
-        figure = page.build_interactive_scatter(
-            dataframe, x, y, group_col, x_label=x_label, y_label=y_label,
-            title=title, log_x=log_x, log_y=log_y, style_map=style_map,
-        )
-        event = page.st.plotly_chart(
-            figure, width="stretch", theme=None, key="petrolab_quick_interactive_plot",
-            on_select="rerun", selection_mode=("points", "box", "lasso"),
-            config={"displaylogo": False, "scrollZoom": True},
-        )
+        figure = page.build_interactive_scatter(dataframe, x, y, group_col, x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y, style_map=style_map)
+        event = page.st.plotly_chart(figure, width="stretch", theme=None, key="petrolab_quick_interactive_plot", on_select="rerun", selection_mode=("points", "box", "lasso"), config={"displaylogo": False, "scrollZoom": True})
         selected_ids = page.selected_analysis_ids(event)
         if selected_ids:
             page.st.caption(f"Выбрано точек: {len(selected_ids)}.")
     page._render_interactive_workspace = dashboard_workspace
 
+    _install_science_policy()
     from petrolab.ui.image_page_policy import install as install_image_page_policy
     install_image_page_policy()
