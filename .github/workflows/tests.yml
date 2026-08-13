@@ -7,6 +7,7 @@ on:
       - "refactor/**"
       - "feature/**"
       - "fix/**"
+      - "audit/**"
   pull_request:
     branches: ["main"]
 
@@ -45,7 +46,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -62,6 +63,10 @@ jobs:
       - name: Run v0.11 scientific and data-integrity regressions
         shell: cmd
         run: python tests_v011_integrity.py
+
+      - name: Verify audit v10 closure contract
+        shell: cmd
+        run: python tests_audit_closure.py
 
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
