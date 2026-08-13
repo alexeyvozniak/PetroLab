@@ -36,6 +36,10 @@ _CRITICAL_ROW_INPUTS: dict[str, tuple[str, ...]] = {
     "zircon": ("SiO2", "ZrO2"),
 }
 _FE_COLUMNS = ("FeO", "FeOt", "Fe2O3", "Fe2O3t")
+_FE_REQUIRED_MINERALS = {
+    "mica", "amphibole", "clinopyroxene", "orthopyroxene", "olivine",
+    "garnet", "spinel", "fe_ti_oxide",
+}
 _GARNET_OMITTED_Y = ("Ti", "Zr", "Hf", "V3", "Nb", "Sn", "U")
 
 
@@ -151,13 +155,21 @@ def _critical_row_validity(original: pd.DataFrame, mineral_key: str) -> tuple[pd
     reasons: dict[object, list[str]] = {index: [] for index in original.index}
     for column in _CRITICAL_ROW_INPUTS.get(str(mineral_key), ()):
         if column not in original.columns:
+            valid.loc[:] = False
+            for index in original.index:
+                reasons[index].append(f"missing column {column}")
             continue
         bad = ~_presence(original, column)
         for index in original.index[bad]:
             reasons[index].append(f"missing/non-finite {column}")
             valid.at[index] = False
+
     available_fe = [column for column in _FE_COLUMNS if column in original.columns]
-    if available_fe:
+    if str(mineral_key) in _FE_REQUIRED_MINERALS and not available_fe:
+        valid.loc[:] = False
+        for index in original.index:
+            reasons[index].append("missing Fe column")
+    elif available_fe:
         has_fe = pd.Series(False, index=original.index, dtype=bool)
         for column in available_fe:
             has_fe |= _presence(original, column)
