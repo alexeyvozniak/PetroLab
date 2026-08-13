@@ -20,7 +20,9 @@ def _change(row: pd.Series, column: str, new_value) -> dict:
         "dataset_id": int(row["_dataset_id"]),
         "source_row": int(row["_source_row"]),
         "column_name": column,
-        "old_value": row[column],
+        # Tests also use this helper to create a deliberately unmapped derived-field
+        # change. Such a field is intentionally absent from the source-only dataframe.
+        "old_value": row.get(column, None),
         "new_value": new_value,
     }
 
@@ -81,8 +83,11 @@ def main() -> None:
         row_a = unified[unified["_dataset_id"] == ds_a].iloc[0]
         row_b = unified[unified["_dataset_id"] == ds_b].iloc[0]
         assert float(row_a["Ba [µg/g]"]) == 1.2
+        assert "Mg#" not in unified.columns
 
-        # Full preflight: one unmapped derived column must prevent every workbook write.
+        # Full preflight: a derived/unmapped column must prevent every workbook write.
+        # Mg# is deliberately absent from the source layer; this synthetic change verifies
+        # that sync rejects it rather than inventing an Excel destination.
         invalid_result = save_changes_and_sync(
             [_change(row_a, "SiO2", 55.0), _change(row_b, "Mg#", 0.777)]
         )
