@@ -76,8 +76,30 @@ for marker in [
     'out["Simplified_endmember_sum"]',
     'out["QC_endmember_model"]',
     "simplified end-member classification withheld",
+    "missing column",
+    "missing Fe column",
 ]:
     assert marker in formula_service, marker
+
+from petrolab.services.formula_service import calculate_formula_safe
+missing_mg = calculate_formula_safe(
+    pd.DataFrame([{"SiO2": 40.0, "FeO": 10.0}]),
+    "olivine",
+    "ol_4o_fe2",
+).data.iloc[0]
+assert not bool(missing_mg["formula_valid"])
+assert "missing column MgO" in str(missing_mg["formula_invalid_reason"])
+for derived_name in ("Fo", "Fa"):
+    if derived_name in missing_mg.index:
+        assert pd.isna(missing_mg[derived_name])
+
+missing_fe = calculate_formula_safe(
+    pd.DataFrame([{"SiO2": 40.0, "MgO": 20.0}]),
+    "olivine",
+    "ol_4o_fe2",
+).data.iloc[0]
+assert not bool(missing_fe["formula_valid"])
+assert "missing Fe column" in str(missing_fe["formula_invalid_reason"])
 
 derived = _read("petrolab/derived.py")
 for marker in ["formula_valid", "invalid_rows", "stale_rows", "current_rows", "_analysis_id"]:
