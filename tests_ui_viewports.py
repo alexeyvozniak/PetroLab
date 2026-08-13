@@ -96,13 +96,17 @@ def _seed_test_data(root: Path) -> None:
 
 
 def _visible_exact_text(driver: webdriver.Chrome, text: str):
-    """Return small visible DOM elements whose rendered textContent equals ``text``."""
+    """Return visible elements exposing ``text`` through text, value, or accessibility metadata."""
     return driver.execute_script(
         """
         const wanted = arguments[0];
         return Array.from(document.querySelectorAll('body *'))
           .filter((element) => {
-            if ((element.textContent || '').trim() !== wanted) return false;
+            const text = (element.textContent || '').trim();
+            const value = typeof element.value === 'string' ? element.value.trim() : '';
+            const aria = (element.getAttribute('aria-label') || '').trim();
+            const title = (element.getAttribute('title') || '').trim();
+            if (![text, value, aria, title].includes(wanted)) return false;
             const style = window.getComputedStyle(element);
             const rect = element.getBoundingClientRect();
             return style.display !== 'none' && style.visibility !== 'hidden' &&
@@ -121,7 +125,7 @@ def _visible_exact_text(driver: webdriver.Chrome, text: str):
 
 
 def _click_text_control(driver: webdriver.Chrome, element) -> None:
-    """Click the visible text node or a compact clickable ancestor and let the event bubble."""
+    """Click the visible value/text element or a compact clickable ancestor and let the event bubble."""
     driver.execute_script(
         """
         let element = arguments[0];
@@ -139,7 +143,7 @@ def _click_text_control(driver: webdriver.Chrome, element) -> None:
 
 
 def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
-    """Select a sidebar navigation group by user-visible text, not widget internals."""
+    """Select a sidebar navigation group by user-visible/accessibility state, not widget internals."""
     driver.set_window_size(1280, 900)
     driver.refresh()
     wait = WebDriverWait(driver, 20)
@@ -147,9 +151,7 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        wait.until(
-            lambda d: any(_visible_exact_text(d, label) for label in GROUP_LABELS)
-        )
+        wait.until(lambda d: any(_visible_exact_text(d, label) for label in GROUP_LABELS))
         current_matches = {
             label: _visible_exact_text(driver, label)
             for label in GROUP_LABELS
