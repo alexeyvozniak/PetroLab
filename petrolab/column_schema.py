@@ -182,13 +182,21 @@ def canonicalize_header(value: object) -> str:
 
 
 def infer_semantic_mapping(columns: Iterable[object]) -> dict[str, str]:
+    """Suggest only unambiguous strong semantic roles.
+
+    An exact canonical header always wins. Otherwise a role is inferred only when one
+    and only one strong alias is present. Two aliases such as Spot + Analysis are not
+    ordered guesses: the user must choose explicitly.
+    """
+    names = [str(column) for column in columns]
     result: dict[str, str] = {}
-    for column in columns:
-        token = _token(column)
-        for role, aliases in _SEMANTIC_TOKENS.items():
-            if token in aliases and role not in result:
-                result[role] = str(column)
-                break
+    for role in CANONICAL_ROLES:
+        if role in names:
+            result[role] = role
+            continue
+        candidates = [name for name in names if _token(name) in _SEMANTIC_TOKENS[role]]
+        if len(candidates) == 1:
+            result[role] = candidates[0]
     return result
 
 
