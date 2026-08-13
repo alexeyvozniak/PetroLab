@@ -12,6 +12,10 @@ from .ternary_runtime import install as _install_ternary_runtime
 _install_ternary_runtime()
 del _install_ternary_runtime
 
+from .image_runtime import install as _install_image_runtime
+_install_image_runtime()
+del _install_image_runtime
+
 from .minerals.formula_policy import install as _install_formula_policy
 _install_formula_policy()
 del _install_formula_policy
