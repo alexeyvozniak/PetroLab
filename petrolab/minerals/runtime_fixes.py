@@ -3,20 +3,13 @@ from __future__ import annotations
 import pandas as pd
 
 from . import formulae as _formulae
+from .input_validation import validate_formula_inputs
 
 
-_ORIGINAL_CALCULATORS = {
-    key: _formulae.CALCULATORS[key]
-    for key in (
-        "olivine",
-        "clinopyroxene",
-        "orthopyroxene",
-        "garnet",
-        "mica",
-        "spinel",
-        "fe_ti_oxide",
-    )
-}
+# Capture every registered calculator before installing wrappers. Common input validation
+# is therefore a single invariant for all mineral methods, while the Fe/mica policies below
+# only alter the specific methods that need them.
+_ORIGINAL_CALCULATORS = dict(_formulae.CALCULATORS)
 
 _ALL_FE2_METHODS = {
     "ol_4o_fe2",
@@ -91,6 +84,7 @@ def _run_policy_calculator(
     method_id: str,
 ) -> _formulae.CalculationResult:
     original = _ORIGINAL_CALCULATORS[mineral_key]
+    validate_formula_inputs(df)
     work = df.copy()
     temporary_halogen_columns: list[str] = []
 
