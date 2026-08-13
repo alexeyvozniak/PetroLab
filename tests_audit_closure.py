@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pandas as pd
+
 
 ROOT = Path(__file__).resolve().parent
 CLOSURE = (ROOT / "docs" / "AUDIT_V10_CLOSURE_2026-08-13.md").read_text(encoding="utf-8")
@@ -81,6 +83,48 @@ derived = _read("petrolab/derived.py")
 for marker in ["formula_valid", "invalid_rows", "stale_rows", "current_rows", "_analysis_id"]:
     assert marker in derived, marker
 
+# Redox/OH policies remain explicit rather than silently reinterpreting Fe or missing halogens (A-81/A-87/A-88/A-89/A-95/A-96).
+formula_policy = _read("petrolab/minerals/formula_policy.py")
+for marker in [
+    "Метод Droop нельзя применять",
+    "FeO-equivalent",
+    "Henderson 32-O",
+    "MinPlot-титанит",
+    "F/Cl измерены не полностью",
+    "Apatite X-anion field unresolved",
+]:
+    assert marker in formula_policy, marker
+
+# Ternary preset availability and normalization are tied to actual rows/minerals (A-51/A-52/A-60).
+ternary_controls = _read("petrolab/ui/ternary_controls.py")
+for marker in [
+    "available_ternary_presets(dataframe)",
+    "preset.normalization",
+    'st.session_state["ternary_normalization"]',
+    "apply_preset_projection(dataframe, preset)",
+]:
+    assert marker in ternary_controls, marker
+
+# Whole-rock concentrations with unknown units are a hard blocker, not a warning (A-38/A-86).
+rock_runtime = _read("petrolab/rock_runtime.py")
+for marker in [
+    'descriptor.quantity_kind == "element_unknown_unit"',
+    "содержит числовые концентрации элемента без единицы",
+    "Для элемента",
+    "укажите единицу концентрации",
+]:
+    assert marker in rock_runtime, marker
+from petrolab.services.rock_service import canonicalize_rock_row
+try:
+    canonicalize_rock_row(pd.Series({"La": 12.0}))
+except ValueError as exc:
+    assert "единиц" in str(exc).lower()
+else:
+    raise AssertionError("Bare whole-rock element concentration without a unit must be blocked")
+composition, units, _ = canonicalize_rock_row(pd.Series({"La ppm": 12.0}))
+assert composition == {"La [µg/g]": 12.0}
+assert units == {"La [µg/g]": "µg/g"}
+
 # Recovery snapshot semantics do not invent Excel rows; maintenance warnings survive rerun (A-75/A-76).
 recovery = _read("petrolab/recovery_runtime.py")
 assert "Never invent physical Excel row numbers" in recovery
@@ -94,6 +138,21 @@ for marker in [
     "st.warning(str(warning))",
 ]:
     assert marker in analyses, marker
+
+# Dataset selector identity and article-table labels must not silently collapse/round IDs (A-74/A-90).
+dataframe_utils = _read("petrolab/dataframe_utils.py")
+assert 'f\' · ID {int(dataset["id"])}\'' in dataframe_utils
+article_tables = _read("petrolab/article_tables.py")
+for marker in [
+    "IDENTIFIER_COLUMNS",
+    '"Sample"',
+    '"Grain"',
+    '"Point"',
+    "if _is_identifier(column):",
+    "Numeric-looking IDs",
+    "ws.print_title_rows",
+]:
+    assert marker in article_tables, marker
 
 # Destructive actions must be intercepted before storage (A-23 plus final audit UX closure).
 app = _read("app.py")
