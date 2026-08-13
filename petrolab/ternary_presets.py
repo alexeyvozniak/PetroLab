@@ -31,6 +31,7 @@ class TernaryPreset:
 MORIMOTO_EN = "Morimoto En"
 MORIMOTO_FS = "Morimoto Fs"
 MORIMOTO_WO = "Morimoto Wo"
+MORIMOTO_QJ_APPLICABLE = "Morimoto Quad applicable"
 
 
 TERNARY_PRESETS: dict[str, TernaryPreset] = {
@@ -143,10 +144,17 @@ def available_ternary_presets(columns: list[str] | tuple[str, ...] | set[str]) -
     ]
 
 
-def _numeric_or_zero(dataframe: pd.DataFrame, column: str) -> pd.Series:
+def _numeric_required(dataframe: pd.DataFrame, column: str) -> pd.Series:
+    if column not in dataframe.columns:
+        raise ValueError(f"Отсутствует обязательная колонка ternary-проекции: {column}")
+    return pd.to_numeric(dataframe[column], errors="coerce")
+
+
+def _numeric_optional_zero_if_absent(dataframe: pd.DataFrame, column: str) -> pd.Series:
+    """Optional component: absent column means omitted panel, row-level blank remains unknown."""
     if column not in dataframe.columns:
         return pd.Series(0.0, index=dataframe.index, dtype=float)
-    return pd.to_numeric(dataframe[column], errors="coerce").fillna(0.0)
+    return pd.to_numeric(dataframe[column], errors="coerce")
 
 
 def apply_preset_projection(
@@ -176,17 +184,30 @@ def apply_preset_projection(
     if missing:
         raise ValueError("Для IMA-проекции пироксена не хватает: " + ", ".join(missing))
 
-    ca = _numeric_or_zero(result, "apfu_Ca")
-    mg = _numeric_or_zero(result, "apfu_Mg")
-    fe2 = _numeric_or_zero(result, "apfu_Fe2")
-    fe3 = _numeric_or_zero(result, "apfu_Fe3")
-    mn = _numeric_or_zero(result, "apfu_Mn")
+    ca = _numeric_required(result, "apfu_Ca")
+    mg = _numeric_required(result, "apfu_Mg")
+    fe2 = _numeric_required(result, "apfu_Fe2")
+    fe3 = _numeric_optional_zero_if_absent(result, "apfu_Fe3")
+    mn = _numeric_optional_zero_if_absent(result, "apfu_Mn")
+    q = _numeric_required(result, "Q")
+    j = _numeric_required(result, "J")
+
     sigma_fe = fe2 + fe3 + mn
     total = ca + mg + sigma_fe
-    valid = total > 0
+    qj = q + j
+    with np.errstate(divide="ignore", invalid="ignore"):
+        j_fraction = j / qj
 
-    result[MORIMOTO_EN] = np.where(valid, 100.0 * mg / total, np.nan)
-    result[MORIMOTO_FS] = np.where(valid, 100.0 * sigma_fe / total, np.nan)
-    result[MORIMOTO_WO] = np.where(valid, 100.0 * ca / total, np.nan)
-    result["Morimoto ΣFe"] = sigma_fe
+    # Morimoto et al. (1988), Fig. 2: Quad is the Ca-Mg-Fe field inside the main
+    # pyroxene band 1.5 <= Q+J <= 2.0 and below J/(Q+J)=0.2. Rows outside that
+    # chemical group must not be projected onto the Wo-En-Fs quadrilateral.
+    finite_sources = np.isfinite(ca) & np.isfinite(mg) & np.isfinite(fe2) & np.isfinite(q) & np.isfinite(j)
+    finite_optional = np.isfinite(fe3) & np.isfinite(mn)
+    quad = finite_sources & finite_optional & total.gt(0) & qj.between(1.5, 2.0) & j_fraction.le(0.2)
+
+    result[MORIMOTO_EN] = (100.0 * mg / total).where(quad, np.nan)
+    result[MORIMOTO_FS] = (100.0 * sigma_fe / total).where(quad, np.nan)
+    result[MORIMOTO_WO] = (100.0 * ca / total).where(quad, np.nan)
+    result["Morimoto ΣFe"] = sigma_fe.where(quad, np.nan)
+    result[MORIMOTO_QJ_APPLICABLE] = quad
     return result, (MORIMOTO_EN, MORIMOTO_FS, MORIMOTO_WO)
