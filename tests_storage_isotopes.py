@@ -76,6 +76,12 @@ def _build_legacy_isotope_database(db_path: Path) -> None:
 
 
 def main() -> None:
+    app_text = Path("app.py").read_text(encoding="utf-8")
+    init_text = Path("petrolab/__init__.py").read_text(encoding="utf-8")
+    assert "from petrolab.storage import ensure_storage" in app_text
+    assert "from petrolab.db import ensure_storage" not in app_text
+    assert "_db.ensure_storage" not in init_text
+
     with tempfile.TemporaryDirectory(prefix="petrolab_storage_iso_") as tmp:
         root = Path(tmp)
         os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
