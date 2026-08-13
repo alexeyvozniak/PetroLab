@@ -82,6 +82,7 @@ def apply(dataframe: pd.DataFrame, column_map: dict[str, dict], overrides=None):
 
 
 def install() -> None:
+    from petrolab import column_schema
     from petrolab import measurement_semantics as target
 
     target.SUPPORTED_MEASUREMENT_OVERRIDES = {
@@ -90,3 +91,21 @@ def install() -> None:
     }
     target.validate_measurement_overrides = validate
     target.apply_measurement_overrides = apply
+
+    # Compatibility for Cyrillic compact concentration units after NFKC normalization.
+    original_unit_normalizer = column_schema._normalize_concentration_unit
+
+    def normalize_unit(raw: str):
+        try:
+            return original_unit_normalizer(raw)
+        except ValueError:
+            unit = column_schema._nfkc(raw).lower()
+            unit = unit.replace("−", "-").replace("⁻", "-").replace("¹", "1").replace("^", "")
+            unit = "".join(unit.split())
+            if unit == "нгг-1":
+                return raw, "µg/g", 1e-3
+            if unit == "пгг-1":
+                return raw, "µg/g", 1e-6
+            raise
+
+    column_schema._normalize_concentration_unit = normalize_unit
