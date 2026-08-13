@@ -8,13 +8,11 @@ import pandas as pd
 
 from petrolab.column_schema import describe_header
 from petrolab.repositories.rock_repository import (
-    create_rock,
+    apply_rock_import_batch,
     delete_rock,
     get_composition,
     list_mineral_links,
     list_rocks,
-    replace_composition,
-    update_rock,
 )
 from petrolab.services.rock_image_service import list_rock_images
 
@@ -116,12 +114,12 @@ def import_rocks_wide(
         )
 
     metadata_columns = metadata_columns or {}
-    created: list[int] = []
-    updated: list[int] = []
-    skipped: list[str] = []
     warnings: list[str] = []
     excluded = {name_column, *metadata_columns.values()}
+    prepared_rows: list[dict] = []
 
+    # Prepare every row before opening the write transaction. A conversion/validation
+    # failure therefore cannot leave a partially imported batch behind.
     for _, row in dataframe.iterrows():
         raw_name = row.get(name_column, "")
         try:
@@ -132,10 +130,6 @@ def import_rocks_wide(
         name = str(raw_name).strip()
         if not name:
             continue
-        if name in existing and on_conflict == "skip":
-            skipped.append(name)
-            continue
-
         metadata = {
             key: row.get(column, "")
             for key, column in metadata_columns.items()
@@ -144,20 +138,22 @@ def import_rocks_wide(
         metadata["chemistry_method"] = chemistry_method
         metadata["laboratory"] = laboratory
         composition, units, row_warnings = canonicalize_rock_row(row, excluded)
-
-        if name in existing:
-            rock_id = int(existing[name]["id"])
-            update_rock(rock_id, **metadata)
-            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
-            updated.append(rock_id)
-        else:
-            rock_id = create_rock(project_id, name, **metadata)
-            replace_composition(rock_id, composition, units=units, method=chemistry_method, source=source)
-            created.append(rock_id)
-            existing[name] = {"id": rock_id, "name": name}
         warnings.extend(f"{name}: {message}" for message in row_warnings)
+        prepared_rows.append({
+            "name": name,
+            "metadata": metadata,
+            "composition": composition,
+            "units": units,
+        })
 
-    return RockImportResult(tuple(created), tuple(updated), tuple(skipped), tuple(warnings))
+    created, updated, skipped = apply_rock_import_batch(
+        project_id,
+        prepared_rows,
+        on_conflict=on_conflict,
+        chemistry_method=chemistry_method,
+        source=source,
+    )
+    return RockImportResult(created, updated, skipped, tuple(warnings))
 
 
 def delete_rock_with_assets(rock_id: int) -> None:
