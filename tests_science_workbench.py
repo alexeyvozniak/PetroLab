@@ -21,7 +21,10 @@ def main() -> None:
         from petrolab.db import DB_PATH, create_project
         from petrolab.extended_plotting import (
             CI_CHONDRITE_1995,
+            NORMALIZATION_AXIS_LABELS,
             PRIMITIVE_MANTLE_1989,
+            available_elements,
+            build_boxplot_figure,
             build_histogram_figure,
             build_pattern_figure,
             prepare_pattern,
@@ -54,7 +57,7 @@ def main() -> None:
         )
         from petrolab.statistics import prepare_matrix, run_clustering, run_pca
         from petrolab.storage import ensure_storage
-        from petrolab.ui.pages.science_plots import _axis_candidates
+        from petrolab.ui.pages.science_plots import _axis_candidates, _mineral_filtered_presets
         from petrolab.visualization_presets import (
             FIGURE_PRESETS,
             POINT_STYLE_PRESETS,
@@ -183,19 +186,36 @@ def main() -> None:
         assert normalized.elements == ("La", "Ce")
         assert "Pr" in normalized.missing_elements, "Unknown-unit bare trace element must not be normalized"
         assert np.allclose(normalized.data["La"].to_numpy(), [100.0, 200.0])
+
+        # Bare unknown-unit data may be viewed raw, but one isolated element is not a pattern curve.
         raw = prepare_pattern(traces, ["Pr"], None)
         assert raw.elements == ("Pr",)
+        assert raw.data.empty
+
+        # A reference controls both element compatibility and the scientific Y-axis label.
+        assert NORMALIZATION_AXIS_LABELS["CI-хондрит · McDonough & Sun (1995)"] == "Sample / CI chondrite"
+        assert NORMALIZATION_AXIS_LABELS["Primitive mantle · Sun & McDonough (1989)"] == "Sample / primitive mantle"
+        spider_like = pd.DataFrame({"Rb [µg/g]": [10.0], "La [µg/g]": [1.0], "Ce [µg/g]": [2.0]})
+        ci_pattern = prepare_pattern(spider_like, ["Rb", "La", "Ce"], CI_CHONDRITE_1995)
+        assert "Rb" in ci_pattern.missing_reference_elements
+        assert ci_pattern.elements == ("La", "Ce")
+        assert available_elements(
+            spider_like,
+            ["Rb", "La", "Ce"],
+            require_known_units=True,
+            reference=CI_CHONDRITE_1995,
+        ) == ["La", "Ce"]
 
         oxide_pattern = prepare_pattern(
-            pd.DataFrame({"K2O": [1.0], "P2O5": [0.5], "TiO2": [2.0]}),
+            pd.DataFrame({"K2O": [1.0, 1.2], "P2O5": [0.5, 0.7], "TiO2": [2.0, 2.2]}),
             ["K", "P", "Ti"],
             PRIMITIVE_MANTLE_1989,
         )
         assert oxide_pattern.elements == ("K", "P", "Ti")
         assert oxide_pattern.source_columns["K"].startswith("K2O wt.%")
-        assert 30.0 < float(oxide_pattern.data.loc[0, "K"]) < 35.0
-        assert 20.0 < float(oxide_pattern.data.loc[0, "P"]) < 25.0
-        assert 8.0 < float(oxide_pattern.data.loc[0, "Ti"]) < 10.5
+        assert 30.0 < float(oxide_pattern.data.iloc[0]["K"]) < 35.0
+        assert 20.0 < float(oxide_pattern.data.iloc[0]["P"]) < 25.0
+        assert 8.0 < float(oxide_pattern.data.iloc[0]["Ti"]) < 10.5
         mono_pattern = build_pattern_figure(normalized, monochrome=True)
         assert mono_pattern.axes[0].lines
         for line in mono_pattern.axes[0].lines:
@@ -210,6 +230,19 @@ def main() -> None:
         for patch in mono_hist.axes[0].patches:
             face = patch.get_facecolor()
             assert np.isclose(face[0], face[1]) and np.isclose(face[1], face[2])
+
+        grouped_box = build_boxplot_figure(
+            pd.DataFrame({"X": [1.0, 2.0, 3.0], "G": ["A", None, "A"]}),
+            ["X"],
+            group_column="G",
+        )
+        labels = [tick.get_text() for tick in grouped_box.axes[0].get_xticklabels()]
+        assert "Без группы" in labels
+
+        # A mineral without a validated preset must not receive presets for unrelated minerals.
+        zircon_frame = pd.DataFrame({"Минерал": ["zircon"], "ZrO2": [65.0], "SiO2": [32.0]})
+        filtered = _mineral_filtered_presets(zircon_frame)
+        assert all(preset.mineral_key in {None, "zircon"} for preset in filtered.values())
 
         features = pd.DataFrame({"A": [1.0, 1.1, 5.0, 5.1], "B": [2.0, 2.1, 8.0, 8.1]})
         prepared = prepare_matrix(features, ["A", "B"], scaler="standard")
@@ -281,7 +314,7 @@ def main() -> None:
             edges = collection.get_edgecolors()
             assert len(edges) and np.allclose(edges[0][:3], [0.0, 0.0, 0.0])
 
-        for figure in [fig, mono_tas, mono_pattern, mono_hist, mono_fig]:
+        for figure in [fig, mono_tas, mono_pattern, mono_hist, grouped_box, mono_fig]:
             plt = __import__("matplotlib.pyplot", fromlist=["close"])
             plt.close(figure)
 
