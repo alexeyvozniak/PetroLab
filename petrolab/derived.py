@@ -6,6 +6,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from petrolab.analysis_identity import source_row_fingerprint
 from petrolab.db import (
     _json_safe_record,
     _utcnow,
@@ -13,6 +14,9 @@ from petrolab.db import (
     list_datasets,
     load_dataset_dataframe,
 )
+
+
+_SOURCE_FINGERPRINT_KEY = "__source_fingerprint__"
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,40 @@ def ensure_formula_storage() -> None:
         con.commit()
 
 
+def _formula_row_current(row) -> bool:
+    """Prefer source-content fingerprints; retain timestamp fallback for legacy rows."""
+    try:
+        payload = json.loads(row["derived_json"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+
+    stored_fingerprint = payload.get(_SOURCE_FINGERPRINT_KEY) if isinstance(payload, dict) else None
+    if stored_fingerprint:
+        try:
+            source_payload = json.loads(row["data_json"])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        if not isinstance(source_payload, dict):
+            return False
+        return str(stored_fingerprint) == source_row_fingerprint(source_payload)
+
+    return str(row["source_updated_at"]) == str(row["updated_at"])
+
+
+def _public_derived_payload(raw: object) -> dict:
+    try:
+        payload = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in payload.items()
+        if str(key) != _SOURCE_FINGERPRINT_KEY
+    }
+
+
 def save_formula_results(
     dataset_id: int,
     mineral_key: str,
@@ -95,13 +133,16 @@ def save_formula_results(
 ) -> FormulaSaveResult:
     """Persist only columns produced by the selected formula method.
 
-    Results are keyed by immutable analysis_id and remember the exact source-row update
-    timestamp. A later edit/refresh therefore makes only the affected result stale instead
-    of silently presenting an old formula as current.
+    Results are keyed by immutable analysis_id. New results also store a stable fingerprint
+    of the source row, so a refresh that merely touches timestamps or reorders rows does not
+    make scientifically unchanged formulae stale. Legacy rows without a fingerprint retain
+    the previous timestamp-based freshness contract.
     """
     ensure_formula_storage()
     if "_analysis_id" not in source_dataframe.columns:
         raise ValueError("Для сохранения пересчёта требуется _analysis_id")
+    if "_analysis_id" not in result_dataframe.columns:
+        raise ValueError("Результат пересчёта потерял _analysis_id")
     if len(source_dataframe) != len(result_dataframe):
         raise ValueError("Число исходных и рассчитанных строк не совпадает")
 
@@ -114,8 +155,17 @@ def save_formula_results(
         raise ValueError("Метод не создал новых расчётных колонок")
 
     analysis_ids = source_dataframe["_analysis_id"].astype(str).tolist()
+    result_ids = result_dataframe["_analysis_id"].astype(str).tolist()
     if len(set(analysis_ids)) != len(analysis_ids):
         raise ValueError("В наборе обнаружены повторяющиеся _analysis_id")
+    if len(set(result_ids)) != len(result_ids):
+        raise ValueError("В результате формулы обнаружены повторяющиеся _analysis_id")
+    if set(analysis_ids) != set(result_ids):
+        raise ValueError("Набор _analysis_id результата формулы не совпадает с источником")
+
+    aligned_result = result_dataframe.copy()
+    aligned_result["_analysis_id"] = aligned_result["_analysis_id"].astype(str)
+    aligned_result = aligned_result.set_index("_analysis_id", drop=False)
 
     now = _utcnow()
     with connect() as con:
@@ -134,10 +184,14 @@ def save_formula_results(
         )
         payload = []
         for row_index, analysis_id in enumerate(analysis_ids):
+            result_row = aligned_result.loc[analysis_id]
             derived = {
-                column: result_dataframe.iloc[row_index][column]
+                column: result_row[column]
                 for column in derived_columns
             }
+            derived[_SOURCE_FINGERPRINT_KEY] = source_row_fingerprint(
+                source_dataframe.iloc[row_index].to_dict()
+            )
             payload.append(
                 (
                     int(dataset_id),
@@ -202,14 +256,14 @@ def formula_status(dataset_id: int) -> FormulaStatus:
             return FormulaStatus(dataset_id=int(dataset_id), total_rows=total)
         rows = con.execute(
             """
-            SELECT fr.source_updated_at, a.updated_at
+            SELECT fr.source_updated_at, fr.derived_json, a.updated_at, a.data_json
             FROM formula_results fr
             JOIN analysis_rows a ON a.analysis_id=fr.analysis_id
             WHERE fr.dataset_id=? AND fr.method_id=?
             """,
             (int(dataset_id), state["active_method_id"]),
         ).fetchall()
-    current = sum(1 for row in rows if str(row["source_updated_at"]) == str(row["updated_at"]))
+    current = sum(1 for row in rows if _formula_row_current(row))
     return FormulaStatus(
         dataset_id=int(dataset_id),
         method_id=str(state["active_method_id"]),
@@ -233,7 +287,8 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
         with connect() as con:
             rows = con.execute(
                 """
-                SELECT fr.analysis_id, fr.source_updated_at, fr.derived_json, a.updated_at
+                SELECT fr.analysis_id, fr.source_updated_at, fr.derived_json,
+                       a.updated_at, a.data_json
                 FROM formula_results fr
                 JOIN analysis_rows a ON a.analysis_id=fr.analysis_id
                 WHERE fr.dataset_id=? AND fr.method_id=?
@@ -243,9 +298,9 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
         current_payloads: dict[str, dict] = {}
         all_columns: set[str] = set()
         for row in rows:
-            if str(row["source_updated_at"]) != str(row["updated_at"]):
+            if not _formula_row_current(row):
                 continue
-            payload = json.loads(row["derived_json"])
+            payload = _public_derived_payload(row["derived_json"])
             current_payloads[str(row["analysis_id"])] = payload
             all_columns.update(str(key) for key in payload)
         if all_columns:
@@ -298,7 +353,8 @@ def active_derived_columns(dataset_ids: Iterable[int]) -> set[str]:
         with connect() as con:
             rows = con.execute(
                 """
-                SELECT fr.derived_json, fr.source_updated_at, a.updated_at
+                SELECT fr.derived_json, fr.source_updated_at,
+                       a.updated_at, a.data_json
                 FROM formula_results fr
                 JOIN analysis_rows a ON a.analysis_id=fr.analysis_id
                 WHERE fr.dataset_id=? AND fr.method_id=?
@@ -306,8 +362,8 @@ def active_derived_columns(dataset_ids: Iterable[int]) -> set[str]:
                 (dataset_id, state["active_method_id"]),
             ).fetchall()
         for row in rows:
-            if str(row["source_updated_at"]) == str(row["updated_at"]):
-                columns.update(json.loads(row["derived_json"]).keys())
+            if _formula_row_current(row):
+                columns.update(_public_derived_payload(row["derived_json"]).keys())
     return columns
 
 
