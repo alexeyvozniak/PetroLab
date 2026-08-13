@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import pandas as pd
 
 from petrolab.dataframe_utils import (
@@ -9,6 +11,7 @@ from petrolab.dataframe_utils import (
     display_value,
     row_identity,
 )
+from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 
 
@@ -67,5 +70,25 @@ assert chem.loc[iqr.outlier_mask, "_analysis_id"].tolist() == ["p7"]
 manual = exclude_analysis_ids(chem, ["p1", "p7"])
 assert set(manual["_analysis_id"]) == {"p0", "p2", "p3", "p4", "p5", "p6"}
 assert len(chem) == 8
+
+# Schema updates must be copy-on-write. Reinterpreting Fe2O3 in one import must not
+# mutate the original provenance dictionary that may still be cached by another sheet.
+measurement_frame = pd.DataFrame({"Fe2O3": [9.5], "SiO2": [40.0]})
+measurement_map = {
+    "Fe2O3": {"original": "Fe2O3"},
+    "SiO2": {"original": "SiO2"},
+    "__schema__": {"semantic": {"Generation": "Gen"}},
+}
+measurement_snapshot = copy.deepcopy(measurement_map)
+renamed, mapped, stored = apply_measurement_overrides(
+    measurement_frame,
+    measurement_map,
+    {"Fe2O3": "Fe2O3t"},
+)
+assert measurement_map == measurement_snapshot
+assert "Fe2O3t" in renamed.columns and "Fe2O3" not in renamed.columns
+assert mapped["__schema__"]["semantic"] == {"Generation": "Gen"}
+assert mapped["__schema__"]["measurement"] == stored
+assert stored == {"Fe2O3": "Fe2O3t"}
 
 print("dataframe utility tests: OK")
