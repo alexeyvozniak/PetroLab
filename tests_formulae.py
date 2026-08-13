@@ -2,7 +2,7 @@ import math
 import pandas as pd
 
 from petrolab.minerals.base import MineralModule
-from petrolab.minerals.formulae import calculate_formula
+from petrolab.minerals.formulae import OXIDES, calculate_formula
 
 
 def near(a, b, tol=0.02):
@@ -26,6 +26,29 @@ r_feo = calculate_formula(ol_feo, "olivine", "ol_4o_fe2").data.iloc[0]
 r_feot = calculate_formula(ol_feot, "olivine", "ol_4o_fe2").data.iloc[0]
 near(r_feot["apfu_Fe2"], float(r_feo["apfu_Fe2"]), 1e-8)
 near(r_feot["Fo"], float(r_feo["Fo"]), 1e-8)
+
+# A method explicitly named "all Fe as Fe2+" must also honour that assumption when
+# FeO and Fe2O3 were reported separately. Ferric oxide is converted to FeO-equivalent
+# for the calculation, while the original source columns remain untouched in the result.
+fe2o3_to_feo = 2.0 * OXIDES["FeO"].molar_mass / OXIDES["Fe2O3"].molar_mass
+split_iron = pd.DataFrame([{
+    "SiO2": 40.0,
+    "MgO": 50.0,
+    "FeO": 5.0,
+    "Fe2O3": 5.0,
+}])
+all_fe_reference = pd.DataFrame([{
+    "SiO2": 40.0,
+    "MgO": 50.0,
+    "FeO": 5.0 + 5.0 * fe2o3_to_feo,
+}])
+split_result = calculate_formula(split_iron, "olivine", "ol_4o_fe2")
+reference_result = calculate_formula(all_fe_reference, "olivine", "ol_4o_fe2")
+near(split_result.data.iloc[0]["apfu_Fe2"], float(reference_result.data.iloc[0]["apfu_Fe2"]), 1e-8)
+near(split_result.data.iloc[0]["Fo"], float(reference_result.data.iloc[0]["Fo"]), 1e-8)
+assert "FeO" in split_result.data.columns and "Fe2O3" in split_result.data.columns
+assert "apfu_Fe3" not in split_result.data.columns
+assert "весь Fe как Fe²⁺" in split_result.note_ru
 
 # Historical merged datasets may use FeO in some rows and FeOt in others.
 # Each row must use its own available source instead of globally preferring FeO.
