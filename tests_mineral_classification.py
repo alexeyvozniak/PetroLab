@@ -108,8 +108,17 @@ assert ol_r[SPECIES_COL] == "forsterite"
 assert "Fo-dominant" in ol_r[FIELD_COL]
 assert ol_r[LEVEL_COL] == "composition-based"
 
-fsp = pd.DataFrame([{"SiO2": 68.74, "Al2O3": 19.44, "Na2O": 11.82}])
+# Explicit zeros mean measured/defined zero; an absent feldspar endmember oxide is not
+# interchangeable with zero under the formula input contract.
+fsp = pd.DataFrame([{
+    "SiO2": 68.74,
+    "Al2O3": 19.44,
+    "Na2O": 11.82,
+    "K2O": 0.0,
+    "CaO": 0.0,
+}])
 fsp_r = calculate_formula_safe(fsp, "feldspar", "fsp_8o").data.iloc[0]
+assert bool(fsp_r["formula_valid"])
 assert fsp_r[SPECIES_COL] == "albite"
 assert fsp_r[FIELD_COL] == "Albite"
 assert "Gündüz" in fsp_r[METHOD_COL]
