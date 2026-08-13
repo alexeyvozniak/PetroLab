@@ -19,9 +19,12 @@ COMMON_OXIDES = {
 _PANDAS_DUPLICATE_RE = re.compile(r"^(?P<base>.+)\.(?P<index>[1-9]\d*)$")
 _CENSORED_VALUE_RE = re.compile(
     r"^\s*(?P<operator><=|>=|<|>|≤|≥)\s*"
-    r"(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
+    r"(?P<value>[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?)\s*$"
 )
 _SCIENTIFIC_KINDS = {"oxide", "trace_element", "element_concentration"}
+_AW_O = 15.999
+_AW_F = 18.998403163
+_AW_CL = 35.45
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -67,10 +70,10 @@ def _scaled_scientific_value(value: object, factor: float) -> object:
         text = value.strip()
         match = _CENSORED_VALUE_RE.match(text)
         if match:
-            scaled = float(match.group("value")) * float(factor)
+            scaled = float(match.group("value").replace(",", ".")) * float(factor)
             return f"{match.group('operator')}{scaled:.12g}"
         try:
-            return float(text) * float(factor)
+            return float(text.replace(",", ".")) * float(factor)
         except ValueError:
             return value
     try:
@@ -98,9 +101,7 @@ def normalize_columns_with_map(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str
         name = base if seen[base] == 1 else f"{base}__{seen[base]}"
         normalized.append(name)
         descriptors.append((name, descriptor))
-        warning = "; ".join(
-            item for item in [descriptor.warning, import_warning] if item
-        )
+        warning = "; ".join(item for item in [descriptor.warning, import_warning] if item)
         mapping[name] = {
             "original": str(original),
             "column_index": column_index,
@@ -164,15 +165,12 @@ def _numeric_optional(df: pd.DataFrame, column: str) -> pd.Series:
 
 
 def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
-    # QC is computed from a numeric view, but the returned dataframe preserves source
-    # semantics such as '<0.01' rather than destructively replacing them with NaN.
+    """Add transparent chemistry QC while preserving source values and qualifiers."""
     out = df.copy()
     numeric = numericize_scientific_columns(df)
     duplicate_oxides = _duplicate_oxide_inputs(out.columns)
     if duplicate_oxides:
-        out["QC химии"] = (
-            "Конфликтующие химические колонки: " + ", ".join(duplicate_oxides)
-        )
+        out["QC химии"] = "Конфликтующие химические колонки: " + ", ".join(duplicate_oxides)
 
     non_fe_oxides = [
         column for column in oxide_columns(numeric)
@@ -188,27 +186,34 @@ def add_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
     fe2o3 = _numeric_optional(numeric, "Fe2O3")
     feot = _numeric_optional(numeric, "FeOt")
     fe2o3t = _numeric_optional(numeric, "Fe2O3t")
-
     total_overlap = feot.notna() & fe2o3t.notna()
     total_any = feot.notna() | fe2o3t.notna()
     split_any = feo.notna() | fe2o3.notna()
-    total_split_overlap = total_any & split_any
-    iron_conflict = total_overlap | total_split_overlap
-
+    iron_conflict = total_overlap | (total_any & split_any)
     if iron_conflict.any():
         out["QC железа"] = "Проверьте: total Fe пересекается с другой формой представления Fe"
 
-    # For oxide totals use whichever reporting basis was actually supplied row by row.
-    # Split FeO + Fe2O3 is summed only when no total-Fe column is present in that row.
     total_reported = feot.combine_first(fe2o3t)
     split_reported = pd.concat([feo, fe2o3], axis=1).sum(axis=1, min_count=1)
     iron_contribution = total_reported.combine_first(split_reported)
 
-    if base_sum.notna().any() or iron_contribution.notna().any():
-        out["Σ оксидов"] = pd.concat([base_sum, iron_contribution], axis=1).sum(axis=1, min_count=1)
+    f = _numeric_optional(numeric, "F")
+    cl = _numeric_optional(numeric, "Cl")
+    halogens = pd.concat([f, cl], axis=1).sum(axis=1, min_count=1)
+    raw_total = pd.concat([base_sum, iron_contribution, halogens], axis=1).sum(axis=1, min_count=1)
+    oxygen_correction = f.fillna(0.0) * _AW_O / (2.0 * _AW_F)
+    oxygen_correction += cl.fillna(0.0) * _AW_O / (2.0 * _AW_CL)
+    corrected_total = raw_total - oxygen_correction
+
+    if raw_total.notna().any():
+        out["Σ компонентов raw"] = raw_total
+        out["Поправка O=F,Cl"] = oxygen_correction
+        out["Σ corrected"] = corrected_total
+        # Backwards-compatible alias used by older views and exports.
+        out["Σ оксидов"] = corrected_total
         invalid_sum = pd.Series(bool(duplicate_oxides), index=out.index) | iron_conflict
         normal_labels = pd.cut(
-            out["Σ оксидов"],
+            corrected_total,
             bins=[float("-inf"), 97.0, 103.0, float("inf")],
             labels=["низкая", "норма", "высокая"],
             right=True,
