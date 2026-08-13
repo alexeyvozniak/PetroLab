@@ -10,6 +10,7 @@ from petrolab.column_schema import (
     resolve_semantic_mapping,
 )
 from petrolab.io_utils import add_qc_columns, normalize_columns_with_map
+from petrolab.measurement_semantics import apply_measurement_overrides
 
 assert canonicalize_header("SiO₂") == "SiO2"
 assert canonicalize_header(" SiO2 (wt. %) ") == "SiO2"
@@ -91,6 +92,13 @@ collision, collision_map = normalize_columns_with_map(collision_raw)
 assert list(collision.columns) == ["Rb [µg/g]", "Rb [µg/g]__2"]
 assert collision_map["Rb [µg/g]"]["column_index"] == 1
 assert collision_map["Rb [µg/g]__2"]["column_index"] == 2
+try:
+    apply_measurement_overrides(collision, collision_map, {})
+except ValueError as exc:
+    assert "конфликтующие научные колонки" in str(exc)
+    assert "Rb [µg/g]__2" in str(exc)
+else:
+    raise AssertionError("Duplicate canonical scientific columns must block import semantics")
 
 # Pandas may mangle a repeated Excel header as `.1`; recover the scientific meaning
 # so that the conflict remains visible instead of silently becoming an unknown column.
