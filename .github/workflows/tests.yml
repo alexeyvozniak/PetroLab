@@ -45,7 +45,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_formula_input_validation.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -62,6 +62,10 @@ jobs:
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
         run: python tests_new_features.py
+
+      - name: Run formula input validation tests
+        shell: cmd
+        run: python tests_formula_input_validation.py
 
       - name: Run mineral classification and Ti-garnet tests
         shell: cmd
