@@ -39,11 +39,13 @@ jobs:
 
       - name: Install PetroLab dependencies
         shell: cmd
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_ui_layout.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -52,6 +54,10 @@ jobs:
       - name: Check responsive UI structure
         shell: cmd
         run: python tests_ui_layout.py
+
+      - name: Run storage bootstrap and repeated-isotope migration tests
+        shell: cmd
+        run: python tests_storage_isotopes.py
 
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
@@ -72,6 +78,18 @@ jobs:
       - name: Run science workbench and whole-rock tests
         shell: cmd
         run: python tests_science_workbench.py
+
+      - name: Run real-browser multi-viewport UI checks
+        shell: cmd
+        run: python tests_ui_viewports.py
+
+      - name: Upload viewport screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-viewport-screenshots
+          path: viewport_artifacts
+          if-no-files-found: warn
 
       - name: Run real PetroLab Windows startup in CI mode
         shell: cmd
