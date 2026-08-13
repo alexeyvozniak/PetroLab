@@ -11,7 +11,9 @@ from pathlib import Path
 import pandas as pd
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -124,26 +126,13 @@ def _visible_exact_text(driver: webdriver.Chrome, text: str):
     )
 
 
-def _click_text_control(driver: webdriver.Chrome, element) -> None:
-    """Click the visible value/text element or a compact clickable ancestor and let the event bubble."""
-    driver.execute_script(
-        """
-        let element = arguments[0];
-        let candidate = element;
-        for (let i = 0; element && i < 6; i += 1, element = element.parentElement) {
-          const rect = element.getBoundingClientRect();
-          if (rect.width >= 80 && rect.height >= 24 && rect.height <= 90) {
-            candidate = element;
-          }
-        }
-        candidate.click();
-        """,
-        element,
-    )
+def _current_group(driver: webdriver.Chrome) -> str | None:
+    matches = [label for label in GROUP_LABELS if _visible_exact_text(driver, label)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
-    """Select a sidebar navigation group by user-visible/accessibility state, not widget internals."""
+    """Select a sidebar navigation group with real pointer/keyboard events."""
     driver.set_window_size(1280, 900)
     driver.refresh()
     wait = WebDriverWait(driver, 20)
@@ -151,28 +140,34 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        wait.until(lambda d: any(_visible_exact_text(d, label) for label in GROUP_LABELS))
-        current_matches = {
-            label: _visible_exact_text(driver, label)
-            for label in GROUP_LABELS
-        }
-        current_matches = {label: elements for label, elements in current_matches.items() if elements}
-        if group_label not in current_matches:
-            if len(current_matches) != 1:
-                raise AssertionError(
-                    f"Expected exactly one visible navigation group before opening the selector; "
-                    f"found {list(current_matches)}"
+        wait.until(lambda d: _current_group(d) is not None)
+        if _current_group(driver) != group_label:
+            selectbox = wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stSelectbox"]')
                 )
-            current_element = next(iter(current_matches.values()))[0]
-            _click_text_control(driver, current_element)
-            wait.until(lambda d: bool(_visible_exact_text(d, group_label)))
-            desired = _visible_exact_text(driver, group_label)
-            _click_text_control(driver, desired[0])
-            wait.until(
-                lambda d: group_label in {
-                    label for label in GROUP_LABELS if _visible_exact_text(d, label)
-                }
             )
+            # Native Selenium click matters here: Streamlit's select does not reliably open
+            # when only HTMLElement.click() is dispatched from JavaScript.
+            ActionChains(driver).move_to_element(selectbox).click().perform()
+            time.sleep(0.3)
+
+            options = [
+                option for option in driver.find_elements(By.CSS_SELECTOR, '[role="option"]')
+                if option.is_displayed()
+            ]
+            matching = [option for option in options if option.text.strip() == group_label]
+            if matching:
+                matching[0].click()
+            else:
+                # Accessibility fallback for Streamlit versions that keep the menu virtualized.
+                target_index = GROUP_LABELS.index(group_label)
+                ActionChains(driver).send_keys(Keys.HOME).perform()
+                for _ in range(target_index):
+                    ActionChains(driver).send_keys(Keys.ARROW_DOWN).perform()
+                ActionChains(driver).send_keys(Keys.ENTER).perform()
+
+            wait.until(lambda d: _current_group(d) == group_label)
             time.sleep(1.2)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
     except Exception:
