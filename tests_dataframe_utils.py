@@ -4,6 +4,7 @@ import copy
 
 import pandas as pd
 
+from petrolab.column_schema import apply_semantic_mapping
 from petrolab.dataframe_utils import (
     apply_column_filters,
     apply_quick_filter,
@@ -90,5 +91,26 @@ assert "Fe2O3t" in renamed.columns and "Fe2O3" not in renamed.columns
 assert mapped["__schema__"]["semantic"] == {"Generation": "Gen"}
 assert mapped["__schema__"]["measurement"] == stored
 assert stored == {"Fe2O3": "Fe2O3t"}
+
+# The same isolation is required for per-sheet semantic roles. Historical datasets may
+# also carry incomplete provenance maps; a valid user-confirmed role must not crash just
+# because metadata for that source column was never stored.
+semantic_frame = pd.DataFrame({"Образец": ["K1"], "Точка": ["1"], "Gen": ["core"]})
+semantic_map = {
+    "Образец": {"original": "Образец"},
+    "__schema__": {"measurement": {"Fe2O3": "Fe2O3t"}},
+}
+semantic_snapshot = copy.deepcopy(semantic_map)
+semantic_out, semantic_metadata, semantic_stored = apply_semantic_mapping(
+    semantic_frame,
+    semantic_map,
+    {"Sample": "Образец", "Point": "Точка", "Generation": "Gen"},
+)
+assert semantic_map == semantic_snapshot
+assert {"Sample", "Point", "Generation"}.issubset(semantic_out.columns)
+assert semantic_metadata["Point"]["original"] == "Точка"
+assert semantic_metadata["Generation"]["original"] == "Gen"
+assert semantic_metadata["__schema__"]["measurement"] == {"Fe2O3": "Fe2O3t"}
+assert semantic_metadata["__schema__"]["semantic"] == semantic_stored
 
 print("dataframe utility tests: OK")
