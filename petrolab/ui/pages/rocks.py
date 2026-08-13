@@ -252,17 +252,34 @@ def _render_isotopes(rock: dict) -> None:
     rock_id = int(rock["id"])
     isotopes = get_isotopes(rock_id)
     columns = [
-        "system", "ratio_name", "value", "uncertainty", "initial_value",
-        "age_ma_used", "method", "laboratory", "notes",
+        "system", "ratio_name", "analysis_label", "value", "uncertainty", "initial_value",
+        "age_ma_used", "method", "laboratory", "source", "notes",
     ]
     if isotopes.empty:
         isotopes = pd.DataFrame(columns=columns)
+    st.caption(
+        "Одинаковое изотопное отношение можно сохранить несколько раз. Для повторных определений "
+        "задайте метку aliquot/определения; если оставить её пустой, в wide-view будут использованы rep 1, rep 2 и т. д."
+    )
     edited = st.data_editor(
         isotopes[columns],
         num_rows="dynamic",
         width="stretch",
         hide_index=True,
         key=f"rock_iso_editor_{rock_id}",
+        column_config={
+            "system": st.column_config.TextColumn("Система"),
+            "ratio_name": st.column_config.TextColumn("Отношение", required=True),
+            "analysis_label": st.column_config.TextColumn("Определение / aliquot"),
+            "value": st.column_config.NumberColumn("Значение", format="%.8g"),
+            "uncertainty": st.column_config.NumberColumn("Неопределённость", format="%.6g"),
+            "initial_value": st.column_config.NumberColumn("Начальное значение", format="%.8g"),
+            "age_ma_used": st.column_config.NumberColumn("Возраст, млн лет"),
+            "method": st.column_config.TextColumn("Метод"),
+            "laboratory": st.column_config.TextColumn("Лаборатория"),
+            "source": st.column_config.TextColumn("Источник / файл"),
+            "notes": st.column_config.TextColumn("Заметки"),
+        },
     )
     if st.button("Сохранить изотопию", type="primary", key=f"rock_iso_save_{rock_id}"):
         try:

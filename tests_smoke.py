@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import os
 import tempfile
@@ -10,8 +11,9 @@ import pandas as pd
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_smoke_") as tmp:
-        base = Path(tmp)
+    tmp = tempfile.TemporaryDirectory(prefix="petrolab_smoke_")
+    try:
+        base = Path(tmp.name)
         os.environ["PETROLAB_DATA_DIR"] = str(base / "data")
 
         from petrolab.db import (
@@ -135,6 +137,10 @@ def main() -> None:
         assert any(item["id"] == style_id for item in list_style_profiles(project_id))
 
         print("core smoke test: OK")
+        del source, frame, unified, first, refreshed, unified2, mapping, source_rows, refreshed_map, refreshed_rows
+    finally:
+        gc.collect()
+        tmp.cleanup()
 
 
 if __name__ == "__main__":

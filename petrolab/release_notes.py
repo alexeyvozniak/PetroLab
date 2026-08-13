@@ -12,6 +12,17 @@ class ReleaseNote:
 
 RELEASE_NOTES: tuple[ReleaseNote, ...] = (
     ReleaseNote(
+        "0.10.2",
+        "Bootstrap, повторная изотопия и проверка интерфейса",
+        (
+            "Инициализация хранилища стала явной: app.py вызывает полный storage bootstrap без package-level monkey-patch.",
+            "Старые базы автоматически мигрируют с прежней rock_isotopes-схемы без потери изотопных записей.",
+            "Одна порода теперь может хранить несколько определений одного isotope ratio с меткой aliquot/определения и источником.",
+            "Wide-view не перезаписывает повторные отношения: используются пользовательские метки или безопасные rep 1, rep 2.",
+            "Windows CI запускает настоящий headless Chrome, проверяет desktop/tablet/mobile CSS-viewports и сохраняет screenshots как artifact.",
+        ),
+    ),
+    ReleaseNote(
         "0.10.1",
         "Аудит научной семантики и надёжности",
         (

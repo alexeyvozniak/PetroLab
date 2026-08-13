@@ -3,8 +3,8 @@ from __future__ import annotations
 import streamlit as st
 
 from petrolab import __version__
-from petrolab.db import ensure_storage
 from petrolab.settings_service import load_settings
+from petrolab.storage import ensure_storage
 from petrolab.ui.pages import (
     render_analyses_page,
     render_article_tables_page,

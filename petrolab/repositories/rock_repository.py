@@ -8,6 +8,7 @@ from typing import Iterable, Iterator
 import pandas as pd
 
 from petrolab.db import DB_PATH
+from petrolab.storage import ensure_storage as ensure_full_storage
 
 
 def _utcnow() -> str:
@@ -17,6 +18,7 @@ def _utcnow() -> str:
 @contextmanager
 def rock_connection() -> Iterator[sqlite3.Connection]:
     """Open one rock repository connection and always close it on Windows."""
+    ensure_full_storage()
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
@@ -288,6 +290,7 @@ def composition_wide(project_id: int | None = None) -> pd.DataFrame:
 
 
 def replace_isotopes(rock_id: int, dataframe: pd.DataFrame) -> None:
+    """Replace all isotope determinations for one rock, preserving repeated ratio names."""
     now = _utcnow()
     with rock_connection() as con:
         con.execute("DELETE FROM rock_isotopes WHERE rock_id=?", (int(rock_id),))
@@ -298,15 +301,16 @@ def replace_isotopes(rock_id: int, dataframe: pd.DataFrame) -> None:
             con.execute(
                 """
                 INSERT INTO rock_isotopes(
-                    rock_id, system, ratio_name, value, uncertainty, initial_value, age_ma_used,
-                    method, laboratory, notes, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rock_id, system, ratio_name, analysis_label, value, uncertainty, initial_value,
+                    age_ma_used, method, laboratory, source, notes, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    int(rock_id), _text(row.get("system")), ratio, _nullable_float(row.get("value")),
-                    _nullable_float(row.get("uncertainty")), _nullable_float(row.get("initial_value")),
-                    _nullable_float(row.get("age_ma_used")), _text(row.get("method")),
-                    _text(row.get("laboratory")), _text(row.get("notes")), now,
+                    int(rock_id), _text(row.get("system")), ratio, _text(row.get("analysis_label")),
+                    _nullable_float(row.get("value")), _nullable_float(row.get("uncertainty")),
+                    _nullable_float(row.get("initial_value")), _nullable_float(row.get("age_ma_used")),
+                    _text(row.get("method")), _text(row.get("laboratory")), _text(row.get("source")),
+                    _text(row.get("notes")), now,
                 ),
             )
 
@@ -314,22 +318,62 @@ def replace_isotopes(rock_id: int, dataframe: pd.DataFrame) -> None:
 def get_isotopes(rock_id: int) -> pd.DataFrame:
     with rock_connection() as con:
         rows = con.execute(
-            "SELECT system, ratio_name, value, uncertainty, initial_value, age_ma_used, method, laboratory, notes FROM rock_isotopes WHERE rock_id=? ORDER BY system, ratio_name",
+            """
+            SELECT id, system, ratio_name, analysis_label, value, uncertainty, initial_value,
+                   age_ma_used, method, laboratory, source, notes
+            FROM rock_isotopes
+            WHERE rock_id=?
+            ORDER BY system, ratio_name, analysis_label, id
+            """,
             (int(rock_id),),
         ).fetchall()
     return pd.DataFrame([dict(row) for row in rows])
 
 
 def isotope_wide(project_id: int | None = None) -> pd.DataFrame:
+    """Return one row per rock without silently overwriting repeated isotope determinations.
+
+    Ratios that never repeat within a rock retain their historical column name. If a ratio repeats
+    anywhere in the selected project, every occurrence uses ``[analysis_label]`` or ``[rep N]``
+    suffixes so no measurement disappears during pivoting.
+    """
+    rocks = list_rocks(project_id)
+    isotopes_by_rock = {
+        int(rock["id"]): get_isotopes(int(rock["id"]))
+        for rock in rocks
+    }
+    repeated_ratios: set[str] = set()
+    for isotopes in isotopes_by_rock.values():
+        if isotopes.empty:
+            continue
+        counts = isotopes["ratio_name"].astype(str).value_counts()
+        repeated_ratios.update(str(name) for name, count in counts.items() if int(count) > 1)
+
     records: list[dict] = []
-    for rock in list_rocks(project_id):
-        record = {"_rock_id": rock["id"], "Project": rock["project_name"], "Rock": rock["name"], "Age_Ma": rock["age_ma"]}
-        isotopes = get_isotopes(int(rock["id"]))
+    for rock in rocks:
+        record = {
+            "_rock_id": rock["id"], "Project": rock["project_name"],
+            "Rock": rock["name"], "Age_Ma": rock["age_ma"],
+        }
+        isotopes = isotopes_by_rock[int(rock["id"])]
+        occurrences: dict[str, int] = {}
+        used_columns: dict[str, int] = {}
         for _, row in isotopes.iterrows():
+            ratio = str(row["ratio_name"])
+            occurrences[ratio] = occurrences.get(ratio, 0) + 1
+            if ratio in repeated_ratios:
+                label = str(row.get("analysis_label") or "").strip()
+                suffix = label or f"rep {occurrences[ratio]}"
+                base = f"{ratio} [{suffix}]"
+            else:
+                base = ratio
+            used_columns[base] = used_columns.get(base, 0) + 1
+            if used_columns[base] > 1:
+                base = f"{base} #{used_columns[base]}"
             if pd.notna(row["value"]):
-                record[str(row["ratio_name"])] = row["value"]
+                record[base] = row["value"]
             if pd.notna(row["initial_value"]):
-                record[f"{row['ratio_name']}_initial"] = row["initial_value"]
+                record[f"{base}_initial"] = row["initial_value"]
         records.append(record)
     return pd.DataFrame(records)
 
