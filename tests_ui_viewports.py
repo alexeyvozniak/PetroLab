@@ -12,14 +12,18 @@ import pandas as pd
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
 PORT = 8517
 VIEWPORTS = ((1440, 900), (1024, 768), (768, 900), (390, 844))
-GROUPS = (("home", 0), ("graphs", 1), ("rocks", 2), ("publication", 3))
+GROUPS = (
+    ("home", "Работа с данными"),
+    ("graphs", "Графики и статистика"),
+    ("rocks", "Породы и изображения"),
+    ("publication", "Публикация"),
+)
 
 
 def _wait_for_server(url: str, timeout: float = 30.0) -> None:
@@ -90,18 +94,39 @@ def _seed_test_data(root: Path) -> None:
     )
 
 
-def _select_group(driver: webdriver.Chrome, index: int) -> None:
+def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
+    """Select a Streamlit sidebar group using stable test-id/BaseWeb hooks."""
     driver.set_window_size(1280, 900)
-    wait = WebDriverWait(driver, 15)
-    sidebar = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
-    combo = sidebar.find_elements(By.CSS_SELECTOR, '[role="combobox"]')[0]
-    combo.click()
-    combo.send_keys(Keys.HOME)
-    for _ in range(index):
-        combo.send_keys(Keys.ARROW_DOWN)
-    combo.send_keys(Keys.ENTER)
-    time.sleep(1.2)
+    driver.refresh()
+    wait = WebDriverWait(driver, 20)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
+    output.mkdir(parents=True, exist_ok=True)
+    try:
+        select_control = wait.until(
+            EC.element_to_be_clickable(
+                (
+                    By.CSS_SELECTOR,
+                    '[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"]',
+                )
+            )
+        )
+        select_control.click()
+        options = wait.until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '[role="option"]'))
+        )
+        for option in options:
+            if option.text.strip() == group_label:
+                option.click()
+                break
+        else:
+            raise AssertionError(
+                f"Navigation group {group_label!r} not found; options={[option.text for option in options]!r}"
+            )
+        time.sleep(1.2)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
+    except Exception:
+        driver.save_screenshot(str(output / f"{page_name}_navigation_failure.png"))
+        raise
 
 
 def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_name: str, output: Path) -> None:
@@ -133,6 +158,7 @@ def main() -> None:
         root = Path(tmp)
         _seed_test_data(root)
         output = Path(os.environ.get("PETROLAB_VIEWPORT_ARTIFACTS", "viewport_artifacts"))
+        output.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env["PETROLAB_DATA_DIR"] = str(root / "data")
         process = subprocess.Popen(
@@ -170,8 +196,8 @@ def main() -> None:
             WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]'))
             )
-            for page_name, group_index in GROUPS:
-                _select_group(driver, group_index)
+            for page_name, group_label in GROUPS:
+                _select_group(driver, group_label, output, page_name)
                 for width, height in VIEWPORTS:
                     _assert_viewport(driver, width, height, page_name, output)
         finally:
