@@ -32,10 +32,20 @@ class MineralModule:
     group_ru: str
     description: str
     typical_oxides: tuple[str, ...] = field(default_factory=tuple)
+    derive_basic_indices: bool = True
 
     def calculate(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Базовые индексы; FeOt допускается только как явно помеченный total Fe as FeO."""
+        """Return optional legacy/basic indices without mutating the supplied dataframe.
+
+        Registry modules used by import/refresh are configured as source-only, because Mg#
+        and other scientific derivatives belong to the formula/derived layer with explicit
+        method provenance. Standalone MineralModule instances keep the historical default
+        for backwards compatibility and focused calculations/tests.
+        """
         out = df.copy()
+        if not self.derive_basic_indices:
+            return out
+
         duplicate_inputs = [
             base for base in ("MgO", "FeO", "FeOt")
             if _has_duplicate_input(out.columns, base)
