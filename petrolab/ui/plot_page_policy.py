@@ -22,3 +22,7 @@ def install() -> None:
         return styles
 
     page._style_map_from_df = style_map_from_df
+
+    # Keep all small page-level compatibility policies behind one UI bootstrap invoked by app.py.
+    from petrolab.ui.image_page_policy import install as install_image_page_policy
+    install_image_page_policy()
