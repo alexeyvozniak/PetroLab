@@ -13,6 +13,30 @@ from petrolab.minerals.registry import MINERALS
 FE2O3T_TO_FEOT = 2.0 * OXIDES["FeO"].molar_mass / OXIDES["Fe2O3"].molar_mass
 FORMULA_INPUT_STATUS_COL = "QC formula input"
 FORMULA_MISSING_INPUTS_COL = "Formula missing inputs"
+FORMULA_VALID_COL = "formula_valid"
+FORMULA_INVALID_REASON_COL = "formula_invalid_reason"
+FORMULA_INPUT_POLICY_COL = "Formula input policy"
+FORMULA_INPUTS_USED_COL = "Formula inputs used"
+
+_CRITICAL_ROW_INPUTS: dict[str, tuple[str, ...]] = {
+    "mica": ("SiO2", "Al2O3", "MgO", "K2O"),
+    "amphibole": ("SiO2", "Al2O3", "MgO", "CaO", "Na2O"),
+    "clinopyroxene": ("SiO2", "MgO", "CaO"),
+    "orthopyroxene": ("SiO2", "MgO"),
+    "olivine": ("SiO2", "MgO"),
+    "garnet": ("SiO2", "Al2O3", "MgO", "CaO"),
+    "feldspar": ("SiO2", "Al2O3", "Na2O", "K2O", "CaO"),
+    "nepheline": ("SiO2", "Al2O3", "Na2O", "K2O"),
+    "carbonate": ("CaO", "MgO"),
+    "spinel": ("MgO",),
+    "fe_ti_oxide": ("TiO2",),
+    "perovskite": ("TiO2", "CaO"),
+    "apatite": ("P2O5", "CaO"),
+    "titanite": ("SiO2", "TiO2", "CaO"),
+    "zircon": ("SiO2", "ZrO2"),
+}
+_FE_COLUMNS = ("FeO", "FeOt", "Fe2O3", "Fe2O3t")
+_GARNET_OMITTED_Y = ("Ti", "Zr", "Hf", "V3", "Nb", "Sn", "U")
 
 
 def prepare_formula_input(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
@@ -81,7 +105,8 @@ def _align(source: pd.DataFrame, calculated: pd.DataFrame) -> pd.DataFrame:
 def _presence(dataframe: pd.DataFrame, column: str) -> pd.Series:
     if column not in dataframe.columns:
         return pd.Series(False, index=dataframe.index, dtype=bool)
-    return pd.to_numeric(dataframe[column], errors="coerce").notna()
+    values = pd.to_numeric(dataframe[column], errors="coerce")
+    return values.notna() & np.isfinite(values.to_numpy(dtype=float))
 
 
 def _restore_missing_semantics(result: pd.DataFrame, original: pd.DataFrame, mineral_key: str) -> pd.DataFrame:
@@ -121,6 +146,32 @@ def _restore_missing_semantics(result: pd.DataFrame, original: pd.DataFrame, min
     return out
 
 
+def _critical_row_validity(original: pd.DataFrame, mineral_key: str) -> tuple[pd.Series, pd.Series]:
+    valid = pd.Series(True, index=original.index, dtype=bool)
+    reasons: dict[object, list[str]] = {index: [] for index in original.index}
+    for column in _CRITICAL_ROW_INPUTS.get(str(mineral_key), ()):
+        if column not in original.columns:
+            continue
+        bad = ~_presence(original, column)
+        for index in original.index[bad]:
+            reasons[index].append(f"missing/non-finite {column}")
+            valid.at[index] = False
+    available_fe = [column for column in _FE_COLUMNS if column in original.columns]
+    if available_fe:
+        has_fe = pd.Series(False, index=original.index, dtype=bool)
+        for column in available_fe:
+            has_fe |= _presence(original, column)
+        for index in original.index[~has_fe]:
+            reasons[index].append("missing/non-finite Fe")
+            valid.at[index] = False
+    reason_text = pd.Series(
+        ["; ".join(reasons[index]) for index in original.index],
+        index=original.index,
+        dtype="string",
+    )
+    return valid, reason_text
+
+
 def _guard_apatite_classification(final: pd.DataFrame) -> pd.DataFrame:
     if "OH_est_basis" not in final.columns:
         return final
@@ -133,6 +184,54 @@ def _guard_apatite_classification(final: pd.DataFrame) -> pd.DataFrame:
     out.loc[unresolved, LEVEL_COL] = "insufficient X-anion data"
     out.loc[unresolved, METHOD_COL] = "Pasero et al. (2010) apatite-supergroup anion dominance"
     out.loc[unresolved, NOTE_COL] = "F и Cl должны быть измерены в этой строке для оценки OH и X-anion dominance."
+    return out
+
+
+def _input_provenance(final: pd.DataFrame, original: pd.DataFrame) -> pd.DataFrame:
+    out = final.copy()
+    recognized = [
+        str(column) for column in original.columns
+        if str(column) in OXIDES or str(column) in HALOGENS or str(column) in {"FeOt", "Fe2O3t"}
+    ]
+    out[FORMULA_INPUT_POLICY_COL] = (
+        "all recognized measured oxide columns present in the dataset; halogens do not enter oxygen basis"
+    )
+    out[FORMULA_INPUTS_USED_COL] = ", ".join(recognized)
+    return out
+
+
+def _postprocess_carbonate(final: pd.DataFrame, method_id: str | None) -> pd.DataFrame:
+    if "apfu_Fe3" not in final.columns:
+        return final
+    out = final.copy()
+    target = 2.0 if str(method_id) == "carb_2cat" else 1.0
+    out["X_Fe3"] = pd.to_numeric(out["apfu_Fe3"], errors="coerce") / target
+    return out
+
+
+def _postprocess_garnet(final: pd.DataFrame) -> pd.DataFrame:
+    out = final.copy()
+    if "Endmember_sum" in out.columns:
+        out["Simplified_endmember_sum"] = out["Endmember_sum"]
+    omitted = pd.Series(0.0, index=out.index, dtype=float)
+    for cation in _GARNET_OMITTED_Y:
+        column = f"apfu_{cation}"
+        if column in out.columns:
+            omitted += pd.to_numeric(out[column], errors="coerce").fillna(0.0).abs()
+    incomplete = omitted > 1e-8
+    out["QC_endmember_model"] = np.where(
+        incomplete,
+        "incomplete: Y-site components omitted from simplified Prp–Alm–Sps–Grs–Adr–Uv model",
+        "complete for simplified component set",
+    )
+    if incomplete.any():
+        out.loc[incomplete, SPECIES_COL] = ""
+        out.loc[incomplete, FIELD_COL] = "simplified end-member classification withheld"
+        out.loc[incomplete, LEVEL_COL] = "incomplete end-member model"
+        out.loc[incomplete, NOTE_COL] = (
+            "Ti/Zr/Hf/V/Nb/Sn/U-bearing Y-site budget is not represented by the simplified "
+            "Prp–Alm–Sps–Grs–Adr–Uv decomposition."
+        )
     return out
 
 
@@ -155,6 +254,32 @@ def calculate_formula_safe(dataframe: pd.DataFrame, mineral_key: str, method_id:
         final = _classification_unavailable(final, exc)
     if str(mineral_key) == "apatite":
         final = _guard_apatite_classification(final)
+    if str(mineral_key) == "carbonate":
+        final = _postprocess_carbonate(final, method_id)
+    if str(mineral_key) == "garnet":
+        final = _postprocess_garnet(final)
+
+    final = _input_provenance(final, dataframe)
+    valid, invalid_reason = _critical_row_validity(dataframe, mineral_key)
+    protected_status = {
+        FORMULA_INPUT_STATUS_COL,
+        FORMULA_MISSING_INPUTS_COL,
+        FORMULA_INPUT_POLICY_COL,
+        FORMULA_INPUTS_USED_COL,
+    }
+    derived_columns = [
+        column for column in final.columns
+        if column not in dataframe.columns
+        and column not in protected_status
+        and not str(column).startswith("_")
+    ]
+    if derived_columns:
+        final.loc[~valid, derived_columns] = np.nan
+    final[FORMULA_VALID_COL] = valid
+    final[FORMULA_INVALID_REASON_COL] = invalid_reason
 
     notes = [text for text in (preparation_note, result.note_ru) if text]
+    notes.append(
+        "Formula input policy: все распознанные измеренные oxide-columns участвуют в базовой катионной/кислородной нормировке; фактически использованные колонки сохраняются в provenance."
+    )
     return CalculationResult(final, "\n\n".join(notes))

@@ -24,8 +24,6 @@ from petrolab.sources import source_status
 
 def make_workbook(path: Path, value: float = 40.0) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        # The fully empty middle row is a common visual separator in old laboratory tables.
-        # It must not become an analysis, but B must still remember that it lives on Excel row 4.
         pd.DataFrame(
             {
                 "Sample": ["A", None, "B"],
@@ -86,8 +84,6 @@ def run() -> None:
     status, _ = source_status(get_dataset(linked_id))
     assert status == "актуален"
 
-    # A legacy table without Sample/Grain/Point can only preserve a changed row by its
-    # physical position when row count/order is stable. The result must expose that low confidence.
     positional_path = root / "positional.xlsx"
     with pd.ExcelWriter(positional_path, engine="openpyxl") as writer:
         pd.DataFrame({"SiO2": [50.0, 51.0], "MgO": [10.0, 11.0]}).to_excel(
@@ -117,9 +113,7 @@ def run() -> None:
     upload_buffer = io.BytesIO()
     with pd.ExcelWriter(upload_buffer, engine="openpyxl") as writer:
         pd.DataFrame({"Sample": ["U1"], "SiO2": [50.0]}).to_excel(
-            writer,
-            sheet_name="Upload",
-            index=False,
+            writer, sheet_name="Upload", index=False,
         )
     upload_bytes = upload_buffer.getvalue()
     upload_buffer.close()
@@ -139,12 +133,9 @@ def run() -> None:
     assert "managed_sources" in uploaded.source_path.parts
     uploaded_meta = get_dataset(uploaded.dataset_ids[0])
     assert uploaded_meta["source_kind"] == "managed_copy"
-    assert uploaded_meta["sync_enabled"] == 1
+    assert uploaded_meta["sync_enabled"] == 0
     assert load_dataset_dataframe(uploaded.dataset_ids[0], include_meta=True)["Sample"].tolist() == ["U1"]
 
-    # Drop DataFrame/engine objects before removing the temporary SQLite directory on Windows.
-    # All repository connections are context-managed; explicit GC here verifies that no test-owned
-    # object keeps a file handle alive past the assertions.
     del before, after, positional_before, positional_after
     gc.collect()
 

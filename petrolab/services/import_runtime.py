@@ -190,7 +190,9 @@ def install() -> None:
                     svc, project_id=project_id, item=item, dataset_name=name,
                     source_filename=Path(filename).name, source_hash=source_hash,
                     source_path=str(managed_path), source_kind="managed_copy",
-                    sync_enabled=managed_path.suffix.lower() in svc.SYNCABLE_SUFFIXES,
+                    # A browser upload is an internal PetroLab working copy, not the
+                    # user's original workbook. Never expose it as a bidirectional target.
+                    sync_enabled=False,
                 ))
         except Exception:
             _rollback(created)
@@ -201,7 +203,5 @@ def install() -> None:
     svc.import_linked_sheets = import_linked_sheets
     svc.import_uploaded_sheets = import_uploaded_sheets
 
-    # Dataset recovery belongs to the same source lifecycle: install it together with the
-    # import contract so legacy CSV snapshots can never invent physical Excel row numbers.
     from petrolab.recovery_runtime import install as install_recovery
     install_recovery()

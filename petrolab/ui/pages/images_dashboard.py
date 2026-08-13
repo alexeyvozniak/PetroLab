@@ -6,12 +6,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from petrolab.dataframe_utils import dataset_label
+from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_datasets, load_dataset_dataframe
 from petrolab.services.image_service import (
     ImageAssignment, ImagePayload, ImageScope,
     SCOPE_ANALYSIS, SCOPE_DATASET, SCOPE_FIELD,
     create_assigned_image_batch, delete_image_asset, list_dataset_images,
+    relink_image_asset,
 )
 from petrolab.ui.components import render_asset_gallery, render_project_selector
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
@@ -117,7 +118,37 @@ def _wizard(project_id: int, dataset: dict, dataframe: pd.DataFrame) -> None:
             legacy._clear_wizard_state(dataset_id); st.rerun()
 
 
-def _gallery(dataset_id: int) -> None:
+def _repair_detached(asset: dict, dataframe: pd.DataFrame) -> None:
+    asset_id = int(asset["id"])
+    with st.expander("Восстановить привязку", expanded=False):
+        query = st.text_input(
+            "Поиск точки", placeholder="Sample, Grain, Point, Generation…",
+            key=f"repair_image_query_{asset_id}",
+        )
+        candidates = apply_quick_filter(dataframe, query) if query else dataframe
+        limit = 5000
+        if len(candidates) > limit:
+            st.caption(f"Найдено {len(candidates)} точек; показаны первые {limit}. Уточните поиск.")
+        labels = legacy._analysis_id_labels(candidates.head(limit))
+        selected = st.multiselect(
+            "Новые точки для изображения",
+            list(labels),
+            format_func=lambda analysis_id: labels.get(analysis_id, analysis_id[:8]),
+            key=f"repair_image_points_{asset_id}",
+        )
+        if st.button(
+            "Восстановить привязку", type="primary", disabled=not selected,
+            key=f"repair_image_save_{asset_id}", width="stretch",
+        ):
+            try:
+                relink_image_asset(asset_id, selected)
+                st.success("Привязка восстановлена.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Не удалось восстановить привязку: {exc}")
+
+
+def _gallery(dataset_id: int, dataframe: pd.DataFrame) -> None:
     assets = list_dataset_images(dataset_id)
     render_section_header("Галерея", f"{len(assets)} изображений")
     if not assets:
@@ -129,6 +160,8 @@ def _gallery(dataset_id: int) -> None:
     for i, asset in enumerate(shown):
         with columns[i % 3]:
             render_asset_gallery([asset], max_items=1)
+            if str(asset.get("link_status") or "") == "detached":
+                _repair_detached(asset, dataframe)
             confirm_key = f"confirm_delete_image_{asset['id']}"
             if not st.session_state.get(confirm_key):
                 if st.button("Удалить…", key=f"ask_delete_image_{asset['id']}"):
@@ -154,4 +187,4 @@ def render_images_dashboard_page() -> None:
     dataframe = load_dataset_dataframe(int(dataset["id"]), include_meta=True)
     wizard_tab, gallery_tab = st.tabs(["Добавить изображения", "Галерея"])
     with wizard_tab: _wizard(int(project["id"]), dataset, dataframe)
-    with gallery_tab: _gallery(int(dataset["id"]))
+    with gallery_tab: _gallery(int(dataset["id"]), dataframe)

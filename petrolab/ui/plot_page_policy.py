@@ -1,89 +1,348 @@
 from __future__ import annotations
 
+import pandas as pd
+
+from petrolab.settings_service import load_settings
+
 _GROUP_COLORS = (
     "#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A",
     "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
 )
 
 
+def _grouped_outliers(page, dataframe, columns, method: str, threshold: float, group_column: str | None):
+    if not group_column or group_column not in dataframe.columns:
+        return page.robust_outliers(dataframe, columns, method=method, threshold=threshold)
+    outlier_mask = pd.Series(False, index=dataframe.index, dtype=bool)
+    groups = dataframe[group_column].astype("string").fillna("Без группы").replace("", "Без группы")
+    for _, index in groups.groupby(groups, sort=False).groups.items():
+        subset = dataframe.loc[index]
+        result = page.robust_outliers(subset, columns, method=method, threshold=threshold)
+        outlier_mask.loc[result.outlier_mask.index] |= result.outlier_mask
+    return page.OutlierResult(~outlier_mask, outlier_mask, method, tuple(columns), float(threshold))
+
+
+def _install_outlier_controls(page) -> None:
+    def controls(dataframe, numeric_columns, x, y, recipe):
+        original = dataframe.copy()
+        cfg = recipe.get("outlier_filters", {}) if isinstance(recipe.get("outlier_filters", {}), dict) else {}
+        with page.st.expander("Диапазоны и выбросы", expanded=False):
+            page.st.caption("Фильтры действуют только на текущий график; исходные анализы не удаляются.")
+            saved_ranges = cfg.get("ranges", {}) if isinstance(cfg.get("ranges", {}), dict) else {}
+            range_columns = page.st.multiselect(
+                "Ограничить числовые колонки вручную", numeric_columns,
+                default=[column for column in saved_ranges if column in numeric_columns], key="plot_range_columns",
+            )
+            ranges = {}
+            for column in range_columns:
+                values = pd.to_numeric(dataframe[column], errors="coerce").replace([float("inf"), float("-inf")], pd.NA).dropna()
+                if values.empty:
+                    continue
+                observed_min, observed_max = float(values.min()), float(values.max())
+                saved = saved_ranges.get(column, [observed_min, observed_max])
+                c1, c2 = page.st.columns(2)
+                low = c1.number_input(f"{column}: минимум", value=float(saved[0]) if saved and saved[0] is not None else observed_min, key=f"range_low_{column}")
+                high = c2.number_input(f"{column}: максимум", value=float(saved[1]) if len(saved) > 1 and saved[1] is not None else observed_max, key=f"range_high_{column}")
+                if low > high:
+                    page.st.error(f"{column}: минимум больше максимума")
+                else:
+                    ranges[column] = (float(low), float(high))
+            ranged = page.apply_numeric_ranges(dataframe, ranges) if ranges else dataframe
+            page.st.caption(f"После ручных диапазонов: {len(ranged)} из {len(dataframe)} точек.")
+
+            options = {"Нет": "NONE", "MAD — робастный modified z-score": "MAD", "IQR — правило Тьюки": "IQR"}
+            reverse = {value: label for label, value in options.items()}
+            configured = str(load_settings().get("default_outlier_method", "MAD")).upper()
+            saved_method = str(cfg.get("auto_method", configured)).upper()
+            auto_label = page.st.selectbox(
+                "Автоматически искать выбросы", list(options),
+                index=list(options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method",
+            )
+            auto_method = options[auto_label]
+            auto_columns, outlier_ids = [], []
+            threshold = 0.0
+            exclude_auto = bool(cfg.get("exclude_auto", False))
+            outlier_scope = str(cfg.get("scope", "all"))
+            outlier_group = str(cfg.get("scope_group", ""))
+            if auto_method != "NONE":
+                auto_columns = page.st.multiselect(
+                    "Колонки для автоматической проверки", numeric_columns,
+                    default=[c for c in cfg.get("auto_columns", [x, y]) if c in numeric_columns] or [x, y], key="outlier_columns",
+                )
+                threshold = page.st.number_input(
+                    "Порог MAD" if auto_method == "MAD" else "Множитель IQR", min_value=0.1, max_value=20.0,
+                    value=float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5)), step=0.1, key="outlier_threshold",
+                )
+                candidates = [
+                    c for c in [page.WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"]
+                    if c in ranged.columns and ranged[c].nunique(dropna=True) > 1
+                ]
+                scope_label = page.st.selectbox(
+                    "Область статистики выбросов",
+                    ["По всей выборке", "Внутри групп"] if candidates else ["По всей выборке"],
+                    index=1 if outlier_scope == "group" and candidates else 0, key="outlier_scope",
+                )
+                scope_group = None
+                if scope_label == "Внутри групп":
+                    default_group = outlier_group if outlier_group in candidates else candidates[0]
+                    scope_group = page.st.selectbox("Группа для локальной статистики", candidates, index=candidates.index(default_group), key="outlier_scope_group")
+                    page.st.caption("MAD/IQR считается отдельно внутри каждой выбранной геологической/рабочей группы.")
+                result = _grouped_outliers(page, ranged, auto_columns, auto_method, float(threshold), scope_group)
+                flagged = ranged.loc[result.outlier_mask].copy()
+                if "_analysis_id" in flagged.columns:
+                    outlier_ids = flagged["_analysis_id"].astype(str).tolist()
+                page.st.info(f"Автоматически отмечено как возможные выбросы: {len(flagged)}. Это статистическая подсказка, а не решение об удалении.")
+                if not flagged.empty:
+                    preview = [c for c in ["Sample", "Grain", "Point", "Generation", *auto_columns] if c in flagged.columns]
+                    page.st.dataframe(flagged[preview].head(200), width="stretch", hide_index=True, height=260)
+                exclude_auto = page.st.checkbox("Исключить автоматически отмеченные точки из этого графика", value=exclude_auto, key="exclude_auto_outliers")
+                outlier_scope = "group" if scope_group else "all"
+                outlier_group = scope_group or ""
+
+            limit = 3000
+            candidate_map = {
+                page._point_label(row): str(row["_analysis_id"])
+                for _, row in ranged.head(limit).iterrows() if "_analysis_id" in ranged.columns
+            }
+            if len(ranged) > limit:
+                page.st.caption(f"Для ручного chooser показаны первые {limit} из {len(ranged)} точек; сохранённые исключения вне chooser не теряются.")
+            saved_manual = {str(value) for value in cfg.get("manual_excluded_ids", [])}
+            hidden_saved = saved_manual - set(candidate_map.values())
+            defaults = [label for label, analysis_id in candidate_map.items() if analysis_id in saved_manual]
+            manual_labels = page.st.multiselect("Исключить отдельные точки вручную", list(candidate_map), default=defaults, key="manual_outlier_exclusions") if candidate_map else []
+            manual_ids = [candidate_map[label] for label in manual_labels]
+            if hidden_saved and page.st.checkbox(
+                f"Сохранять {len(hidden_saved)} ранее исключённых точек вне текущего chooser", value=True,
+                key="keep_hidden_manual_exclusions",
+            ):
+                manual_ids.extend(sorted(hidden_saved))
+
+        filtered = ranged
+        excluded_ids = set(manual_ids)
+        if exclude_auto:
+            excluded_ids.update(outlier_ids)
+        if excluded_ids:
+            filtered = page.exclude_analysis_ids(filtered, tuple(excluded_ids))
+        before_ids = set(original.get("_analysis_id", pd.Series(dtype=str)).astype(str))
+        after_ids = set(filtered.get("_analysis_id", pd.Series(dtype=str)).astype(str))
+        removed = original[original["_analysis_id"].astype(str).isin(before_ids - after_ids)].copy() if "_analysis_id" in original.columns else pd.DataFrame()
+        config = {
+            "ranges": {column: [bounds[0], bounds[1]] for column, bounds in ranges.items()},
+            "auto_method": auto_method, "auto_columns": auto_columns, "threshold": threshold,
+            "exclude_auto": exclude_auto, "manual_excluded_ids": list(dict.fromkeys(manual_ids)),
+            "scope": outlier_scope, "scope_group": outlier_group,
+        }
+        return filtered, config, removed
+
+    page._outlier_controls = controls
+
+
+def _install_science_policy() -> None:
+    from petrolab.ui.pages import science_plots as science
+
+    def strict_presets(dataframe):
+        presets = {k: p for k, p in science.SCIENTIFIC_PLOT_PRESETS.items() if p.plot_type == "xy"}
+        if "Минерал" not in dataframe.columns:
+            return presets
+        present = set(dataframe["Минерал"].dropna().astype(str))
+        return {
+            k: p for k, p in presets.items()
+            if p.mineral_key is None
+            or science.MINERAL_PRESET_ALIASES.get(str(p.mineral_key), str(p.mineral_key)) in present
+        }
+    science._mineral_filtered_presets = strict_presets
+
+    original_available = science.available_elements
+    science.available_elements = lambda dataframe, preferred, *, require_known_units=False, reference=None: original_available(
+        dataframe, preferred, require_known_units=True, reference=reference
+    )
+
+    original_pattern = science.build_pattern_figure
+    ylabel_by_ref = {
+        "Без нормировки": "Concentration [µg/g equivalent]",
+        "CI-хондрит · McDonough & Sun (1995)": "Sample / CI chondrite",
+        "Primitive mantle · Sun & McDonough (1989)": "Sample / primitive mantle",
+    }
+    line_styles = ("-", "--", ":", "-.")
+
+    def consistent_pattern(pattern, *, labels=None, group=None, **kwargs):
+        ref = science.st.session_state.get("pattern_ref")
+        if ref in ylabel_by_ref:
+            kwargs["ylabel"] = ylabel_by_ref[ref]
+        fig = original_pattern(pattern, labels=labels, group=group, **kwargs)
+        if group is None or pattern.data.empty or not fig.axes:
+            return fig
+        groups = group.reindex(pattern.data.index).astype("string").fillna("Без группы").replace("", "Без группы")
+        names = list(dict.fromkeys(groups.tolist()))
+        colors = science.plt.rcParams["axes.prop_cycle"].by_key().get("color", ["black"])
+        styles = {name: (colors[i % len(colors)], line_styles[i % len(line_styles)]) for i, name in enumerate(names)}
+        for line, name in zip(fig.axes[0].lines, groups.tolist()):
+            color, linestyle = styles[name]
+            if kwargs.get("monochrome", False):
+                line.set_color("black"); line.set_linestyle(linestyle)
+            else:
+                line.set_color(color)
+        return fig
+    science.build_pattern_figure = consistent_pattern
+
+    original_xy = science._render_scientific_xy
+    def strict_xy(dataframe):
+        preset_id = science.st.session_state.get("science_xy_preset")
+        preset = strict_presets(dataframe).get(preset_id)
+        if preset is None:
+            return original_xy(dataframe)
+        x = science.st.session_state.get("science_xy_x")
+        y = science.st.session_state.get("science_xy_y")
+        if x is None or y is None:
+            return original_xy(dataframe)
+        numeric = science.numeric_candidates(dataframe)
+        matches = x in science._axis_candidates(dataframe, preset.x, numeric) and y in science._axis_candidates(dataframe, preset.y, numeric)
+        if matches:
+            return original_xy(dataframe)
+        science.st.session_state["science_xy_title"] = ""
+        science.st.session_state["science_xy_xlabel"] = str(x)
+        science.st.session_state["science_xy_ylabel"] = str(y)
+        original_caption = science.st.caption
+        original_info = science.st.info
+        original_builder = science.build_scientific_xy_figure
+        def caption(text, *args, **kwargs):
+            value = str(text)
+            if value.startswith("Источник схемы:") or value.startswith("Overlay:"):
+                return None
+            return original_caption(text, *args, **kwargs)
+        def builder(*args, **kwargs):
+            kwargs["overlay_id"] = None
+            return original_builder(*args, **kwargs)
+        science.st.caption = caption
+        science.st.info = lambda *args, **kwargs: None
+        science.build_scientific_xy_figure = builder
+        try:
+            result = original_xy(dataframe)
+        finally:
+            science.st.caption = original_caption
+            science.st.info = original_info
+            science.build_scientific_xy_figure = original_builder
+        original_caption("Пользовательские оси: литературное название, source citation и overlay preset'а отключены.")
+        return result
+    science._render_scientific_xy = strict_xy
+
+    original_box_builder = science.build_boxplot_figure
+    def explicit_box_builder(dataframe, value_columns, *, group_column=None, **kwargs):
+        if group_column and len(value_columns) > 1:
+            science.st.warning(
+                "Grouped boxplot требует ровно один числовой параметр. График не построен: выберите один Y или отключите группировку."
+            )
+            fig, ax = science.plt.subplots(figsize=kwargs.get("figure_size", (8.0, 5.0)))
+            ax.text(0.5, 0.5, "Выберите один Y для grouped boxplot", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            return fig
+        return original_box_builder(dataframe, value_columns, group_column=group_column, **kwargs)
+    science.build_boxplot_figure = explicit_box_builder
+
+    def add_svg_export(renderer, *, prefix: str, filename: str):
+        def wrapped(dataframe):
+            original_close = science.plt.close
+            def close(fig=None):
+                if fig is not None:
+                    dpi = int(science.st.session_state.get(f"{prefix}_dpi", 600))
+                    science.st.download_button(
+                        "SVG", science.figure_bytes(fig, "svg", dpi),
+                        file_name=f"{filename}.svg", mime="image/svg+xml", key=f"{prefix}_svg",
+                    )
+                return original_close(fig)
+            science.plt.close = close
+            try:
+                return renderer(dataframe)
+            finally:
+                science.plt.close = original_close
+        return wrapped
+    science._render_histogram = add_svg_export(science._render_histogram, prefix="hist", filename="histogram")
+    science._render_boxplot = add_svg_export(science._render_boxplot, prefix="box", filename="boxplot")
+
+
 def install() -> None:
     from petrolab.ui.pages import plots as page
+    from petrolab.outliers import OutlierResult
 
-    def style_map_from_df(dataframe):
-        styles = {}
-        for index, (_, row) in enumerate(dataframe.iterrows()):
-            styles[str(row["Группа"])] = {
-                "marker": row["Маркер"],
-                "size_multiplier": float(row["Размер ×"]),
-                "alpha": float(row["Alpha"]),
-                "filled": bool(row["Заливка"]),
-                "color": _GROUP_COLORS[index % len(_GROUP_COLORS)],
-            }
-        return styles
+    page.OutlierResult = OutlierResult
+    page._style_map_from_df = lambda dataframe: {
+        str(row["Группа"]): {
+            "marker": row["Маркер"], "size_multiplier": float(row["Размер ×"]),
+            "alpha": float(row["Alpha"]), "filled": bool(row["Заливка"]),
+            "color": _GROUP_COLORS[index % len(_GROUP_COLORS)],
+        }
+        for index, (_, row) in enumerate(dataframe.iterrows())
+    }
+    _install_outlier_controls(page)
 
-    page._style_map_from_df = style_map_from_df
+    original_build_scatter = page.build_scatter
+    def finite_publication_scatter(dataframe, x, y, group=None, **kwargs):
+        work = dataframe.copy()
+        for column in (x, y):
+            work[column] = pd.to_numeric(work[column], errors="coerce").replace([float("inf"), float("-inf")], pd.NA)
+        work = work.dropna(subset=[x, y])
+        if kwargs.get("log_x"):
+            work = work[work[x] > 0]
+        if kwargs.get("log_y"):
+            work = work[work[y] > 0]
+        if group and group in work.columns:
+            work[group] = work[group].astype("string").fillna("Без группы").replace("", "Без группы")
+        return original_build_scatter(work, x, y, group, **kwargs)
+    page.build_scatter = finite_publication_scatter
 
-    # The dashboard renders quick and advanced XY tabs in one Streamlit pass. The first
-    # workspace is intentionally lightweight and gets its own widget key; the second keeps
-    # the full legacy selection/grouping workflow unchanged.
+    original_delete_recipe = page.delete_plot_recipe
+    def delete_recipe_and_clear(recipe_id: int):
+        original_delete_recipe(int(recipe_id))
+        page.st.session_state.loaded_recipe = None
+        page.st.session_state.plot_interactive_excluded_ids = []
+    page.delete_plot_recipe = delete_recipe_and_clear
+
+    original_render = page.render_plots_page
+    def guarded_render():
+        recipe = page.st.session_state.get("loaded_recipe") or {}
+        wanted = [int(value) for value in recipe.get("dataset_ids", []) if str(value).isdigit()]
+        if wanted:
+            active_project = page.st.session_state.get("active_project_id")
+            available = {int(item["id"]) for item in page.list_datasets(int(active_project))} if active_project is not None else {int(item["id"]) for item in page.list_datasets()}
+            if not any(dataset_id in available for dataset_id in wanted):
+                page.st.warning("Сохранённый рецепт ссылается на datasets, которых больше нет в активном проекте. PetroLab не заменяет их автоматически всеми наборами.")
+                if page.st.button("Сбросить устаревший рецепт", key="reset_stale_recipe"):
+                    page.st.session_state.loaded_recipe = None
+                    page.st.session_state.plot_interactive_excluded_ids = []
+                    page.st.rerun()
+                return
+
+        original_caption = page.st.caption
+        def accurate_caption(text, *args, **kwargs):
+            value = str(text)
+            if value.startswith("В график войдёт "):
+                value = value.replace("В график войдёт ", "После фильтров, до проверки log-axis, осталось ")
+            return original_caption(value, *args, **kwargs)
+        page.st.caption = accurate_caption
+        try:
+            return original_render()
+        finally:
+            page.st.caption = original_caption
+    page.render_plots_page = guarded_render
+
     if not hasattr(page, "_petrolab_original_interactive_workspace"):
         page._petrolab_original_interactive_workspace = page._render_interactive_workspace
     original_workspace = page._petrolab_original_interactive_workspace
     page._petrolab_workspace_call_index = 0
-
-    def dashboard_workspace(
-        dataframe,
-        project_id,
-        x,
-        y,
-        group_col,
-        x_label,
-        y_label,
-        title,
-        log_x,
-        log_y,
-        style_map,
-    ):
+    def dashboard_workspace(dataframe, project_id, x, y, group_col, x_label, y_label, title, log_x, log_y, style_map):
         call_index = int(page._petrolab_workspace_call_index)
         page._petrolab_workspace_call_index = call_index + 1
         if call_index > 0:
-            return original_workspace(
-                dataframe, project_id, x, y, group_col, x_label, y_label,
-                title, log_x, log_y, style_map,
-            )
-
+            return original_workspace(dataframe, project_id, x, y, group_col, x_label, y_label, title, log_x, log_y, style_map)
         page.st.subheader("Интерактивный график")
-        page.st.caption(
-            "Кликните точку или выделите область рамкой/лассо. Для исключения точек, "
-            "рабочих групп и подробной карточки используйте «Расширенный редактор»."
-        )
-        figure = page.build_interactive_scatter(
-            dataframe,
-            x,
-            y,
-            group_col,
-            x_label=x_label,
-            y_label=y_label,
-            title=title,
-            log_x=log_x,
-            log_y=log_y,
-            style_map=style_map,
-        )
-        event = page.st.plotly_chart(
-            figure,
-            width="stretch",
-            theme=None,
-            key="petrolab_quick_interactive_plot",
-            on_select="rerun",
-            selection_mode=("points", "box", "lasso"),
-            config={"displaylogo": False, "scrollZoom": True},
-        )
+        page.st.caption("Кликните точку или выделите область. Для исключений и рабочих групп используйте «Расширенный редактор».")
+        figure = page.build_interactive_scatter(dataframe, x, y, group_col, x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y, style_map=style_map)
+        event = page.st.plotly_chart(figure, width="stretch", theme=None, key="petrolab_quick_interactive_plot", on_select="rerun", selection_mode=("points", "box", "lasso"), config={"displaylogo": False, "scrollZoom": True})
         selected_ids = page.selected_analysis_ids(event)
         if selected_ids:
             page.st.caption(f"Выбрано точек: {len(selected_ids)}.")
-
     page._render_interactive_workspace = dashboard_workspace
 
-    # Keep all small page-level compatibility policies behind one UI bootstrap invoked by app.py.
+    _install_science_policy()
     from petrolab.ui.image_page_policy import install as install_image_page_policy
     install_image_page_policy()
