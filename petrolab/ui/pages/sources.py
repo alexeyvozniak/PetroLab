@@ -239,9 +239,17 @@ def _render_schema_mapping(
                 fe_choice = st.radio(
                     "Что означает колонка Fe₂O₃ на этом листе?",
                     list(FE2O3_OPTIONS),
+                    index=None,
                     key=f"{key_prefix}_fe2o3_semantics_{sheet_index}",
                 )
-                measurement_maps[sheet_name] = {"Fe2O3": FE2O3_OPTIONS[fe_choice]}
+                if fe_choice is None:
+                    measurement_maps[sheet_name] = {}
+                    st.warning(
+                        "Нужно явно выбрать смысл Fe₂O₃. До этого предпросмотр и импорт "
+                        "не могут научно однозначно интерпретировать железо."
+                    )
+                else:
+                    measurement_maps[sheet_name] = {"Fe2O3": FE2O3_OPTIONS[fe_choice]}
                 st.caption(
                     "Выбор сохраняется вместе с набором. Если это ΣFe как Fe₂O₃, ПетроЛаб не будет "
                     "считать величину измеренным Fe³⁺ и при пересчёте сначала восстановит количество total Fe."
