@@ -8,6 +8,7 @@ from typing import Iterable, Iterator
 import pandas as pd
 
 from petrolab.db import DB_PATH
+from petrolab.storage import ensure_storage as ensure_full_storage
 
 
 def _utcnow() -> str:
@@ -17,6 +18,7 @@ def _utcnow() -> str:
 @contextmanager
 def rock_connection() -> Iterator[sqlite3.Connection]:
     """Open one rock repository connection and always close it on Windows."""
+    ensure_full_storage()
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
