@@ -31,11 +31,21 @@ def format_dataframe_for_article(
     preset = TABLE_PRESETS[preset_name]
     result = dataframe[list(columns)].copy() if columns is not None else dataframe.copy()
     for column in result.columns:
-        values = pd.to_numeric(result[column], errors="coerce")
-        if values.notna().sum() == 0:
+        original = result[column].copy()
+        values = pd.to_numeric(original, errors="coerce")
+        numeric_mask = values.notna()
+        if not numeric_mask.any():
             continue
         decimals = preset.decimals_trace if _is_trace(str(column)) else preset.decimals_major
-        result[column] = values.round(decimals)
+        # Round only cells that are genuinely numeric. Qualifiers such as '<0.01',
+        # 'bdl' or analytical comments are scientific information and must survive.
+        rounded = values.round(decimals)
+        if numeric_mask.all():
+            result[column] = rounded
+        else:
+            mixed = original.astype(object)
+            mixed.loc[numeric_mask] = rounded.loc[numeric_mask]
+            result[column] = mixed
     return result
 
 
