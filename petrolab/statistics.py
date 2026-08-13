@@ -32,12 +32,24 @@ class ClusterResult:
     method: str
 
 
+def _numeric_frame(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Return numeric data with non-finite values represented as missing."""
+    return (
+        dataframe[columns]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+    )
+
+
 def numeric_feature_candidates(dataframe: pd.DataFrame, *, exclude_meta: bool = True) -> list[str]:
     result: list[str] = []
     for column in dataframe.columns:
         if exclude_meta and str(column).startswith("_"):
             continue
-        values = pd.to_numeric(dataframe[column], errors="coerce")
+        values = (
+            pd.to_numeric(dataframe[column], errors="coerce")
+            .replace([np.inf, -np.inf], np.nan)
+        )
         if values.notna().sum() >= 2:
             result.append(str(column))
     return result
@@ -52,11 +64,18 @@ def prepare_matrix(
 ) -> PreparedMatrix:
     if not columns:
         raise ValueError("Нужно выбрать хотя бы одну числовую колонку.")
-    numeric = dataframe[columns].apply(pd.to_numeric, errors="coerce")
+    numeric = _numeric_frame(dataframe, columns)
     valid_rows = numeric.notna().any(axis=1)
     numeric = numeric.loc[valid_rows]
     if numeric.empty:
         raise ValueError("После отбора не осталось строк с числовыми данными.")
+
+    all_missing_columns = [column for column in numeric.columns if numeric[column].notna().sum() == 0]
+    if all_missing_columns:
+        raise ValueError(
+            "После очистки не осталось конечных значений в колонках: "
+            + ", ".join(map(str, all_missing_columns))
+        )
 
     strategy = "median" if impute == "median" else "mean"
     filled = SimpleImputer(strategy=strategy).fit_transform(numeric)
@@ -116,12 +135,12 @@ def run_clustering(
 
 
 def correlation_matrix(dataframe: pd.DataFrame, columns: list[str], method: str = "pearson") -> pd.DataFrame:
-    numeric = dataframe[columns].apply(pd.to_numeric, errors="coerce")
+    numeric = _numeric_frame(dataframe, columns)
     return numeric.corr(method=method)
 
 
 def descriptive_statistics(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    numeric = dataframe[columns].apply(pd.to_numeric, errors="coerce")
+    numeric = _numeric_frame(dataframe, columns)
     stats = numeric.describe(percentiles=[0.25, 0.5, 0.75]).T
     stats["missing"] = numeric.isna().sum()
     stats["median"] = numeric.median()
