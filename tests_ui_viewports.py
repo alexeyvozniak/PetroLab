@@ -131,9 +131,14 @@ def _current_group(driver: webdriver.Chrome) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _reset_desktop_metrics(driver: webdriver.Chrome) -> None:
+    driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
+    driver.set_window_size(1280, 900)
+
+
 def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
     """Select a sidebar navigation group with real pointer/keyboard events."""
-    driver.set_window_size(1280, 900)
+    _reset_desktop_metrics(driver)
     driver.refresh()
     wait = WebDriverWait(driver, 20)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
@@ -147,8 +152,6 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
                     (By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stSelectbox"]')
                 )
             )
-            # Native Selenium click matters here: Streamlit's select does not reliably open
-            # when only HTMLElement.click() is dispatched from JavaScript.
             ActionChains(driver).move_to_element(selectbox).click().perform()
             time.sleep(0.3)
 
@@ -160,7 +163,6 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
             if matching:
                 matching[0].click()
             else:
-                # Accessibility fallback for Streamlit versions that keep the menu virtualized.
                 target_index = GROUP_LABELS.index(group_label)
                 ActionChains(driver).send_keys(Keys.HOME).perform()
                 for _ in range(target_index):
@@ -176,12 +178,18 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
 
 
 def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_name: str, output: Path) -> None:
-    driver.set_window_size(width, height)
+    # Desktop Chrome on Windows refuses very narrow outer windows (about 500 px minimum).
+    # CDP emulation sets the actual CSS viewport, including the requested 390 px mobile case.
+    driver.execute_cdp_cmd(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
+    )
     time.sleep(0.8)
     metrics = driver.execute_script(
         """
         return {
           innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
           clientWidth: document.documentElement.clientWidth,
           scrollWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
           mainWidth: document.querySelector('[data-testid="stMain"]')?.getBoundingClientRect().width || 0,
@@ -189,7 +197,13 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
         };
         """
     )
-    allowed = max(metrics["innerWidth"], metrics["clientWidth"]) + 3
+    assert abs(int(metrics["innerWidth"]) - width) <= 1, (
+        f"Chrome did not apply requested CSS viewport {width}x{height}: {metrics}"
+    )
+    assert abs(int(metrics["innerHeight"]) - height) <= 1, (
+        f"Chrome did not apply requested CSS viewport {width}x{height}: {metrics}"
+    )
+    allowed = width + 3
     assert metrics["scrollWidth"] <= allowed, (
         f"Global horizontal overflow on {page_name} at {width}x{height}: {metrics}"
     )
@@ -248,6 +262,10 @@ def main() -> None:
                     _assert_viewport(driver, width, height, page_name, output)
         finally:
             if driver is not None:
+                try:
+                    driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
+                except WebDriverException:
+                    pass
                 driver.quit()
             process.terminate()
             try:
