@@ -31,18 +31,21 @@ def render_analysis_scope(
     if allow_all_projects:
         scope = st.segmented_control(
             "Область данных",
-            ["Один проект", "Все проекты"],
-            default="Один проект",
+            ["Активный проект", "Все проекты"],
+            default="Активный проект",
             key=f"{key_prefix}_scope",
         )
     else:
-        scope = "Один проект"
+        scope = "Активный проект"
 
-    if scope == "Один проект":
-        project = render_project_selector(f"{key_prefix}_project")
-        if project is None:
-            return None
-        project_id = int(project["id"])
+    if scope == "Активный проект":
+        if st.session_state.get("_sidebar_project_ready") and st.session_state.get("active_project_id") is not None:
+            project_id = int(st.session_state["active_project_id"])
+        else:
+            project = render_project_selector(f"{key_prefix}_project")
+            if project is None:
+                return None
+            project_id = int(project["id"])
 
     datasets = list_datasets(project_id)
     if not datasets:
@@ -76,9 +79,11 @@ def render_analysis_scope(
             format_func=lambda key: MINERALS.get(key, MINERALS["generic"]).name_ru,
             key=f"{key_prefix}_minerals",
         )
+        if not selected:
+            st.info("Выберите хотя бы один минерал.")
+            return None
         mineral_keys = tuple(selected)
-        if selected:
-            dataframe = dataframe[dataframe["Минерал"].astype(str).isin(selected)]
+        dataframe = dataframe[dataframe["Минерал"].astype(str).isin(selected)]
 
     if show_search:
         query = st.text_input("Поиск в выбранных данных", key=f"{key_prefix}_search")
