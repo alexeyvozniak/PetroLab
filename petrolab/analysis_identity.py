@@ -180,6 +180,11 @@ def _row_fingerprint(record: Mapping[str, object]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def source_row_fingerprint(record: Mapping[str, object]) -> str:
+    """Return the stable source-layer fingerprint used for identity and freshness checks."""
+    return _row_fingerprint(record)
+
+
 def _stable_scalar(value: object) -> str | None:
     if value is None:
         return None
