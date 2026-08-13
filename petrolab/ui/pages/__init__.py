@@ -14,7 +14,7 @@ from .projects import render_projects_page
 from .rocks import render_rocks_page
 from .science_plots import render_science_plots_page
 from .settings import render_settings_page
-from .sources import render_sources_page
+from .sources_dashboard import render_sources_dashboard_page as render_sources_page
 from .statistics import render_statistics_page
 from .ternary import render_ternary_page
 from .updates import render_updates_page
