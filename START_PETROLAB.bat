@@ -61,6 +61,8 @@ if "%PETROLAB_CI%"=="1" (
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_v011_integrity.py
     if errorlevel 1 goto fail
+    "%VENV_PY%" tests_audit_closure.py
+    if errorlevel 1 goto fail
     "%VENV_PY%" tests_ui_layout.py
     if errorlevel 1 goto fail
     "%VENV_PY%" tests_streamlit.py
