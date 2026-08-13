@@ -39,19 +39,14 @@ st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide"
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
-
-if "loaded_recipe" not in st.session_state:
-    st.session_state.loaded_recipe = None
-if "loaded_ternary_recipe" not in st.session_state:
-    st.session_state.loaded_ternary_recipe = None
+st.session_state.setdefault("loaded_recipe", None)
+st.session_state.setdefault("loaded_ternary_recipe", None)
 
 
 def _reconcile_plot_recipe_state() -> None:
     recipe = st.session_state.get("loaded_recipe")
     payload = recipe if isinstance(recipe, dict) else {}
-    token = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest() if payload else ""
+    token = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest() if payload else ""
     token_key = "_applied_plot_recipe_token"
     previous = str(st.session_state.get(token_key, ""))
     if token == previous:
@@ -71,9 +66,7 @@ def _reconcile_plot_recipe_state() -> None:
     cfg = payload.get("outlier_filters", {}) if payload else {}
     if not isinstance(cfg, dict):
         cfg = {}
-    st.session_state.plot_interactive_excluded_ids = list(
-        cfg.get("interactive_excluded_ids", [])
-    )
+    st.session_state.plot_interactive_excluded_ids = list(cfg.get("interactive_excluded_ids", []))
     st.session_state[token_key] = token
 
 
