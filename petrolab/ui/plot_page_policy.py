@@ -31,8 +31,7 @@ def _install_outlier_controls(page) -> None:
             saved_ranges = cfg.get("ranges", {}) if isinstance(cfg.get("ranges", {}), dict) else {}
             range_columns = page.st.multiselect(
                 "Ограничить числовые колонки вручную", numeric_columns,
-                default=[column for column in saved_ranges if column in numeric_columns],
-                key="plot_range_columns",
+                default=[column for column in saved_ranges if column in numeric_columns], key="plot_range_columns",
             )
             ranges = {}
             for column in range_columns:
@@ -57,8 +56,7 @@ def _install_outlier_controls(page) -> None:
             saved_method = str(cfg.get("auto_method", configured)).upper()
             auto_label = page.st.selectbox(
                 "Автоматически искать выбросы", list(auto_options),
-                index=list(auto_options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))),
-                key="outlier_method",
+                index=list(auto_options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method",
             )
             auto_method = auto_options[auto_label]
             auto_columns, outlier_ids = [], []
@@ -71,14 +69,12 @@ def _install_outlier_controls(page) -> None:
                 saved_auto_columns = cfg.get("auto_columns", [x, y])
                 auto_columns = page.st.multiselect(
                     "Колонки для автоматической проверки", numeric_columns,
-                    default=[column for column in saved_auto_columns if column in numeric_columns] or [x, y],
-                    key="outlier_columns",
+                    default=[column for column in saved_auto_columns if column in numeric_columns] or [x, y], key="outlier_columns",
                 )
                 default_threshold = float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5))
                 threshold = page.st.number_input(
                     "Порог MAD" if auto_method == "MAD" else "Множитель IQR",
-                    min_value=0.1, max_value=20.0, value=default_threshold, step=0.1,
-                    key="outlier_threshold",
+                    min_value=0.1, max_value=20.0, value=default_threshold, step=0.1, key="outlier_threshold",
                 )
                 group_candidates = [
                     column for column in [page.WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"]
@@ -87,8 +83,7 @@ def _install_outlier_controls(page) -> None:
                 scope_label = page.st.selectbox(
                     "Область статистики выбросов",
                     ["По всей выборке", "Внутри групп"] if group_candidates else ["По всей выборке"],
-                    index=1 if outlier_scope == "group" and group_candidates else 0,
-                    key="outlier_scope",
+                    index=1 if outlier_scope == "group" and group_candidates else 0, key="outlier_scope",
                 )
                 scope_group = None
                 if scope_label == "Внутри групп":
@@ -113,18 +108,16 @@ def _install_outlier_controls(page) -> None:
             limit = 3000
             candidate_map = {
                 page._point_label(row): str(row["_analysis_id"])
-                for _, row in ranged.head(limit).iterrows()
-                if "_analysis_id" in ranged.columns
+                for _, row in ranged.head(limit).iterrows() if "_analysis_id" in ranged.columns
             }
             if len(ranged) > limit:
                 page.st.caption(f"Для ручного chooser показаны первые {limit} из {len(ranged)} точек; сохранённые исключения вне chooser не теряются.")
             saved_manual = {str(value) for value in cfg.get("manual_excluded_ids", [])}
-            visible_ids = set(candidate_map.values())
-            hidden_saved = saved_manual - visible_ids
+            hidden_saved = saved_manual - set(candidate_map.values())
             defaults = [label for label, analysis_id in candidate_map.items() if analysis_id in saved_manual]
             manual_labels = page.st.multiselect(
-                "Исключить отдельные точки вручную", list(candidate_map),
-                default=defaults, key="manual_outlier_exclusions",
+                "Исключить отдельные точки вручную", list(candidate_map), default=defaults,
+                key="manual_outlier_exclusions",
             ) if candidate_map else []
             manual_ids = [candidate_map[label] for label in manual_labels]
             if hidden_saved:
@@ -172,6 +165,21 @@ def install() -> None:
         }
     page._style_map_from_df = style_map_from_df
     _install_outlier_controls(page)
+
+    original_build_scatter = page.build_scatter
+    def finite_publication_scatter(dataframe, x, y, group=None, **kwargs):
+        work = dataframe.copy()
+        for column in (x, y):
+            work[column] = pd.to_numeric(work[column], errors="coerce").replace([float("inf"), float("-inf")], pd.NA)
+        work = work.dropna(subset=[x, y])
+        if kwargs.get("log_x"):
+            work = work[work[x] > 0]
+        if kwargs.get("log_y"):
+            work = work[work[y] > 0]
+        if group and group in work.columns:
+            work[group] = work[group].astype("string").fillna("Без группы").replace("", "Без группы")
+        return original_build_scatter(work, x, y, group, **kwargs)
+    page.build_scatter = finite_publication_scatter
 
     original_render = page.render_plots_page
     def guarded_render():
