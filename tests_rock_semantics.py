@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 
+import petrolab.repositories.rock_repository as rock_repository
 import petrolab.services.rock_service as rock_service
 
 
@@ -53,5 +56,45 @@ finally:
     rock_service.list_rocks = original_list_rocks
     rock_service._existing_composition_with_units = original_existing
     rock_service.apply_rock_import_batch = original_apply
+
+# The manual dynamic editor sends the complete current table. Saving it must start by
+# deleting the old rows, so a row removed in the UI is really removed. Recognized units
+# are canonicalized at the same boundary: 100000 ppb La becomes 100 µg/g.
+class FakeConnection:
+    def __init__(self):
+        self.calls: list[tuple[str, tuple]] = []
+
+    def execute(self, sql, params=()):
+        self.calls.append((" ".join(str(sql).split()), tuple(params)))
+        return self
+
+
+fake = FakeConnection()
+original_connection = rock_repository.rock_connection
+
+@contextmanager
+def fake_connection():
+    yield fake
+
+try:
+    rock_repository.rock_connection = fake_connection
+    rock_repository.upsert_composition_values(
+        9,
+        [
+            {"analyte": "SiO2", "value": 45.0, "unit": "wt%", "method": "XRF"},
+            {"analyte": "La", "value": 100000.0, "unit": "ppb", "method": "ICP-MS"},
+        ],
+    )
+finally:
+    rock_repository.rock_connection = original_connection
+
+assert fake.calls[0][0].startswith("DELETE FROM rock_compositions")
+inserts = [params for sql, params in fake.calls if sql.startswith("INSERT INTO rock_compositions")]
+assert len(inserts) == 2
+by_analyte = {str(params[1]): params for params in inserts}
+assert float(by_analyte["SiO2"][2]) == 45.0
+assert by_analyte["SiO2"][3] == "wt%"
+assert np.isclose(float(by_analyte["La [µg/g]"][2]), 100.0)
+assert by_analyte["La [µg/g]"][3] == "µg/g"
 
 print("rock semantics tests: OK")
