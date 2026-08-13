@@ -35,18 +35,26 @@ def render_sidebar(version: str) -> str:
             active_id = ids[0]
         if active_id not in by_id:
             active_id = ids[0]
-        selected = st.selectbox("Проект", ids, index=ids.index(active_id), format_func=lambda value: str(by_id[int(value)]["name"]), key="sidebar_project", label_visibility="collapsed")
+        if st.session_state.get("sidebar_project") != active_id:
+            st.session_state["sidebar_project"] = active_id
+        selected = st.selectbox(
+            "Проект", ids,
+            format_func=lambda value: str(by_id[int(value)]["name"]),
+            key="sidebar_project", label_visibility="collapsed",
+        )
         st.session_state["active_project_id"] = int(selected)
         datasets = list_datasets(int(selected))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True
     else:
+        st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
 
     current = str(st.session_state.get("nav_route", "home"))
     if current not in ROUTE_LABELS:
         current = "home"
+        st.session_state["nav_route"] = current
     for section, entries in NAV_SECTIONS.items():
         st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
         for route, label in entries:
