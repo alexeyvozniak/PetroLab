@@ -241,25 +241,41 @@ def validate_semantic_mapping(columns: Iterable[str], semantic_map: Mapping[str,
     return clean
 
 
+def _copy_column_map(column_map: Mapping[str, object]) -> dict[str, dict]:
+    """Copy provenance metadata without sharing nested schema state between datasets."""
+    mapped: dict[str, dict] = {}
+    for key, value in column_map.items():
+        if isinstance(value, Mapping):
+            mapped[str(key)] = dict(value)
+        else:
+            mapped[str(key)] = {}
+    schema = column_map.get("__schema__", {})
+    mapped["__schema__"] = dict(schema) if isinstance(schema, Mapping) else {}
+    return mapped
+
+
 def apply_semantic_mapping(
     dataframe: pd.DataFrame,
     column_map: dict[str, dict],
     semantic_map: Mapping[str, str] | None,
 ) -> tuple[pd.DataFrame, dict[str, dict], dict[str, str]]:
     clean = validate_semantic_mapping(dataframe.columns, semantic_map)
+    mapped = _copy_column_map(column_map)
     if not clean:
-        mapped = dict(column_map)
-        mapped.setdefault("__schema__", {})["semantic"] = {}
+        mapped["__schema__"]["semantic"] = {}
         return dataframe.copy(), mapped, {}
 
     rename_map = {source: role for role, source in clean.items() if source != role}
     out = dataframe.rename(columns=rename_map).copy()
-    mapped = dict(column_map)
     for source, role in rename_map.items():
-        info = dict(mapped.pop(source))
+        # Historical/hand-built datasets may have a partial provenance map. The
+        # semantic role is still valid; retain a minimal provenance record instead of
+        # raising KeyError merely because metadata for the source column is absent.
+        info = dict(mapped.pop(source, {}))
+        info.setdefault("original", source)
         info["normalized_from"] = source
         mapped[role] = info
-    mapped.setdefault("__schema__", {})["semantic"] = clean
+    mapped["__schema__"]["semantic"] = clean
     return out, mapped, clean
 
 
