@@ -73,6 +73,8 @@ def prepare_matrix(
 
 
 def run_pca(prepared: PreparedMatrix, n_components: int = 2) -> PCAResult:
+    if prepared.matrix.shape[0] < 2:
+        raise ValueError("Для PCA нужны минимум два анализа после обработки пропусков.")
     n_components = int(max(1, min(n_components, prepared.matrix.shape[0], prepared.matrix.shape[1])))
     model = PCA(n_components=n_components)
     scores = model.fit_transform(prepared.matrix)
@@ -92,7 +94,10 @@ def run_clustering(
     n_clusters: int = 3,
     random_state: int = 42,
 ) -> ClusterResult:
-    n_clusters = int(max(2, min(n_clusters, len(prepared.index))))
+    sample_count = len(prepared.index)
+    if sample_count < 2:
+        raise ValueError("Для кластерного анализа нужны минимум два анализа после обработки пропусков.")
+    n_clusters = int(max(2, min(n_clusters, sample_count)))
     if method == "hierarchical":
         model = AgglomerativeClustering(n_clusters=n_clusters)
         labels = model.fit_predict(prepared.matrix)
