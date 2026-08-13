@@ -6,13 +6,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from petrolab.db import (
-    _json_safe_record,
-    _utcnow,
-    connect,
-    list_datasets,
-    load_dataset_dataframe,
-)
+from petrolab.db import _json_safe_record, _utcnow, connect, list_datasets, load_dataset_dataframe
 
 
 @dataclass(frozen=True)
@@ -32,6 +26,9 @@ class FormulaStatus:
     total_rows: int = 0
     current_rows: int = 0
     stale_rows: int = 0
+    valid_rows: int = 0
+    invalid_rows: int = 0
+    unknown_validity_rows: int = 0
     calculated_at: str = ""
 
     @property
@@ -39,17 +36,10 @@ class FormulaStatus:
         return bool(self.method_id)
 
 
-_INTERNAL_META = {
-    "_analysis_id",
-    "_dataset_id",
-    "_project_id",
-    "_row_index",
-    "_source_row",
-}
+_INTERNAL_META = {"_analysis_id", "_dataset_id", "_project_id", "_row_index", "_source_row"}
 
 
 def ensure_formula_storage() -> None:
-    """Create formula-result tables without mixing derived values into source data_json."""
     with connect() as con:
         con.execute(
             """
@@ -79,10 +69,29 @@ def ensure_formula_storage() -> None:
             """
         )
         con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_formula_results_dataset_method "
-            "ON formula_results(dataset_id, method_id)"
+            "CREATE INDEX IF NOT EXISTS idx_formula_results_dataset_method ON formula_results(dataset_id, method_id)"
         )
         con.commit()
+
+
+def _align_result_by_analysis_id(source: pd.DataFrame, result: pd.DataFrame) -> pd.DataFrame:
+    if len(source) != len(result):
+        raise ValueError("Число исходных и рассчитанных строк не совпадает")
+    if "_analysis_id" not in source.columns:
+        raise ValueError("Для сохранения пересчёта требуется _analysis_id")
+    if "_analysis_id" not in result.columns:
+        raise ValueError("Результат формулы потерял _analysis_id перед сохранением")
+    source_ids = source["_analysis_id"].astype(str)
+    result_ids = result["_analysis_id"].astype(str)
+    if source_ids.duplicated().any() or result_ids.duplicated().any():
+        raise ValueError("Повторяющиеся _analysis_id не позволяют безопасно сохранить пересчёт")
+    if set(source_ids) != set(result_ids):
+        raise ValueError("Набор _analysis_id результата формулы не совпадает с источником")
+    aligned = result.copy()
+    aligned["_analysis_id"] = result_ids
+    aligned = aligned.set_index("_analysis_id", drop=False).loc[source_ids.tolist()].copy()
+    aligned.index = source.index
+    return aligned
 
 
 def save_formula_results(
@@ -93,18 +102,9 @@ def save_formula_results(
     source_dataframe: pd.DataFrame,
     result_dataframe: pd.DataFrame,
 ) -> FormulaSaveResult:
-    """Persist only columns produced by the selected formula method.
-
-    Results are keyed by immutable analysis_id and remember the exact source-row update
-    timestamp. A later edit/refresh therefore makes only the affected result stale instead
-    of silently presenting an old formula as current.
-    """
+    """Persist derived values by immutable analysis_id, never by dataframe position."""
     ensure_formula_storage()
-    if "_analysis_id" not in source_dataframe.columns:
-        raise ValueError("Для сохранения пересчёта требуется _analysis_id")
-    if len(source_dataframe) != len(result_dataframe):
-        raise ValueError("Число исходных и рассчитанных строк не совпадает")
-
+    result_dataframe = _align_result_by_analysis_id(source_dataframe, result_dataframe)
     derived_columns = tuple(
         str(column)
         for column in result_dataframe.columns
@@ -114,9 +114,6 @@ def save_formula_results(
         raise ValueError("Метод не создал новых расчётных колонок")
 
     analysis_ids = source_dataframe["_analysis_id"].astype(str).tolist()
-    if len(set(analysis_ids)) != len(analysis_ids):
-        raise ValueError("В наборе обнаружены повторяющиеся _analysis_id")
-
     now = _utcnow()
     with connect() as con:
         rows = con.execute(
@@ -134,20 +131,11 @@ def save_formula_results(
         )
         payload = []
         for row_index, analysis_id in enumerate(analysis_ids):
-            derived = {
-                column: result_dataframe.iloc[row_index][column]
-                for column in derived_columns
-            }
-            payload.append(
-                (
-                    int(dataset_id),
-                    analysis_id,
-                    method_id,
-                    source_versions[analysis_id],
-                    json.dumps(_json_safe_record(derived), ensure_ascii=False),
-                    now,
-                )
-            )
+            derived = {column: result_dataframe.iloc[row_index][column] for column in derived_columns}
+            payload.append((
+                int(dataset_id), analysis_id, method_id, source_versions[analysis_id],
+                json.dumps(_json_safe_record(derived), ensure_ascii=False), now,
+            ))
         con.executemany(
             """
             INSERT INTO formula_results(
@@ -171,45 +159,48 @@ def save_formula_results(
         )
         con.commit()
 
-    return FormulaSaveResult(
-        dataset_id=int(dataset_id),
-        method_id=method_id,
-        row_count=len(analysis_ids),
-        derived_columns=derived_columns,
-    )
+    return FormulaSaveResult(int(dataset_id), method_id, len(analysis_ids), derived_columns)
 
 
 def _active_state(dataset_id: int) -> dict | None:
     ensure_formula_storage()
     with connect() as con:
-        row = con.execute(
-            "SELECT * FROM formula_dataset_state WHERE dataset_id=?",
-            (int(dataset_id),),
-        ).fetchone()
+        row = con.execute("SELECT * FROM formula_dataset_state WHERE dataset_id=?", (int(dataset_id),)).fetchone()
     return dict(row) if row else None
 
 
 def formula_status(dataset_id: int) -> FormulaStatus:
     state = _active_state(int(dataset_id))
     with connect() as con:
-        total = int(
-            con.execute(
-                "SELECT COUNT(*) FROM analysis_rows WHERE dataset_id=?",
-                (int(dataset_id),),
-            ).fetchone()[0]
-        )
+        total = int(con.execute("SELECT COUNT(*) FROM analysis_rows WHERE dataset_id=?", (int(dataset_id),)).fetchone()[0])
         if not state:
             return FormulaStatus(dataset_id=int(dataset_id), total_rows=total)
         rows = con.execute(
             """
-            SELECT fr.source_updated_at, a.updated_at
+            SELECT fr.source_updated_at, fr.derived_json, a.updated_at
             FROM formula_results fr
             JOIN analysis_rows a ON a.analysis_id=fr.analysis_id
             WHERE fr.dataset_id=? AND fr.method_id=?
             """,
             (int(dataset_id), state["active_method_id"]),
         ).fetchall()
-    current = sum(1 for row in rows if str(row["source_updated_at"]) == str(row["updated_at"]))
+
+    current = 0
+    valid = 0
+    invalid = 0
+    unknown = 0
+    for row in rows:
+        if str(row["source_updated_at"]) != str(row["updated_at"]):
+            continue
+        current += 1
+        payload = json.loads(row["derived_json"])
+        marker = payload.get("formula_valid", None)
+        if marker is True:
+            valid += 1
+        elif marker is False:
+            invalid += 1
+        else:
+            unknown += 1
     return FormulaStatus(
         dataset_id=int(dataset_id),
         method_id=str(state["active_method_id"]),
@@ -218,16 +209,17 @@ def formula_status(dataset_id: int) -> FormulaStatus:
         total_rows=total,
         current_rows=current,
         stale_rows=max(total - current, 0),
+        valid_rows=valid,
+        invalid_rows=invalid,
+        unknown_validity_rows=unknown,
         calculated_at=str(state["calculated_at"]),
     )
 
 
 def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.DataFrame:
-    """Load source values plus current derived columns from the active formula method."""
     base = load_dataset_dataframe(int(dataset_id), include_meta=True)
     if base.empty:
         return base if include_meta else base.copy()
-
     state = _active_state(int(dataset_id))
     if state:
         with connect() as con:
@@ -251,27 +243,19 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
         if all_columns:
             id_series = base["_analysis_id"].astype(str)
             for column in sorted(all_columns):
-                base[column] = [
-                    current_payloads.get(analysis_id, {}).get(column)
-                    for analysis_id in id_series
-                ]
+                base[column] = [current_payloads.get(analysis_id, {}).get(column) for analysis_id in id_series]
         base.attrs["formula_method_id"] = str(state["active_method_id"])
         base.attrs["formula_method_title"] = str(state["method_title"])
-
     if include_meta:
         return base
     return base[[column for column in base.columns if column not in _INTERNAL_META]].copy()
 
 
-def load_unified_with_derived(
-    project_id: int | None = None,
-    dataset_ids: list[int] | None = None,
-) -> pd.DataFrame:
+def load_unified_with_derived(project_id: int | None = None, dataset_ids: list[int] | None = None) -> pd.DataFrame:
     datasets = list_datasets(project_id)
     if dataset_ids is not None:
         wanted = {int(value) for value in dataset_ids}
         datasets = [dataset for dataset in datasets if int(dataset["id"]) in wanted]
-
     frames: list[pd.DataFrame] = []
     for dataset in datasets:
         frame = load_dataset_with_derived(int(dataset["id"]), include_meta=True)
@@ -321,16 +305,17 @@ def formula_provenance_rows(dataset_ids: Iterable[int] | None = None) -> list[di
         status = formula_status(dataset_id)
         if not status.has_active_formula:
             continue
-        rows.append(
-            {
-                "dataset_id": dataset_id,
-                "Набор": dataset["name"],
-                "Минерал": dataset["mineral_key"],
-                "Метод": status.method_title or status.method_id,
-                "method_id": status.method_id,
-                "Актуальных строк": status.current_rows,
-                "Устаревших строк": status.stale_rows,
-                "Рассчитано": status.calculated_at,
-            }
-        )
+        rows.append({
+            "dataset_id": dataset_id,
+            "Набор": dataset["name"],
+            "Минерал": dataset["mineral_key"],
+            "Метод": status.method_title or status.method_id,
+            "method_id": status.method_id,
+            "Fresh rows": status.current_rows,
+            "Valid formula rows": status.valid_rows,
+            "Invalid formula rows": status.invalid_rows,
+            "Unknown validity (legacy)": status.unknown_validity_rows,
+            "Устаревших строк": status.stale_rows,
+            "Рассчитано": status.calculated_at,
+        })
     return rows
