@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -30,7 +31,13 @@ def values_equal(left: Any, right: Any) -> bool:
         return True
     if isinstance(left, (int, float)) and isinstance(right, (int, float)):
         try:
-            return abs(float(left) - float(right)) <= 1e-12
+            left_value = float(left)
+            right_value = float(right)
+            if math.isnan(left_value) and math.isnan(right_value):
+                return True
+            if math.isinf(left_value) or math.isinf(right_value):
+                return left_value == right_value
+            return abs(left_value - right_value) <= 1e-12
         except (TypeError, ValueError, OverflowError):
             return False
     return left == right
@@ -80,12 +87,17 @@ def compute_changes(
 
 
 def apply_quick_filter(dataframe: pd.DataFrame, query: str) -> pd.DataFrame:
-    """Filter rows when any displayed value contains the case-insensitive query."""
+    """Filter rows when any displayed value contains the literal case-insensitive query."""
     if dataframe.empty or not query.strip():
         return dataframe
     needle = query.strip()
     mask = dataframe.astype("string").apply(
-        lambda column: column.str.contains(needle, case=False, na=False)
+        lambda column: column.str.contains(
+            needle,
+            case=False,
+            na=False,
+            regex=False,
+        )
     ).any(axis=1)
     return dataframe.loc[mask]
 
@@ -105,10 +117,16 @@ def apply_column_filters(
 
 
 def dataset_label(dataset: Mapping[str, Any]) -> str:
-    """Build the standard human-readable dataset selector label."""
+    """Build a stable human-readable dataset selector label.
+
+    Dataset names, row counts, and source filenames are not unique. Including the
+    immutable database ID prevents two otherwise identical labels from collapsing
+    when UI code uses labels as dictionary keys.
+    """
+    suffix = f' · ID {int(dataset["id"])}' if dataset.get("id") is not None else ""
     return (
         f'{dataset["project_name"]} · {dataset["name"]} · '
-        f'{dataset["row_count"]} строк · {dataset["source_filename"]}'
+        f'{dataset["row_count"]} строк · {dataset["source_filename"]}{suffix}'
     )
 
 
