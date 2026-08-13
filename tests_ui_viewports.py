@@ -24,6 +24,7 @@ GROUPS = (
     ("rocks", "Породы и изображения"),
     ("publication", "Публикация"),
 )
+GROUP_LABELS = tuple(label for _, label in GROUPS)
 
 
 def _wait_for_server(url: str, timeout: float = 30.0) -> None:
@@ -94,35 +95,42 @@ def _seed_test_data(root: Path) -> None:
     )
 
 
+def _visible_exact_text(driver: webdriver.Chrome, text: str):
+    elements = driver.find_elements(By.XPATH, f"//*[normalize-space(text())='{text}']")
+    return [element for element in elements if element.is_displayed()]
+
+
 def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page_name: str) -> None:
-    """Select a Streamlit sidebar group using stable test-id/BaseWeb hooks."""
+    """Select a sidebar navigation group without relying on Streamlit's internal widget library."""
     driver.set_window_size(1280, 900)
     driver.refresh()
     wait = WebDriverWait(driver, 20)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        select_control = wait.until(
-            EC.element_to_be_clickable(
-                (
-                    By.CSS_SELECTOR,
-                    '[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"]',
-                )
+        selectbox = wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stSelectbox"]')
             )
         )
-        select_control.click()
-        options = wait.until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '[role="option"]'))
-        )
-        for option in options:
-            if option.text.strip() == group_label:
-                option.click()
-                break
-        else:
-            raise AssertionError(
-                f"Navigation group {group_label!r} not found; options={[option.text for option in options]!r}"
-            )
-        time.sleep(1.2)
+        current_labels = [label for label in GROUP_LABELS if label in selectbox.text]
+        if group_label not in current_labels:
+            if not current_labels:
+                raise AssertionError(f"Could not determine current navigation group from: {selectbox.text!r}")
+            current = current_labels[0]
+            current_elements = [
+                element for element in _visible_exact_text(driver, current)
+                if selectbox in element.find_elements(By.XPATH, "ancestor::*[@data-testid='stSelectbox']")
+            ]
+            if not current_elements:
+                current_elements = _visible_exact_text(driver, current)
+            if not current_elements:
+                raise AssertionError(f"Visible current group label {current!r} not found")
+            driver.execute_script("arguments[0].click();", current_elements[-1])
+            wait.until(lambda d: bool(_visible_exact_text(d, group_label)))
+            desired = _visible_exact_text(driver, group_label)
+            driver.execute_script("arguments[0].click();", desired[-1])
+            time.sleep(1.2)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
     except Exception:
         driver.save_screenshot(str(output / f"{page_name}_navigation_failure.png"))
