@@ -76,7 +76,10 @@ def main() -> None:
         unified = load_unified_analyses(project_id, [dataset_id])
         assert len(unified) == 3
         assert "Σ оксидов" in unified.columns
-        assert "Mg#" in unified.columns
+        # Registry modules are import/source descriptors. Scientific derivatives such as
+        # Mg# are deliberately absent until the explicit formula/derived workflow runs.
+        assert "Mg#" not in unified.columns
+        assert "Mg#_Fe_basis" not in unified.columns
         first = unified.iloc[0]
         analysis_id = str(first["_analysis_id"])
 
@@ -130,6 +133,7 @@ def main() -> None:
         unified2 = load_unified_analyses(project_id, [dataset_id])
         assert str(unified2.iloc[0]["_analysis_id"]) == analysis_id
         assert len(list_image_assets(analysis_id=analysis_id)) == 1
+        assert "Mg#" not in unified2.columns
 
         recipe_id = save_plot_recipe("Si-Ti", {"x": "SiO2", "y": "TiO2", "dataset_ids": [dataset_id]}, project_id)
         assert any(item["id"] == recipe_id for item in list_plot_recipes(project_id))
