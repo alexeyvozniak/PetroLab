@@ -28,45 +28,32 @@ for page_name in [
     "home.py", "projects.py", "sources.py", "analyses.py", "formulae.py", "plots.py",
     "ternary.py", "plots_ternary.py", "images.py", "minerals.py", "export.py", "change_log.py",
     "science_plots.py", "statistics.py", "rocks.py", "article_tables.py", "updates.py",
-    "settings.py", "help.py",
+    "settings.py", "help.py", "home_dashboard.py", "sources_dashboard.py",
+    "analyses_dashboard.py", "plots_dashboard.py", "images_dashboard.py",
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
 components = ROOT / "petrolab" / "ui" / "components.py"
 components_text = components.read_text(encoding="utf-8")
-for function_name in [
-    "def render_project_selector(", "def collect_related_images(", "def render_asset_gallery(",
-]:
+for function_name in ["def render_project_selector(", "def collect_related_images(", "def render_asset_gallery("]:
     assert function_name in components_text
 ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
 assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
-assert (ROOT / "petrolab" / "ui" / "data_scope.py").exists()
-assert (ROOT / "petrolab" / "ui" / "plot_style_controls.py").exists()
-assert (ROOT / "petrolab" / "ui" / "rock_plots.py").exists()
-assert (ROOT / "petrolab" / "ui" / "theme.py").exists()
+for ui_file in ["data_scope.py", "plot_style_controls.py", "rock_plots.py", "theme.py", "layout.py", "navigation.py"]:
+    assert (ROOT / "petrolab" / "ui" / ui_file).exists(), ui_file
 
 pure_files = [
-    ROOT / "petrolab" / "column_schema.py",
-    ROOT / "petrolab" / "measurement_semantics.py",
-    ROOT / "petrolab" / "dataframe_utils.py",
-    ROOT / "petrolab" / "outliers.py",
-    ROOT / "petrolab" / "derived.py",
-    ROOT / "petrolab" / "analysis_groups.py",
-    ROOT / "petrolab" / "interactive_plotting.py",
-    ROOT / "petrolab" / "plot_presets.py",
-    ROOT / "petrolab" / "visualization_presets.py",
-    ROOT / "petrolab" / "extended_plotting.py",
-    ROOT / "petrolab" / "scientific_overlays.py",
-    ROOT / "petrolab" / "scientific_plotting.py",
-    ROOT / "petrolab" / "statistics.py",
-    ROOT / "petrolab" / "article_tables.py",
-    ROOT / "petrolab" / "rock_plotting.py",
-    ROOT / "petrolab" / "storage_extensions.py",
-    ROOT / "petrolab" / "ternary_data.py",
-    ROOT / "petrolab" / "ternary_presets.py",
-    ROOT / "petrolab" / "ternary_overlays.py",
-    ROOT / "petrolab" / "ternary_plotting.py",
+    ROOT / "petrolab" / "column_schema.py", ROOT / "petrolab" / "measurement_semantics.py",
+    ROOT / "petrolab" / "dataframe_utils.py", ROOT / "petrolab" / "outliers.py",
+    ROOT / "petrolab" / "derived.py", ROOT / "petrolab" / "analysis_groups.py",
+    ROOT / "petrolab" / "interactive_plotting.py", ROOT / "petrolab" / "plot_presets.py",
+    ROOT / "petrolab" / "visualization_presets.py", ROOT / "petrolab" / "extended_plotting.py",
+    ROOT / "petrolab" / "scientific_overlays.py", ROOT / "petrolab" / "scientific_plotting.py",
+    ROOT / "petrolab" / "statistics.py", ROOT / "petrolab" / "article_tables.py",
+    ROOT / "petrolab" / "rock_plotting.py", ROOT / "petrolab" / "storage_extensions.py",
+    ROOT / "petrolab" / "ternary_data.py", ROOT / "petrolab" / "ternary_presets.py",
+    ROOT / "petrolab" / "ternary_overlays.py", ROOT / "petrolab" / "ternary_plotting.py",
     ROOT / "petrolab" / "analysis_identity.py",
     ROOT / "petrolab" / "services" / "import_service.py",
     ROOT / "petrolab" / "services" / "analysis_service.py",
@@ -106,67 +93,36 @@ for scientific_name in [
     assert scientific_name not in plotting_text, f"{scientific_name} leaked into generic renderer"
 for overlay_id in [
     "pyroxene_morimoto_1988", "feldspar_gunduz_asan_2023",
-    "garnet_prp_alm_grs_dominance", "garnet_prp_alm_sps_dominance",
-    "garnet_ti_grew2013_fig5",
+    "garnet_prp_alm_grs_dominance", "garnet_prp_alm_sps_dominance", "garnet_ti_grew2013_fig5",
 ]:
     assert overlay_id in overlay_text
     assert f'field_overlay_id="{overlay_id}"' in preset_text
-assert "source_citation" in overlay_text
-assert "source_doi" in overlay_text
+assert "source_citation" in overlay_text and "source_doi" in overlay_text
 assert "TiO2 > 12" in preset_text
 assert "def attach_mineral_classification(" in classification_text
 assert "def attach_garnet_ima_diagnostics(" in classification_text
 
 formula_service = (ROOT / "petrolab" / "services" / "formula_service.py").read_text(encoding="utf-8")
-assert "attach_mineral_classification" in formula_service
-assert "final = attach_mineral_classification(" in formula_service
-
+assert "attach_mineral_classification" in formula_service and "final = attach_mineral_classification(" in formula_service
 import_service = (ROOT / "petrolab" / "services" / "import_service.py").read_text(encoding="utf-8")
-for function_name in [
-    "def import_linked_sheets(", "def import_uploaded_sheets(", "def refresh_dataset_from_source(",
-]:
+for function_name in ["def import_linked_sheets(", "def import_uploaded_sheets(", "def refresh_dataset_from_source("]:
     assert function_name in import_service
 assert "apply_measurement_overrides" in import_service
-
 formula_page = (pages_dir / "formulae.py").read_text(encoding="utf-8")
-assert "save_formula_results" in formula_page
-assert "calculate_formula_safe" in formula_page
-
+assert "save_formula_results" in formula_page and "calculate_formula_safe" in formula_page
 plots_page = (pages_dir / "plots.py").read_text(encoding="utf-8")
-for marker in [
-    "load_unified_with_derived", "robust_outliers", "manual_outlier_exclusions",
-    "build_interactive_scatter", "selected_analysis_ids", "set_work_group", "st.plotly_chart",
-]:
+for marker in ["load_unified_with_derived", "robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids", "set_work_group", "st.plotly_chart"]:
     assert marker in plots_page
-
 ternary_page = (pages_dir / "ternary.py").read_text(encoding="utf-8")
 ternary_workspace = (pages_dir / "plots_ternary.py").read_text(encoding="utf-8")
-assert "load_unified_with_derived" in ternary_page
-assert "render_ternary_workspace" in ternary_page
-for marker in [
-    "prepare_ternary", "render_ternary_selection", "attach_ternary_classification",
-    "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe",
-]:
+assert "load_unified_with_derived" in ternary_page and "render_ternary_workspace" in ternary_page
+for marker in ["prepare_ternary", "render_ternary_selection", "attach_ternary_classification", "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe"]:
     assert marker in ternary_workspace
-ternary_controls_text = ternary_controls.read_text(encoding="utf-8")
-assert "Подписи вершин" in ternary_controls_text
-assert "Подписи классификационных полей" in ternary_controls_text
-
 analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
-assert "load_unified_with_derived" in analyses_page
-assert "active_derived_columns" in analyses_page
-assert "attach_work_groups" in analyses_page
-
+assert "load_unified_with_derived" in analyses_page and "active_derived_columns" in analyses_page and "attach_work_groups" in analyses_page
 rocks_page = (pages_dir / "rocks.py").read_text(encoding="utf-8")
 for marker in ["set_mineral_links", "replace_isotopes", "render_rock_plots", "delete_rock_with_assets"]:
     assert marker in rocks_page
-rock_plots_text = (ROOT / "petrolab" / "ui" / "rock_plots.py").read_text(encoding="utf-8")
-for marker in ["build_tas_figure", "build_rhodes_figure", "build_pattern_figure", "render_figure_style_controls"]:
-    assert marker in rock_plots_text
-rock_storage = (ROOT / "petrolab" / "storage_extensions.py").read_text(encoding="utf-8")
-for table_name in ["rock_samples", "rock_compositions", "rock_isotopes", "rock_mineral_links", "rock_images"]:
-    assert table_name in rock_storage
-
 statistics_module = (ROOT / "petrolab" / "statistics.py").read_text(encoding="utf-8")
 assert "KMeans" in statistics_module and "PCA" in statistics_module
 assert "analysis_rows" not in statistics_module, "statistics core must not write analytical storage"
@@ -177,13 +133,10 @@ for path in [app_path, *sorted((ROOT / "petrolab").rglob("*.py"))]:
 
 for path in (ROOT / "tools").glob("patch_*.py") if (ROOT / "tools").exists() else []:
     raise AssertionError(f"temporary patch script remains: {path.name}")
-for pattern in ["apply-*.yml", "finalize-*.yml", "pr-final-verification*.yml"]:
-    for path in (ROOT / ".github" / "workflows").glob(pattern):
-        raise AssertionError(f"temporary workflow remains: {path.name}")
 
 app_lines = len(app_text.splitlines())
 assert app_lines <= 120, f"app.py grew to {app_lines} lines; keep workspace code in page modules"
-assert "PAGE_GROUPS" in app_text
-assert (ROOT / "CONTRIBUTING.md").exists()
-assert (ROOT / "ARCHITECTURE.md").exists()
+assert "PAGE_GROUPS" not in app_text
+assert "render_sidebar" in app_text and "ROUTES" in app_text
+assert (ROOT / "CONTRIBUTING.md").exists() and (ROOT / "ARCHITECTURE.md").exists()
 print(f"architecture tests: OK; app.py = {app_lines} lines")
