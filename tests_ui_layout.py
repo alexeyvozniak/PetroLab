@@ -57,13 +57,14 @@ for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]
 # Existing one-click destructive actions must be intercepted before reaching storage.
 assert "install_destructive_page_policy" in APP
 for marker in [
-    '"plot_recipe"', '"style_profile"', '"work_group"', '"rock_image"',
+    '"plot_recipe"', '"style_profile"', '"work_group"', '"rock_image"', '"rock_links"',
     "original_delete_recipe", "original_delete_profile", "original_clear_group",
-    "original_delete_rock_image", "st.rerun()", "Отмена",
+    "original_delete_rock_image", "original_set_mineral_links", "st.rerun()", "Отмена",
 ]:
     assert marker in DESTRUCTIVE, marker
 assert "loaded_recipe = None" in DESTRUCTIVE
 assert 'pop("style_profile_select", None)' in DESTRUCTIVE
+assert "removed = current_ids - set(new_ids)" in DESTRUCTIVE
 
 for path in sorted(PAGES.glob("*.py")):
     text = path.read_text(encoding="utf-8")
