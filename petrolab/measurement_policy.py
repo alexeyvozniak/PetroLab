@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 
 import pandas as pd
+
+_QUALIFIED_NUMBER = re.compile(
+    r"^\s*(?:<=|>=|<|>|≤|≥)\s*[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?\s*$"
+)
+_KNOWN_QUALIFIER_TEXT = {
+    "bdl", "b.d.l.", "nd", "n.d.", "n/d", "trace", "tr",
+    "below detection", "below detection limit", "ниже предела обнаружения",
+}
+_SCIENTIFIC_KINDS = {"oxide", "trace_element", "element_concentration"}
 
 
 def _copy_map(column_map: Mapping[str, object]) -> dict[str, dict]:
@@ -26,9 +36,59 @@ def _duplicates(columns, column_map: Mapping[str, object] | None) -> tuple[str, 
         base, suffix = name.rsplit("__", 1)
         info = mapping.get(name, {})
         kind = info.get("quantity_kind") if isinstance(info, Mapping) else None
-        if suffix.isdigit() and kind in {"oxide", "trace_element", "element_concentration"}:
+        if suffix.isdigit() and kind in _SCIENTIFIC_KINDS:
             found.append(f"{base} / {name}")
     return tuple(sorted(found))
+
+
+def _is_known_scientific_value(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    if text.casefold() in _KNOWN_QUALIFIER_TEXT:
+        return True
+    if _QUALIFIED_NUMBER.match(text):
+        return True
+    try:
+        float(text.replace(",", "."))
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_scientific_values(
+    dataframe: pd.DataFrame,
+    column_map: Mapping[str, object] | None,
+) -> None:
+    mapping = column_map if isinstance(column_map, Mapping) else {}
+    problems: list[str] = []
+    for column in dataframe.columns:
+        info = mapping.get(str(column), {})
+        kind = info.get("quantity_kind") if isinstance(info, Mapping) else None
+        if kind not in _SCIENTIFIC_KINDS:
+            continue
+        bad = [
+            value for value in dataframe[column].tolist()
+            if not _is_known_scientific_value(value)
+        ]
+        if bad:
+            examples = ", ".join(repr(str(value)) for value in bad[:3])
+            problems.append(f"{column}: {examples}")
+    if problems:
+        raise ValueError(
+            "Есть нераспознанные непустые значения в научных колонках: "
+            + "; ".join(problems[:8])
+            + ". Исправьте значения или единицы в источнике перед импортом."
+        )
 
 
 def validate(columns, overrides=None) -> dict[str, str]:
@@ -70,6 +130,7 @@ def apply(dataframe: pd.DataFrame, column_map: dict[str, dict], overrides=None):
             + ", ".join(duplicates)
             + ". Оставьте один исходный столбец для каждого компонента."
         )
+    _validate_scientific_values(dataframe, column_map)
     clean = validate(dataframe.columns, overrides)
     out = dataframe.copy()
     mapped = _copy_map(column_map)
