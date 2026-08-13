@@ -7,7 +7,7 @@ from .export import render_export_page
 from .formulae import render_formulae_page
 from .help import render_help_page
 from .home_dashboard import render_home_dashboard_page as render_home_page
-from .images import render_images_page
+from .images_dashboard import render_images_dashboard_page as render_images_page
 from .minerals import render_minerals_page
 from .plots import render_plots_page
 from .projects import render_projects_page
