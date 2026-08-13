@@ -9,6 +9,7 @@ from petrolab.dataframe_utils import (
     display_value,
     row_identity,
 )
+from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 
 
@@ -67,5 +68,31 @@ assert chem.loc[iqr.outlier_mask, "_analysis_id"].tolist() == ["p7"]
 manual = exclude_analysis_ids(chem, ["p1", "p7"])
 assert set(manual["_analysis_id"]) == {"p0", "p2", "p3", "p4", "p5", "p6"}
 assert len(chem) == 8
+
+# A bare Fe2O3 column is ambiguous in historical mineral-chemistry tables. The
+# scientific interpretation must be explicit rather than inherited from a UI default.
+ambiguous_fe = pd.DataFrame({"Fe2O3": [8.5], "SiO2": [40.0]})
+try:
+    apply_measurement_overrides(ambiguous_fe, {}, {})
+except ValueError as exc:
+    assert "явно подтвердить смысл" in str(exc)
+else:
+    raise AssertionError("Bare Fe2O3 must require an explicit reporting-semantics choice")
+
+measured_fe3, _, stored_measured = apply_measurement_overrides(
+    ambiguous_fe,
+    {},
+    {"Fe2O3": "Fe2O3"},
+)
+assert "Fe2O3" in measured_fe3.columns and "Fe2O3t" not in measured_fe3.columns
+assert stored_measured == {"Fe2O3": "Fe2O3"}
+
+total_fe, _, stored_total = apply_measurement_overrides(
+    ambiguous_fe,
+    {},
+    {"Fe2O3": "Fe2O3t"},
+)
+assert "Fe2O3t" in total_fe.columns and "Fe2O3" not in total_fe.columns
+assert stored_total == {"Fe2O3": "Fe2O3t"}
 
 print("dataframe utility tests: OK")
