@@ -48,6 +48,14 @@ def render_badges(items: Iterable[tuple[str, str]]) -> None:
         st.markdown('<div class="petrolab-badges">' + "".join(badges) + "</div>", unsafe_allow_html=True)
 
 
+def render_hint(text: str) -> None:
+    """Optional guidance only; never use for QC, provenance, errors, or warnings."""
+    from petrolab.settings_service import load_settings
+
+    if bool(load_settings().get("show_help_hints", True)):
+        st.caption(text)
+
+
 def render_card(title: str, body: str = "", *, meta: str = "", active: bool = False) -> None:
     active_class = " petrolab-card-active" if active else ""
     st.markdown(
