@@ -25,7 +25,10 @@ from petrolab.ui.pages import (
     render_ternary_page,
     render_updates_page,
 )
+from petrolab.ui.import_page_policy import install as install_import_page_policy
 from petrolab.ui.theme import apply_theme
+
+install_import_page_policy()
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
