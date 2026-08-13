@@ -14,8 +14,20 @@ def validate_measurement_overrides(
     overrides: Mapping[str, str] | None,
 ) -> dict[str, str]:
     available = {str(column) for column in columns}
+    requested = dict(overrides or {})
+
+    # A bare historical Fe2O3 header is scientifically ambiguous in the import layer:
+    # it may mean measured ferric iron or total Fe reported on an Fe2O3 basis. Do not
+    # silently default to either interpretation merely because a UI widget has a first
+    # option or because the caller omitted the mapping.
+    if "Fe2O3" in available and "Fe2O3" not in requested:
+        raise ValueError(
+            "Для колонки Fe2O3 нужно явно подтвердить смысл: отдельно заданное Fe3+ "
+            "или total Fe, выраженное как Fe2O3t."
+        )
+
     clean: dict[str, str] = {}
-    for source, target in (overrides or {}).items():
+    for source, target in requested.items():
         source = str(source)
         target = str(target)
         allowed = SUPPORTED_MEASUREMENT_OVERRIDES.get(source)
