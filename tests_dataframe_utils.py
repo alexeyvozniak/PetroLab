@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 from petrolab.dataframe_utils import (
@@ -12,6 +14,7 @@ from petrolab.dataframe_utils import (
     values_equal,
 )
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
+from petrolab.ui.editability import common_editable_source_columns
 
 
 original = pd.DataFrame(
@@ -65,6 +68,38 @@ label = dataset_label(
     }
 )
 assert label.endswith("ID 42")
+
+# The unified editor is column-oriented. For mixed schemas, only the physical source
+# intersection is writable; otherwise an empty union cell could become a DB-only pseudo-source.
+dataset_a = {
+    "id": 1,
+    "column_map_json": json.dumps(
+        {
+            "Sample": {"original": "Sample"},
+            "SiO2": {"original": "SiO2"},
+            "La [µg/g]": {"original": "La ppm"},
+            "__schema__": {"semantic": {"Sample": "Sample"}},
+        }
+    ),
+}
+dataset_b = {
+    "id": 2,
+    "column_map_json": json.dumps(
+        {
+            "Sample": {"original": "Sample"},
+            "SiO2": {"original": "SiO2"},
+        }
+    ),
+}
+assert common_editable_source_columns([dataset_a, dataset_b], [1]) == {
+    "Sample",
+    "SiO2",
+    "La [µg/g]",
+}
+assert common_editable_source_columns([dataset_a, dataset_b], [1, 2]) == {
+    "Sample",
+    "SiO2",
+}
 
 # Manual ranges are reversible views; the source dataframe remains untouched.
 chem = pd.DataFrame(
