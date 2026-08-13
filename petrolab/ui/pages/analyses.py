@@ -19,9 +19,16 @@ from petrolab.ui.components import (
     render_asset_gallery,
     render_project_selector,
 )
+from petrolab.ui.editability import common_editable_source_columns
 
 
-PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {"Σ оксидов", "QC суммы", WORK_GROUP_COLUMN}
+PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {
+    "Σ оксидов",
+    "QC суммы",
+    "QC химии",
+    "QC железа",
+    WORK_GROUP_COLUMN,
+}
 
 
 def _render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
@@ -97,12 +104,27 @@ def render_analyses_page() -> None:
     query = st.text_input("Поиск по всей выбранной базе", key="db_search")
     shown = apply_quick_filter(dataframe, query).copy()
 
-    protected_columns = PROTECTED_ANALYSIS_COLUMNS | set(derived_columns)
+    editable_source_columns = common_editable_source_columns(datasets, selected_ids)
+    protected_columns = (
+        set(shown.columns) - set(editable_source_columns)
+    ) | PROTECTED_ANALYSIS_COLUMNS | set(derived_columns)
     disabled_columns = [
         column
         for column in shown.columns
         if column in protected_columns or str(column).startswith("_")
     ]
+
+    if len(selected_ids) > 1:
+        st.caption(
+            "При объединении наборов редактируются только исходные колонки, которые физически "
+            "существуют во всех выбранных datasets. Для специфичной колонки выберите один набор."
+        )
+    if not editable_source_columns:
+        st.info(
+            "Для текущей выборки безопасных редактируемых source-колонок не найдено. "
+            "Старые наборы без сохранённой схемы остаются read-only до повторного импорта."
+        )
+
     edited = st.data_editor(
         shown,
         width="stretch",
