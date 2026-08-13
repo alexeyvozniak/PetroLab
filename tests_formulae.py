@@ -3,6 +3,7 @@ import pandas as pd
 
 from petrolab.minerals.base import MineralModule
 from petrolab.minerals.formulae import calculate_formula
+from petrolab.services.formula_service import _align_formula_rows
 
 
 def near(a, b, tol=0.02):
@@ -17,6 +18,20 @@ r = calculate_formula(ol, "olivine", "ol_4o_fe2").data.iloc[0]
 near(r["apfu_Si"], 1.0)
 near(r["apfu_Mg"], 2.0)
 near(r["Fo"], 100.0, 0.05)
+
+# Formula-service alignment must follow immutable analysis IDs rather than calculator row order.
+alignment_source = pd.DataFrame(
+    {"_analysis_id": ["a", "b"], "SiO2": [40.0, 41.0]},
+    index=[10, 20],
+)
+alignment_result = pd.DataFrame(
+    {"_analysis_id": ["b", "a"], "apfu_Si": [3.2, 3.1]},
+    index=[0, 1],
+)
+aligned = _align_formula_rows(alignment_source, alignment_result)
+assert aligned.index.tolist() == [10, 20]
+assert aligned["_analysis_id"].tolist() == ["a", "b"]
+assert aligned["apfu_Si"].tolist() == [3.1, 3.2]
 
 # FeOt (total Fe expressed as FeO) is a valid FeO-equivalent input when no
 # separate FeO/Fe2O3 split is supplied.
