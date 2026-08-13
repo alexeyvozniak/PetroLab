@@ -12,7 +12,7 @@ from .ternary_runtime import install as _install_ternary_runtime
 _install_ternary_runtime()
 del _install_ternary_runtime
 
-from .miners.formula_policy import install as _install_formula_policy
+from .minerals.formula_policy import install as _install_formula_policy
 _install_formula_policy()
 del _install_formula_policy
 
