@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import math
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 CLOSURE = (ROOT / "docs" / "AUDIT_V10_CLOSURE_2026-08-13.md").read_text(encoding="utf-8")
+FINAL = (ROOT / "docs" / "AUDIT_V10_FINAL_VERIFICATION_2026-08-14.md").read_text(encoding="utf-8")
 
 
 def _read(relative: str) -> str:
@@ -78,13 +78,7 @@ for marker in [
     assert marker in formula_service, marker
 
 derived = _read("petrolab/derived.py")
-for marker in [
-    "formula_valid",
-    "invalid_rows",
-    "stale_rows",
-    "current_rows",
-    "_analysis_id",
-]:
+for marker in ["formula_valid", "invalid_rows", "stale_rows", "current_rows", "_analysis_id"]:
     assert marker in derived, marker
 
 # Recovery snapshot semantics do not invent Excel rows; maintenance warnings survive rerun (A-75/A-76).
@@ -101,7 +95,7 @@ for marker in [
 ]:
     assert marker in analyses, marker
 
-# Destructive actions must be intercepted before storage (A-23 plus audit UX closure).
+# Destructive actions must be intercepted before storage (A-23 plus final audit UX closure).
 app = _read("app.py")
 destructive = _read("petrolab/ui/destructive_page_policy.py")
 assert "install_destructive_page_policy()" in app
@@ -141,8 +135,14 @@ layout = _read("petrolab/ui/layout.py")
 assert "def render_hint(" in layout
 assert "show_help_hints" in layout
 
-# The closure document must not retain already-resolved post-audit caveats.
-assert "recipe/profile deletion confirmation remains a UX polish candidate" not in CLOSURE
-assert "A dedicated post-rerun warning flash" not in CLOSURE
+# Final verification explicitly supersedes the two resolved caveats in the historical closure snapshot.
+for marker in [
+    "все 100 пунктов имеют статус `CLOSED`",
+    "Destructive actions",
+    "Post-save maintenance warnings",
+    "tests_audit_closure.py",
+    "открытых или частично закрытых пунктов не остаётся",
+]:
+    assert marker in FINAL, marker
 
 print("audit v10 closure gate: OK")
