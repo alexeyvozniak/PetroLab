@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 from datetime import datetime
@@ -35,6 +36,21 @@ def backup_source(path: str | Path, dataset_id: int) -> Path:
     return target
 
 
+def _assert_source_is_current(dataset: dict, path: Path) -> None:
+    stored_hash = str(dataset.get("source_sha256") or "").strip()
+    if not stored_hash:
+        raise ValueError(
+            f"Набор «{dataset['name']}»: не сохранён контрольный hash источника. "
+            "Сначала обновите набор из файла."
+        )
+    current_hash = sha256_file(path)
+    if current_hash != stored_hash:
+        raise ValueError(
+            f"Набор «{dataset['name']}»: исходный Excel изменён вне ПетроЛаба. "
+            "Сначала обновите базу из источника, проверьте изменения и только затем повторите запись."
+        )
+
+
 def validate_sync_change(dataset: dict, change: dict) -> None:
     if not dataset.get("sync_enabled"):
         raise ValueError(f"Набор «{dataset['name']}»: обратная запись в источник отключена")
@@ -47,6 +63,8 @@ def validate_sync_change(dataset: dict, change: dict) -> None:
         raise FileNotFoundError(path)
     if path.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ValueError("Обратная запись поддерживается только для XLSX и XLSM")
+
+    _assert_source_is_current(dataset, path)
 
     source_row = change.get("source_row")
     if source_row is None:
@@ -75,6 +93,20 @@ def _to_source_value(info: dict, value: object, column_name: str) -> object:
         raise ValueError(
             f"Колонка «{column_name}» имеет преобразование единиц; значение должно быть числом"
         ) from exc
+
+
+def _source_values_equal(left: object, right: object) -> bool:
+    if left in (None, "") and right in (None, ""):
+        return True
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        left_value = float(left)
+        right_value = float(right)
+        if math.isnan(left_value) and math.isnan(right_value):
+            return True
+        if math.isinf(left_value) or math.isinf(right_value):
+            return left_value == right_value
+        return abs(left_value - right_value) <= 1e-12
+    return left == right
 
 
 def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str:
@@ -106,16 +138,32 @@ def sync_workbook_changes(dataset_changes: list[tuple[dict, list[dict]]]) -> str
             worksheet = workbook[sheet_name] if sheet_name else workbook.active
             for change in changes:
                 info = mapping[change["column_name"]]
-                worksheet.cell(
-                    row=int(change["source_row"]),
-                    column=int(info["column_index"]),
-                    value=_to_source_value(info, change["new_value"], change["column_name"]),
+                row = int(change["source_row"])
+                column = int(info["column_index"])
+                cell = worksheet.cell(row=row, column=column)
+                expected_old_value = _to_source_value(
+                    info,
+                    change.get("old_value"),
+                    change["column_name"],
+                )
+                if not _source_values_equal(cell.value, expected_old_value):
+                    raise ValueError(
+                        f"Конфликт синхронизации в листе «{worksheet.title}», "
+                        f"строка {row}, колонка «{change['column_name']}»: "
+                        "ячейка Excel изменилась после загрузки данных. "
+                        "Сначала обновите базу из источника."
+                    )
+                cell.value = _to_source_value(
+                    info,
+                    change["new_value"],
+                    change["column_name"],
                 )
         workbook.save(temp)
+        os.replace(temp, path)
     finally:
         workbook.close()
+        temp.unlink(missing_ok=True)
 
-    os.replace(temp, path)
     new_hash = sha256_file(path)
     update_source_hash_for_path(str(path), new_hash)
     return str(backup)
