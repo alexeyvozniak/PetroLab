@@ -8,6 +8,8 @@ import streamlit as st
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
+from petrolab.ui.import_page_policy import install as install_import_page_policy
+from petrolab.ui.navigation import render_sidebar
 from petrolab.ui.pages import (
     render_analyses_page,
     render_article_tables_page,
@@ -28,14 +30,13 @@ from petrolab.ui.pages import (
     render_ternary_page,
     render_updates_page,
 )
-from petrolab.ui.import_page_policy import install as install_import_page_policy
 from petrolab.ui.plot_page_policy import install as install_plot_page_policy
 from petrolab.ui.theme import apply_theme
 
-install_import_page_policy()
-install_plot_page_policy()
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
+install_import_page_policy()
+install_plot_page_policy()
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
@@ -46,7 +47,9 @@ st.session_state.setdefault("loaded_ternary_recipe", None)
 def _reconcile_plot_recipe_state() -> None:
     recipe = st.session_state.get("loaded_recipe")
     payload = recipe if isinstance(recipe, dict) else {}
-    token = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest() if payload else ""
+    token = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest() if payload else ""
     token_key = "_applied_plot_recipe_token"
     previous = str(st.session_state.get(token_key, ""))
     if token == previous:
@@ -72,46 +75,28 @@ def _reconcile_plot_recipe_state() -> None:
 
 _reconcile_plot_recipe_state()
 
-PAGE_GROUPS = {
-    "Работа с данными": {
-        "Главная": render_home_page,
-        "Проекты": render_projects_page,
-        "Источники и импорт": render_sources_page,
-        "Единая база": render_analyses_page,
-        "Расчёты и формулы": render_formulae_page,
-    },
-    "Графики и статистика": {
-        "XY-диаграммы": render_plots_page,
-        "Треугольные диаграммы": render_ternary_page,
-        "Научные диаграммы": render_science_plots_page,
-        "Статистика и кластеры": render_statistics_page,
-    },
-    "Породы и изображения": {
-        "Породы": render_rocks_page,
-        "Изображения минералов": render_images_page,
-        "Справочник минералов": render_minerals_page,
-    },
-    "Публикация": {
-        "Таблицы для статьи": render_article_tables_page,
-        "Экспорт": render_export_page,
-    },
-    "Справка и настройки": {
-        "Что нового": render_updates_page,
-        "Инструкция": render_help_page,
-        "Настройки": render_settings_page,
-        "Журнал изменений": render_change_log_page,
-    },
+ROUTES = {
+    "home": render_home_page,
+    "sources": render_sources_page,
+    "analyses": render_analyses_page,
+    "formulae": render_formulae_page,
+    "plots": render_plots_page,
+    "ternary": render_ternary_page,
+    "science_plots": render_science_plots_page,
+    "statistics": render_statistics_page,
+    "rocks": render_rocks_page,
+    "images": render_images_page,
+    "minerals": render_minerals_page,
+    "article_tables": render_article_tables_page,
+    "export": render_export_page,
+    "projects": render_projects_page,
+    "settings": render_settings_page,
+    "help": render_help_page,
+    "updates": render_updates_page,
+    "change_log": render_change_log_page,
 }
 
 with st.sidebar:
-    st.title("◈ ПетроЛаб")
-    st.caption(f"Русская версия · v{__version__}")
-    group = st.selectbox("Рабочая область", list(PAGE_GROUPS), key="navigation_group")
-    page = st.radio("Раздел", list(PAGE_GROUPS[group]), label_visibility="collapsed", key=f"navigation_{group}")
-    st.divider()
-    st.caption(
-        "Данные → расчёт → исследование → публикация. Исходные Excel, derived-поля и "
-        "локальная интерпретация остаются отдельными слоями."
-    )
+    route = render_sidebar(__version__)
 
-PAGE_GROUPS[group][page]()
+ROUTES.get(route, render_home_page)()
