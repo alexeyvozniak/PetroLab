@@ -45,6 +45,7 @@ def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = No
     excluded_columns = excluded_columns or set()
     composition: dict[str, float] = {}
     units: dict[str, str] = {}
+    source_columns: dict[str, str] = {}
     warnings: list[str] = []
     for column, raw_value in row.items():
         if str(column) in excluded_columns:
@@ -57,10 +58,13 @@ def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = No
             continue
         canonical = descriptor.canonical_name
         if canonical in composition:
-            warnings.append(f"Повторное поле {canonical}: сохранено первое значение.")
-            continue
+            raise ValueError(
+                f"Колонки «{source_columns[canonical]}» и «{column}» обе обозначают {canonical}. "
+                "Выберите один источник этого компонента до импорта."
+            )
         composition[canonical] = float(numeric) * float(descriptor.to_canonical_factor)
         units[canonical] = descriptor.canonical_unit or descriptor.source_unit
+        source_columns[canonical] = str(column)
         if descriptor.warning:
             warnings.append(f"{column}: {descriptor.warning}")
     return composition, units, warnings
@@ -86,6 +90,23 @@ def _clean_import_names(dataframe: pd.DataFrame, name_column: str) -> list[str]:
             ". Сделайте названия уникальными до импорта, чтобы строки нельзя было перепутать."
         )
     return names
+
+
+def _existing_composition_with_units(rock_id: int) -> tuple[dict[str, float], dict[str, str]]:
+    dataframe = get_composition(int(rock_id))
+    if dataframe.empty:
+        return {}, {}
+    composition = {
+        str(row["analyte"]): float(row["value"])
+        for _, row in dataframe.iterrows()
+        if pd.notna(row.get("value"))
+    }
+    units = {
+        str(row["analyte"]): str(row.get("unit") or "")
+        for _, row in dataframe.iterrows()
+        if str(row.get("analyte") or "").strip()
+    }
+    return composition, units
 
 
 def import_rocks_wide(
@@ -139,6 +160,19 @@ def import_rocks_wide(
         metadata["laboratory"] = laboratory
         composition, units, row_warnings = canonicalize_rock_row(row, excluded)
         warnings.extend(f"{name}: {message}" for message in row_warnings)
+
+        # "Update" means update the fields supplied by this table, not erase chemistry
+        # that the new table did not contain. Merge before entering the repository's
+        # transactional replace operation so existing trace elements remain intact.
+        if on_conflict == "update" and name in existing:
+            previous_composition, previous_units = _existing_composition_with_units(
+                int(existing[name]["id"])
+            )
+            previous_composition.update(composition)
+            previous_units.update(units)
+            composition = previous_composition
+            units = previous_units
+
         prepared_rows.append({
             "name": name,
             "metadata": metadata,
@@ -222,10 +256,12 @@ def _total_fe_as_feo(composition: dict[str, float]) -> float | None:
     if fe2o3t is not None:
         return fe2o3t * FE2O3_TO_FEO_EQUIVALENT
     feo = _finite_value(composition, "FeO")
-    fe2o3 = _finite_value(composition, "Fe2O3")
-    if feo is None and fe2o3 is None:
+    if feo is None:
+        # Fe2O3 alone is measured ferric iron, not total iron and not a ferrous proxy.
+        # Without FeO/FeOt/Fe2O3t there is no defensible Fe2 denominator for Mg#.
         return None
-    return (feo or 0.0) + (fe2o3 or 0.0) * FE2O3_TO_FEO_EQUIVALENT
+    fe2o3 = _finite_value(composition, "Fe2O3")
+    return feo + (fe2o3 or 0.0) * FE2O3_TO_FEO_EQUIVALENT
 
 
 def whole_rock_mg_number(composition: dict[str, float], fe3_fraction: float | None = None) -> float:
