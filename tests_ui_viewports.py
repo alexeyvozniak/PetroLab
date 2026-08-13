@@ -147,6 +147,9 @@ def _select_group(driver: webdriver.Chrome, group_label: str, output: Path, page
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
+        wait.until(
+            lambda d: any(_visible_exact_text(d, label) for label in GROUP_LABELS)
+        )
         current_matches = {
             label: _visible_exact_text(driver, label)
             for label in GROUP_LABELS
