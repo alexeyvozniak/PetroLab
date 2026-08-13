@@ -168,9 +168,9 @@ def _normalize_concentration_unit(raw: str) -> tuple[str, str, float]:
     unit = re.sub(r"\s+", "", unit)
     if unit in {"ppm", "µg/g", "мкг/г", "mg/kg", "мг/кг", "µgg-1", "мкгг-1", "mgkg-1", "мгкг-1"}:
         return raw, "µg/g", 1.0
-    if unit in {"ppb", "ng/g", "нг/г", "ngg-1", "нгг-1"}:
+    if unit in {"ppb", "ng/g", "нг/г", "ngg-1", "нгg-1"}:
         return raw, "µg/g", 1e-3
-    if unit in {"ppt", "pg/g", "пг/г", "pgg-1", "пгг-1"}:
+    if unit in {"ppt", "pg/g", "пг/г", "pgg-1", "пгg-1"}:
         return raw, "µg/g", 1e-6
     if unit in {"wt%", "wt.%", "mass%", "мас.%", "мас%"}:
         return raw, "wt%", 1.0
@@ -182,13 +182,21 @@ def canonicalize_header(value: object) -> str:
 
 
 def infer_semantic_mapping(columns: Iterable[object]) -> dict[str, str]:
+    """Suggest only unambiguous strong semantic roles.
+
+    An exact canonical header always wins. Otherwise a role is inferred only when one
+    and only one strong alias is present. Two aliases such as Spot + Analysis are not
+    ordered guesses: the user must choose explicitly.
+    """
+    names = [str(column) for column in columns]
     result: dict[str, str] = {}
-    for column in columns:
-        token = _token(column)
-        for role, aliases in _SEMANTIC_TOKENS.items():
-            if token in aliases and role not in result:
-                result[role] = str(column)
-                break
+    for role in CANONICAL_ROLES:
+        if role in names:
+            result[role] = role
+            continue
+        candidates = [name for name in names if _token(name) in _SEMANTIC_TOKENS[role]]
+        if len(candidates) == 1:
+            result[role] = candidates[0]
     return result
 
 
@@ -241,25 +249,41 @@ def validate_semantic_mapping(columns: Iterable[str], semantic_map: Mapping[str,
     return clean
 
 
+def _copy_column_map(column_map: Mapping[str, object]) -> dict[str, dict]:
+    """Copy provenance metadata without sharing nested schema state between datasets."""
+    mapped: dict[str, dict] = {}
+    for key, value in column_map.items():
+        if isinstance(value, Mapping):
+            mapped[str(key)] = dict(value)
+        else:
+            mapped[str(key)] = {}
+    schema = column_map.get("__schema__", {})
+    mapped["__schema__"] = dict(schema) if isinstance(schema, Mapping) else {}
+    return mapped
+
+
 def apply_semantic_mapping(
     dataframe: pd.DataFrame,
     column_map: dict[str, dict],
     semantic_map: Mapping[str, str] | None,
 ) -> tuple[pd.DataFrame, dict[str, dict], dict[str, str]]:
     clean = validate_semantic_mapping(dataframe.columns, semantic_map)
+    mapped = _copy_column_map(column_map)
     if not clean:
-        mapped = dict(column_map)
-        mapped.setdefault("__schema__", {})["semantic"] = {}
+        mapped["__schema__"]["semantic"] = {}
         return dataframe.copy(), mapped, {}
 
     rename_map = {source: role for role, source in clean.items() if source != role}
     out = dataframe.rename(columns=rename_map).copy()
-    mapped = dict(column_map)
     for source, role in rename_map.items():
-        info = dict(mapped.pop(source))
+        # Historical/hand-built datasets may have a partial provenance map. The
+        # semantic role is still valid; retain a minimal provenance record instead of
+        # raising KeyError merely because metadata for the source column is absent.
+        info = dict(mapped.pop(source, {}))
+        info.setdefault("original", source)
         info["normalized_from"] = source
         mapped[role] = info
-    mapped.setdefault("__schema__", {})["semantic"] = clean
+    mapped["__schema__"]["semantic"] = clean
     return out, mapped, clean
 
 
