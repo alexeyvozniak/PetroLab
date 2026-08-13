@@ -15,7 +15,6 @@ from petrolab.extended_plotting import (
     build_pattern_figure,
     figure_bytes,
     prepare_pattern,
-    resolve_element_column,
 )
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.io_utils import numeric_candidates
@@ -91,19 +90,17 @@ def _mineral_filtered_presets(dataframe: pd.DataFrame) -> dict:
 
 
 def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]) -> list[str]:
+    """Return only columns that preserve the preset quantity and unit semantics."""
     candidates: list[str] = []
     if requested in numeric:
         candidates.append(requested)
-    if requested == "FeOt" and "FeO" in numeric:
-        candidates.append("FeO")
-    if requested == "Ni":
-        for candidate in ["Ni [µg/g]", "NiO", "Ni"]:
-            if candidate in numeric and candidate not in candidates:
-                candidates.append(candidate)
-    if requested and requested not in candidates:
-        canonical_trace = resolve_element_column(dataframe, requested, allow_bare=True)
-        if canonical_trace and canonical_trace in numeric:
-            candidates.append(canonical_trace)
+    # Trace-element aliases with an explicit canonical concentration unit are safe.
+    # Oxide-vs-element and total-Fe-vs-ferrous substitutions are not.
+    prefix = f"{requested} ["
+    for column in numeric:
+        text = str(column)
+        if text.startswith(prefix) and "µg/g" in text and text not in candidates:
+            candidates.append(text)
     return candidates
 
 
@@ -256,13 +253,17 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     if len(available) < 2:
         st.info(
             "Недостаточно элементов с подходящими числовыми концентрациями. Для нормированного REE/spider "
-            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent."
+            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent; K, P и Ti также "
+            "могут быть стехиометрически получены из K2O, P2O5 и TiO2 wt.% с явным provenance."
         )
         return
     selected = st.multiselect("Элементы", list(preferred), default=available, key="pattern_elements")
     pattern = prepare_pattern(dataframe, selected, reference)
     if pattern.missing_elements:
         st.caption("Не использованы: " + ", ".join(pattern.missing_elements))
+    converted = [label for label in pattern.source_columns.values() if "→" in label]
+    if converted:
+        st.caption("Стехиометрические преобразования: " + "; ".join(converted))
     st.caption(f"Вошло кривых: {len(pattern.data)} · исключено пустых строк: {pattern.excluded_rows}")
 
     categories = _categorical_candidates(dataframe)
