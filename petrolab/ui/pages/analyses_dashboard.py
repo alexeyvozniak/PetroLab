@@ -12,6 +12,7 @@ from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages import analyses as legacy
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
+_SAVE_FLASH_KEY = "analysis_save_flash"
 
 
 def _project_id() -> int | None:
@@ -44,6 +45,25 @@ def _view_columns(dataframe, derived: set[str], mode: str):
     }[mode]
 
 
+def _show_save_flash() -> None:
+    flash = st.session_state.pop(_SAVE_FLASH_KEY, None)
+    if not isinstance(flash, dict):
+        return
+    message = str(flash.get("success") or "").strip()
+    if message:
+        st.success(message)
+    for warning in flash.get("warnings", []):
+        st.warning(str(warning))
+
+
+def _rerun_with_result(message: str, warnings: list[str]) -> None:
+    st.session_state[_SAVE_FLASH_KEY] = {
+        "success": message,
+        "warnings": [str(warning) for warning in warnings],
+    }
+    st.rerun()
+
+
 def render_analyses_dashboard_page() -> None:
     project_id = _project_id()
     render_page_header(
@@ -51,6 +71,7 @@ def render_analyses_dashboard_page() -> None:
         "Исходная химия, локальная интерпретация и актуальные расчётные поля в одной рабочей таблице.",
         eyebrow="Данные",
     )
+    _show_save_flash()
     if project_id is None:
         st.info("Сначала создайте проект."); return
     datasets = list_datasets(project_id)
@@ -88,13 +109,21 @@ def render_analyses_dashboard_page() -> None:
         if save.button("Сохранить", type="primary", disabled=not changes, width="stretch"):
             result = save_changes_to_database(changes)
             if result.ok:
-                st.success(f"Сохранено изменений: {result.saved_changes}."); st.rerun()
-            for error in result.errors: st.error(error)
+                _rerun_with_result(
+                    f"Сохранено изменений: {result.saved_changes}.",
+                    result.warnings,
+                )
+            for error in result.errors:
+                st.error(error)
         if sync.button("Сохранить и синхронизировать Excel", disabled=not changes, width="stretch"):
             result = save_changes_and_sync(changes)
             if result.ok:
-                st.success(f"Сохранено: {result.saved_changes}; обновлено файлов: {result.synced_files}."); st.rerun()
-            for error in result.errors: st.error(error)
+                _rerun_with_result(
+                    f"Сохранено: {result.saved_changes}; обновлено файлов: {result.synced_files}.",
+                    result.warnings,
+                )
+            for error in result.errors:
+                st.error(error)
         st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
     with point_tab:
         if len(shown) > 3000:
