@@ -167,6 +167,40 @@ def _restore_missing_input_semantics(
     return out
 
 
+def _align_formula_rows(source: pd.DataFrame, calculated: pd.DataFrame) -> pd.DataFrame:
+    """Align calculator output to source rows without relying on physical row order.
+
+    Immutable analysis IDs are the primary contract. For ad-hoc dataframes without IDs,
+    identical pandas indexes are required. A calculator that drops, duplicates or replaces
+    analytical identities is rejected rather than silently attaching derived values to the
+    wrong source row.
+    """
+    if len(source) != len(calculated):
+        raise ValueError("Число строк результата формулы не совпадает с исходными анализами")
+
+    if "_analysis_id" in source.columns:
+        if "_analysis_id" not in calculated.columns:
+            raise ValueError("Результат формулы потерял _analysis_id")
+        source_ids = source["_analysis_id"].astype(str)
+        calculated_ids = calculated["_analysis_id"].astype(str)
+        if source_ids.duplicated().any() or calculated_ids.duplicated().any():
+            raise ValueError("Нельзя выровнять формулу: обнаружены повторяющиеся _analysis_id")
+        if set(source_ids) != set(calculated_ids):
+            raise ValueError("Набор _analysis_id результата формулы не совпадает с источником")
+
+        aligned = calculated.copy()
+        aligned["_analysis_id"] = calculated_ids
+        aligned = aligned.set_index("_analysis_id", drop=False).loc[source_ids.tolist()].copy()
+        aligned.index = source.index
+        return aligned
+
+    if not source.index.equals(calculated.index):
+        raise ValueError(
+            "Результат формулы изменил порядок/индекс строк, а _analysis_id отсутствует"
+        )
+    return calculated.copy()
+
+
 def calculate_formula_safe(
     dataframe: pd.DataFrame,
     mineral_key: str,
@@ -175,11 +209,12 @@ def calculate_formula_safe(
     """Calculate formula + source-aware classification while hiding temporary conversions."""
     prepared, preparation_note = prepare_formula_input(dataframe)
     result = calculate_formula(prepared, mineral_key, method_id)
+    aligned_result = _align_formula_rows(dataframe, result.data)
 
     final = dataframe.copy()
-    for column in result.data.columns:
+    for column in aligned_result.columns:
         if column not in prepared.columns:
-            final[column] = result.data[column].to_numpy(copy=False)
+            final[column] = aligned_result[column]
 
     final = _restore_missing_input_semantics(final, dataframe, mineral_key)
 
