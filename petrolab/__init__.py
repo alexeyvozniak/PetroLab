@@ -9,3 +9,8 @@ from .services.import_runtime import install as _install_import_runtime
 
 _install_import_runtime()
 del _install_import_runtime
+
+from .minerals.formula_policy import install as _install_formula_policy
+
+_install_formula_policy()
+del _install_formula_policy
