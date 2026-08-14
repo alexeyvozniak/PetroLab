@@ -42,9 +42,10 @@ def attach_chemical_outlier_screen(
     """Attach a conservative, non-destructive within-group chemistry screening flag.
 
     This is intentionally an exploratory screen, not an exclusion rule. For each sufficiently
-    populated recognition group, each measured wt.% component is compared with the group median
-    using a robust MAD/IQR scale. Rows are flagged only for large deviations. Small groups and
-    zero-dispersion components are left unclassified rather than forcing an outlier decision.
+    populated *resolved* recognition group, each measured wt.% component is compared with the
+    group median using a robust MAD/IQR scale. Rows are flagged only for large deviations. Small
+    groups, unresolved mixtures and zero-dispersion components are left unclassified rather than
+    forcing an outlier decision.
 
     No row is removed and no QC decision is changed. The caller should present the result as
     "potential chemical outlier" and leave the final interpretation to the user.
@@ -66,6 +67,10 @@ def attach_chemical_outlier_screen(
 
     reasons: dict[object, list[str]] = {index: [] for index in out.index}
     for group_name in groups.unique():
+        # An unresolved bucket may contain several unrelated minerals. Treating it as one
+        # statistical population would manufacture meaningless outliers.
+        if group_name == "__unresolved__":
+            continue
         group_index = groups.index[groups == group_name]
         if len(group_index) < int(min_group_size):
             continue
