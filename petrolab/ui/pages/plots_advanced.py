@@ -21,7 +21,11 @@ from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
-from petrolab.ui.destructive_page_policy import render_plot_confirmations
+from petrolab.ui.plot_actions import (
+    delete_plot_recipe,
+    delete_style_profile,
+    render_plot_confirmations,
+)
 from petrolab.ui.xy_components import (
     apply_interactive_exclusions,
     render_advanced_interactive,
@@ -34,8 +38,6 @@ from petrolab.ui.xy_components import (
 
 def _recipe_controls(project_id: int) -> tuple[dict, list[dict]]:
     """Load/reset saved XY recipes without rendering another project scope."""
-    from petrolab.ui.pages import plots as legacy
-
     recipe_records = list_plot_recipes(project_id)
     style_records = list_style_profiles(project_id)
     with st.expander("Сохранённые рецепты и профили", expanded=False):
@@ -60,7 +62,7 @@ def _recipe_controls(project_id: int) -> tuple[dict, list[dict]]:
                     )
                     st.rerun()
                 if delete_col.button("Удалить рецепт", key="delete_recipe_btn", width="stretch"):
-                    legacy.delete_plot_recipe(int(chosen["id"]))
+                    delete_plot_recipe(int(chosen["id"]))
                     if "_pending_destructive_plot_recipe" not in st.session_state:
                         st.success("Рецепт удалён.")
                     st.rerun()
@@ -246,7 +248,6 @@ def _style_controls(
 ) -> dict:
     if not group_col or group_col not in plot_source.columns:
         return {}
-    from petrolab.ui.pages import plots as legacy
 
     group_values = sorted(plot_source[group_col].astype("string").fillna("Без группы").replace("", "Без группы").unique().tolist())
     with st.expander("Маркеры и стили групп", expanded=False):
@@ -290,7 +291,7 @@ def _style_controls(
             st.success("Профиль стилей сохранён.")
             st.rerun()
         if selected_profile != "—" and st.button("Удалить выбранный профиль", key="delete_style_profile"):
-            legacy.delete_style_profile(int(profile_map[selected_profile]["id"]))
+            delete_style_profile(int(profile_map[selected_profile]["id"]))
             st.rerun()
         return styles
 

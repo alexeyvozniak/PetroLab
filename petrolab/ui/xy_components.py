@@ -10,6 +10,7 @@ from petrolab.outliers import OutlierResult, apply_numeric_ranges, exclude_analy
 from petrolab.plotting import MARKERS
 from petrolab.settings_service import load_settings
 from petrolab.ui.components import collect_related_images, render_asset_gallery
+from petrolab.ui.plot_actions import clear_work_group
 
 
 GROUP_COLORS = (
@@ -507,10 +508,7 @@ def render_advanced_interactive(
             st.success(f"Рабочая группа назначена для {changed} точек.")
             st.rerun()
         if g2.button("Убрать рабочую группу", key="clear_work_group", width="stretch"):
-            # Keep the existing centralized destructive confirmation until that policy is refactored.
-            from petrolab.ui.pages import plots as legacy
-
-            changed = legacy.clear_work_group(selected_ids)
+            changed = clear_work_group(selected_ids)
             if changed:
                 st.success(f"Рабочая группа очищена у {changed} точек.")
                 st.rerun()
