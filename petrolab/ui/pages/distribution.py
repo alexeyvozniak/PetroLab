@@ -7,7 +7,7 @@ from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.layout import render_hint, render_page_header
 from petrolab.partition_seed_models import seed_initial_alkaline_models
-from petrolab.partition_import import import_partition_table
+from petrolab.partition_import import import_partition_table, read_partition_upload
 
 _META={"_analysis_id","_dataset_id","_project_id","_row_index","_source_row"}
 def render_distribution_page() -> None:
@@ -20,8 +20,8 @@ def render_distribution_page() -> None:
             made=seed_initial_alkaline_models()
             st.success("Добавлено моделей: "+str(len(made)) if made else "Эти модели уже есть в библиотеке.")
     with st.expander("Импорт полной литературной таблицы D", expanded=False):
-        upload=st.file_uploader("GERM / собственная таблица CSV или TSV", type=["csv","tsv","txt"], key="partition_table_upload")
-        st.caption("Импортируются любые элементы, включая major elements. Обязательны: Rock Type, Mineral, Element, Value, Reference; DOI и тип определения сохраняются, если есть.")
+        upload=st.file_uploader("GERM / собственная таблица (CSV, TSV или Excel)", type=["csv","tsv","txt","xlsx","xls"], key="partition_table_upload")
+        st.caption("Поддерживается текущий экспорт GERM KdD: Rock Types, Minerals, Kd, Kd Sigma, Kd Low, Kd High, Definition и Type. Импортируются любые элементы, включая главные; интервал не превращается в среднее. Значения в GERM заданы по элементам, не по оксидам.")
         if upload is not None and st.button("Импортировать таблицу D"):
             try:
                 raw=upload.getvalue()
