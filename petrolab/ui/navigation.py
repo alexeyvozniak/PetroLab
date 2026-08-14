@@ -21,6 +21,17 @@ def navigate(route: str) -> None:
         st.session_state["nav_route"] = route
 
 
+def _route_button(route: str, label: str, current: str) -> None:
+    if st.button(
+        label,
+        key=f"nav_{route}",
+        type="primary" if route == current else "secondary",
+        width="stretch",
+    ):
+        st.session_state["nav_route"] = route
+        st.rerun()
+
+
 def render_sidebar(version: str) -> str:
     st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
@@ -52,10 +63,15 @@ def render_sidebar(version: str) -> str:
     if current not in ROUTE_LABELS:
         current = "home"
         st.session_state["nav_route"] = current
+
     for section, entries in NAV_SECTIONS.items():
+        if section == "Система":
+            system_routes = {route for route, _ in entries}
+            with st.expander("Система", expanded=current in system_routes):
+                for route, label in entries:
+                    _route_button(route, label, current)
+            continue
         st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
         for route, label in entries:
-            if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch"):
-                st.session_state["nav_route"] = route
-                st.rerun()
+            _route_button(route, label, current)
     return current
