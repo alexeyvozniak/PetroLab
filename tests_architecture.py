@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parent
 app_path = ROOT / "app.py"
 app_text = app_path.read_text(encoding="utf-8")
 pages_dir = ROOT / "petrolab" / "ui" / "pages"
+ui_dir = ROOT / "petrolab" / "ui"
 
 for forbidden in [
     "import pandas", "import matplotlib", "def compute_changes", "def apply_quick_filter",
@@ -25,8 +26,8 @@ for renderer in [
     assert renderer in app_text
 
 for page_name in [
-    "projects.py", "analyses.py", "formulae.py", "plots.py", "plots_advanced.py",
-    "ternary.py", "plots_ternary.py", "images.py", "minerals.py", "export.py", "change_log.py",
+    "projects.py", "formulae.py", "plots.py", "plots_advanced.py",
+    "ternary.py", "plots_ternary.py", "minerals.py", "export.py", "change_log.py",
     "science_plots.py", "statistics.py", "rocks.py", "article_tables.py", "updates.py",
     "settings.py", "help.py", "home_dashboard.py", "sources_dashboard.py",
     "analyses_dashboard.py", "plots_dashboard.py", "images_dashboard.py",
@@ -34,33 +35,40 @@ for page_name in [
     assert (pages_dir / page_name).exists(), page_name
 
 # Dashboard migrations are authoritative: removed renderers/policies must not return.
-for legacy_path in [
+for obsolete in [
     pages_dir / "home.py",
     pages_dir / "sources.py",
-    ROOT / "petrolab" / "ui" / "import_page_policy.py",
-    ROOT / "petrolab" / "ui" / "plot_page_policy.py",
+    pages_dir / "analyses.py",
+    pages_dir / "images.py",
+    ui_dir / "import_page_policy.py",
+    ui_dir / "plot_page_policy.py",
+    ui_dir / "image_page_policy.py",
 ]:
-    assert not legacy_path.exists(), f"obsolete UI layer returned: {legacy_path.name}"
-for bootstrap in ["install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy"]:
+    assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
+for bootstrap in [
+    "install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy",
+    "install_image_page_policy",
+]:
     assert bootstrap not in app_text, bootstrap
 
-components = ROOT / "petrolab" / "ui" / "components.py"
+components = ui_dir / "components.py"
 components_text = components.read_text(encoding="utf-8")
 for function_name in ["def render_project_selector(", "def collect_related_images(", "def render_asset_gallery("]:
     assert function_name in components_text
-project_context = ROOT / "petrolab" / "ui" / "project_context.py"
+project_context = ui_dir / "project_context.py"
 assert project_context.exists()
 project_context_text = project_context.read_text(encoding="utf-8")
 for function_name in ["def active_project(", "def active_project_id(", "def set_active_project("]:
     assert function_name in project_context_text
-ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
+ternary_controls = ui_dir / "ternary_controls.py"
 assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
 for ui_file in [
     "data_scope.py", "plot_style_controls.py", "rock_plots.py", "theme.py", "layout.py",
     "navigation.py", "project_context.py", "destructive_actions.py", "xy_components.py",
+    "analysis_components.py", "image_components.py", "plot_actions.py",
 ]:
-    assert (ROOT / "petrolab" / "ui" / ui_file).exists(), ui_file
+    assert (ui_dir / ui_file).exists(), ui_file
 
 pure_files = [
     ROOT / "petrolab" / "column_schema.py", ROOT / "petrolab" / "measurement_semantics.py",
@@ -130,7 +138,7 @@ assert "apply_measurement_overrides" in import_service
 formula_page = (pages_dir / "formulae.py").read_text(encoding="utf-8")
 assert "save_formula_results" in formula_page and "calculate_formula_safe" in formula_page
 
-# XY implementation lives in dashboard/advanced/components; plots.py is only a tiny guarded-action facade.
+# XY implementation lives in dashboard/advanced/components; plots.py is only a tiny guarded-action facade for now.
 plots_facade = (pages_dir / "plots.py").read_text(encoding="utf-8")
 assert "def render_plots_page(" not in plots_facade
 assert "load_unified_with_derived" not in plots_facade
@@ -139,17 +147,26 @@ for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group",
 plots_advanced = (pages_dir / "plots_advanced.py").read_text(encoding="utf-8")
 for marker in ["load_unified_with_derived", "render_outlier_controls", "render_advanced_interactive", "save_plot_recipe"]:
     assert marker in plots_advanced, marker
-xy_components = (ROOT / "petrolab" / "ui" / "xy_components.py").read_text(encoding="utf-8")
+xy_components = (ui_dir / "xy_components.py").read_text(encoding="utf-8")
 for marker in ["robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids", "set_work_group", "st.plotly_chart"]:
     assert marker in xy_components, marker
+
+# Analysis and image dashboards now own their UI directly.
+analyses_dashboard = (pages_dir / "analyses_dashboard.py").read_text(encoding="utf-8")
+for marker in ["analysis_components", "load_unified_with_derived", "active_derived_columns", "attach_work_groups"]:
+    assert marker in analyses_dashboard, marker
+assert "from petrolab.ui.pages import analyses" not in analyses_dashboard
+images_dashboard = (pages_dir / "images_dashboard.py").read_text(encoding="utf-8")
+for marker in ["image_components", "create_assigned_image_batch", "relink_image_asset", "active_project_id"]:
+    assert marker in images_dashboard, marker
+assert "from petrolab.ui.pages import images" not in images_dashboard
+assert "render_project_selector" not in images_dashboard
 
 ternary_page = (pages_dir / "ternary.py").read_text(encoding="utf-8")
 ternary_workspace = (pages_dir / "plots_ternary.py").read_text(encoding="utf-8")
 assert "load_unified_with_derived" in ternary_page and "render_ternary_workspace" in ternary_page
 for marker in ["prepare_ternary", "render_ternary_selection", "attach_ternary_classification", "build_interactive_ternary", "build_publication_ternary", "selected_analysis_ids", "save_plot_recipe"]:
     assert marker in ternary_workspace
-analyses_page = (pages_dir / "analyses.py").read_text(encoding="utf-8")
-assert "load_unified_with_derived" in analyses_page and "active_derived_columns" in analyses_page and "attach_work_groups" in analyses_page
 rocks_page = (pages_dir / "rocks.py").read_text(encoding="utf-8")
 for marker in ["_set_mineral_links", "replace_isotopes", "render_rock_plots", "delete_rock_with_assets", "confirm_then"]:
     assert marker in rocks_page
