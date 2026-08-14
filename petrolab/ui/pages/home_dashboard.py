@@ -18,11 +18,6 @@ def _go(route: str) -> None:
     st.rerun()
 
 
-def _action(column, label: str, route: str, primary: bool = False) -> None:
-    if column.button(label, type="primary" if primary else "secondary", width="stretch"):
-        _go(route)
-
-
 def render_home_dashboard_page() -> None:
     project = active_project()
     if project is None:
@@ -45,10 +40,25 @@ def render_home_dashboard_page() -> None:
         context=context,
     )
 
-    a, b, c = st.columns(3)
-    _action(a, "Импортировать данные", "sources", True)
-    _action(b, "Открыть базу анализов", "analyses")
-    _action(c, "Построить XY-диаграмму", "plots")
+    render_section_header("Продолжить работу", "Основной научный цикл")
+    labels = [
+        ("01 · Импорт", "Excel / CSV и обновление источников", "sources"),
+        ("02 · Расчёты", "APFU и end-members", "formulae"),
+        ("03 · Исследование", "XY, ternary, REE и статистика", "plots"),
+        ("04 · Публикация", "Таблицы и экспорт", "article_tables"),
+    ]
+    cols = st.columns(4)
+    for index, (col, (title, note, route)) in enumerate(zip(cols, labels)):
+        with col:
+            st.markdown(f"**{title}**")
+            st.caption(note)
+            if st.button(
+                "Открыть",
+                key=f"home_{route}",
+                type="primary" if index == 0 else "secondary",
+                width="stretch",
+            ):
+                _go(route)
 
     render_section_header("Состояние проекта")
     m1, m2, m3, m4 = st.columns(4)
@@ -61,21 +71,6 @@ def render_home_dashboard_page() -> None:
         (f"{len(rock_summary(project_id))} пород", "neutral"),
         ("Расчёты актуальны" if stale == 0 else "Есть устаревшие расчёты", "success" if stale == 0 else "warning"),
     ])
-
-    render_section_header("Продолжить работу", "Основной научный цикл")
-    labels = [
-        ("01 · Импорт", "Excel / CSV и обновление источников", "sources"),
-        ("02 · Расчёты", "APFU и end-members", "formulae"),
-        ("03 · Исследование", "XY, ternary, REE и статистика", "plots"),
-        ("04 · Публикация", "Таблицы и экспорт", "article_tables"),
-    ]
-    cols = st.columns(4)
-    for col, (title, note, route) in zip(cols, labels):
-        with col:
-            st.markdown(f"**{title}**")
-            st.caption(note)
-            if st.button("Открыть", key=f"home_{route}", width="stretch"):
-                _go(route)
 
     render_section_header("Последние наборы", "Активный проект")
     if not datasets:
