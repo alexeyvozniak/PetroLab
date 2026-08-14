@@ -23,6 +23,7 @@ from petrolab.scientific_plotting import build_scientific_xy_figure
 from petrolab.settings_service import load_settings
 from petrolab.ui.components import collect_related_images, render_asset_gallery
 from petrolab.ui.data_scope import render_analysis_scope
+from petrolab.ui.layout import render_page_header
 from petrolab.ui.plot_style_controls import render_custom_fields, render_figure_style_controls
 from petrolab.visualization_presets import POINT_STYLE_PRESETS, SCIENTIFIC_PLOT_PRESETS
 
@@ -30,6 +31,12 @@ from petrolab.visualization_presets import POINT_STYLE_PRESETS, SCIENTIFIC_PLOT_
 MINERAL_PRESET_ALIASES = {
     "ilmenite": "fe_ti_oxide",
 }
+_PATTERN_YLABELS = {
+    "Без нормировки": "Concentration [µg/g equivalent]",
+    "CI-хондрит · McDonough & Sun (1995)": "Sample / CI chondrite",
+    "Primitive mantle · Sun & McDonough (1989)": "Sample / primitive mantle",
+}
+_LINE_STYLES = ("-", "--", ":", "-.")
 
 
 def _categorical_candidates(dataframe: pd.DataFrame) -> list[str]:
@@ -76,17 +83,20 @@ def _selected_point_details(dataframe: pd.DataFrame, selected_ids: list[str]) ->
 
 
 def _mineral_filtered_presets(dataframe: pd.DataFrame) -> dict:
-    presets = {key: preset for key, preset in SCIENTIFIC_PLOT_PRESETS.items() if preset.plot_type == "xy"}
+    presets = {
+        key: preset
+        for key, preset in SCIENTIFIC_PLOT_PRESETS.items()
+        if preset.plot_type == "xy"
+    }
     if "Минерал" not in dataframe.columns:
         return presets
     present = set(dataframe["Минерал"].dropna().astype(str))
-    filtered = {
+    return {
         key: preset
         for key, preset in presets.items()
         if preset.mineral_key is None
         or MINERAL_PRESET_ALIASES.get(str(preset.mineral_key), str(preset.mineral_key)) in present
     }
-    return filtered or presets
 
 
 def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]) -> list[str]:
@@ -94,14 +104,29 @@ def _axis_candidates(dataframe: pd.DataFrame, requested: str, numeric: list[str]
     candidates: list[str] = []
     if requested in numeric:
         candidates.append(requested)
-    # Explicit canonical concentration units are safe aliases of a requested element.
-    # Oxide-vs-element and total-Fe-vs-ferrous substitutions are not.
     prefix = f"{requested} ["
     for column in numeric:
         text = str(column)
         if text.startswith(prefix) and "µg/g" in text and text not in candidates:
             candidates.append(text)
     return candidates
+
+
+def _sync_science_axis_defaults(preset_id: str, preset, x: str, y: str, matches_preset: bool) -> None:
+    """Reset literature labels only when the selected axes/preset actually change."""
+    signature = (str(preset_id), str(x), str(y))
+    key = "_science_xy_axis_signature"
+    if st.session_state.get(key) == signature:
+        return
+    if matches_preset:
+        st.session_state["science_xy_title"] = preset.title
+        st.session_state["science_xy_xlabel"] = preset.x_label or x
+        st.session_state["science_xy_ylabel"] = preset.y_label or y
+    else:
+        st.session_state["science_xy_title"] = ""
+        st.session_state["science_xy_xlabel"] = str(x)
+        st.session_state["science_xy_ylabel"] = str(y)
+    st.session_state[key] = signature
 
 
 def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
@@ -121,9 +146,6 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
         key="science_xy_preset",
     )
     preset = applicable[preset_id]
-    st.caption(f"Источник: {preset.source}" + (f" · DOI {preset.doi}" if preset.doi else ""))
-    if preset.note:
-        st.info(preset.note)
 
     x_candidates = _axis_candidates(dataframe, preset.x, numeric)
     y_candidates = _axis_candidates(dataframe, preset.y, numeric)
@@ -139,12 +161,22 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     c1, c2 = st.columns(2)
     x = c1.selectbox("Ось X", numeric, index=numeric.index(x_default), key="science_xy_x")
     y = c2.selectbox("Ось Y", numeric, index=numeric.index(y_default), key="science_xy_y")
+    matches_preset = x in x_candidates and y in y_candidates
+    _sync_science_axis_defaults(preset_id, preset, x, y, matches_preset)
+
+    if matches_preset:
+        st.caption(f"Источник: {preset.source}" + (f" · DOI {preset.doi}" if preset.doi else ""))
+        if preset.note:
+            st.info(preset.note)
+    else:
+        st.caption(
+            "Пользовательские оси: литературное название, source citation и overlay preset'а отключены."
+        )
+
     l1, l2 = st.columns(2)
-    x_label_default = preset.x_label if x in x_candidates else x
-    y_label_default = preset.y_label if y in y_candidates else y
-    x_label = l1.text_input("Подпись X", value=x_label_default or x, key="science_xy_xlabel")
-    y_label = l2.text_input("Подпись Y", value=y_label_default or y, key="science_xy_ylabel")
-    title = st.text_input("Название рисунка", value=preset.title, key="science_xy_title")
+    x_label = l1.text_input("Подпись X", key="science_xy_xlabel")
+    y_label = l2.text_input("Подпись Y", key="science_xy_ylabel")
+    title = st.text_input("Название рисунка", key="science_xy_title")
 
     categories = _categorical_candidates(dataframe)
     group_column = st.selectbox("Группировать точки", ["Без группировки"] + categories, key="science_xy_group")
@@ -153,12 +185,15 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     style = render_figure_style_controls(dataframe, key_prefix="science_xy")
     fields = render_custom_fields("science_xy")
     overlay_enabled = False
-    overlay_allowed = x in x_candidates and y in y_candidates
     if preset.overlay_id and preset.overlay_id in XY_OVERLAYS:
-        if not overlay_allowed:
+        if not matches_preset:
             st.caption("Литературный overlay отключён: выбранные оси отличаются от схемы preset'а.")
         else:
-            overlay_enabled = st.checkbox("Показывать литературное поле/линию", value=True, key="science_xy_overlay")
+            overlay_enabled = st.checkbox(
+                "Показывать литературное поле/линию",
+                value=True,
+                key="science_xy_overlay",
+            )
             overlay = XY_OVERLAYS[preset.overlay_id]
             st.caption(f"Overlay: {overlay.title} · {overlay.source}")
             if overlay.note:
@@ -210,7 +245,7 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
         monochrome=style.monochrome,
         show_legend=style.show_legend,
         point_label_column=style.point_label_column if style.label_points else None,
-        overlay_id=preset.overlay_id if overlay_enabled else None,
+        overlay_id=preset.overlay_id if overlay_enabled and matches_preset else None,
         custom_fields=fields,
     )
     st.pyplot(publication, width="stretch")
@@ -232,6 +267,31 @@ def _render_scientific_xy(dataframe: pd.DataFrame) -> None:
     plt.close(publication)
 
 
+def _apply_pattern_group_styles(figure, pattern, group: pd.Series | None, *, monochrome: bool) -> None:
+    """Keep all curves of one geological group visually consistent."""
+    if group is None or pattern.data.empty or not figure.axes:
+        return
+    groups = (
+        group.reindex(pattern.data.index)
+        .astype("string")
+        .fillna("Без группы")
+        .replace("", "Без группы")
+    )
+    names = list(dict.fromkeys(groups.tolist()))
+    colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", ["black"])
+    styles = {
+        name: (colors[index % len(colors)], _LINE_STYLES[index % len(_LINE_STYLES)])
+        for index, name in enumerate(names)
+    }
+    for line, name in zip(figure.axes[0].lines, groups.tolist()):
+        color, linestyle = styles[name]
+        if monochrome:
+            line.set_color("black")
+            line.set_linestyle(linestyle)
+        else:
+            line.set_color(color)
+
+
 def _render_pattern(dataframe: pd.DataFrame) -> None:
     mode = st.segmented_control("Тип", ["REE", "Spider / multi-element"], default="REE", key="pattern_mode")
     preferred = REE_ORDER if mode == "REE" else SPIDER_ORDER
@@ -248,18 +308,25 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         key="pattern_ref",
     )
     reference = NORMALIZATION_REFERENCES[reference_name]
-    available = available_elements(dataframe, preferred, require_known_units=reference is not None)
+    available = available_elements(
+        dataframe,
+        preferred,
+        require_known_units=True,
+        reference=reference,
+    )
     if len(available) < 2:
         st.info(
-            "Недостаточно элементов с подходящими числовыми концентрациями. Для нормированного REE/spider "
-            "ПетроЛаб использует только колонки с известной единицей ppm/µg/g-equivalent; K, P и Ti также "
-            "могут быть стехиометрически получены из K2O, P2O5 и TiO2 wt.% с явным provenance."
+            "Недостаточно элементов с подходящими числовыми концентрациями. REE/spider использует "
+            "только колонки с известной единицей ppm/µg/g-equivalent; K, P и Ti также могут быть "
+            "стехиометрически получены из K2O, P2O5 и TiO2 wt.% с явным provenance."
         )
         return
     selected = st.multiselect("Элементы", list(preferred), default=available, key="pattern_elements")
     pattern = prepare_pattern(dataframe, selected, reference)
     if pattern.missing_elements:
         st.caption("Не использованы: " + ", ".join(pattern.missing_elements))
+    if pattern.missing_reference_elements:
+        st.caption("Нет валидного значения в выбранной нормировке: " + ", ".join(pattern.missing_reference_elements))
     converted = [label for label in pattern.source_columns.values() if "→" in label]
     if converted:
         st.caption("Стехиометрические преобразования: " + "; ".join(converted))
@@ -272,7 +339,7 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
     label_column = st.selectbox("Подпись отдельной кривой", ["Индекс"] + label_candidates, key="pattern_label")
     labels = None if label_column == "Индекс" else dataframe[label_column]
     style = render_figure_style_controls(dataframe, key_prefix="pattern")
-    ylabel = "Concentration" if reference is None else ("Sample / CI chondrite" if mode == "REE" else "Sample / primitive mantle")
+    ylabel = _PATTERN_YLABELS.get(reference_name, "Concentration")
     title = st.text_input("Название", value="REE pattern" if mode == "REE" else "Multi-element pattern", key="pattern_title")
     point_style = POINT_STYLE_PRESETS[style.point_style_name]
     figure = build_pattern_figure(
@@ -293,6 +360,7 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
     )
+    _apply_pattern_group_styles(figure, pattern, group_series, monochrome=style.monochrome)
     st.pyplot(figure, width="stretch")
     c1, c2 = st.columns(2)
     c1.download_button("PNG", figure_bytes(figure, "png", style.dpi), file_name="pattern.png", mime="image/png", key="pattern_png")
@@ -312,7 +380,7 @@ def _render_histogram(dataframe: pd.DataFrame) -> None:
     bins = st.slider("Число интервалов", 5, 100, 20, key="hist_bins")
     density = st.checkbox("Плотность вместо количества", value=False, key="hist_density")
     style = render_figure_style_controls(dataframe, key_prefix="hist")
-    fig = build_histogram_figure(
+    figure = build_histogram_figure(
         dataframe,
         column,
         bins=bins,
@@ -325,9 +393,23 @@ def _render_histogram(dataframe: pd.DataFrame) -> None:
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
     )
-    st.pyplot(fig, width="stretch")
-    st.download_button("Скачать PNG", figure_bytes(fig, "png", style.dpi), file_name="histogram.png", mime="image/png", key="hist_png")
-    plt.close(fig)
+    st.pyplot(figure, width="stretch")
+    c1, c2 = st.columns(2)
+    c1.download_button(
+        "PNG",
+        figure_bytes(figure, "png", style.dpi),
+        file_name="histogram.png",
+        mime="image/png",
+        key="hist_png",
+    )
+    c2.download_button(
+        "SVG",
+        figure_bytes(figure, "svg", style.dpi),
+        file_name="histogram.svg",
+        mime="image/svg+xml",
+        key="hist_svg",
+    )
+    plt.close(figure)
 
 
 def _render_boxplot(dataframe: pd.DataFrame) -> None:
@@ -339,12 +421,16 @@ def _render_boxplot(dataframe: pd.DataFrame) -> None:
     categories = _categorical_candidates(dataframe)
     group = st.selectbox("Группировка", ["Нет"] + categories, key="box_group")
     group = None if group == "Нет" else group
-    if group and len(columns) > 1:
-        st.caption("При группировке boxplot использует один числовой параметр; оставьте одну колонку.")
     style = render_figure_style_controls(dataframe, key_prefix="box")
     if not columns:
         return
-    fig = build_boxplot_figure(
+    if group and len(columns) > 1:
+        st.warning(
+            "Grouped boxplot требует ровно один числовой параметр. "
+            "График не построен: выберите один Y или отключите группировку."
+        )
+        return
+    figure = build_boxplot_figure(
         dataframe,
         columns,
         group_column=group,
@@ -354,23 +440,39 @@ def _render_boxplot(dataframe: pd.DataFrame) -> None:
         font_size=style.font_size,
         figure_size=(style.width_in, style.height_in),
     )
-    st.pyplot(fig, width="stretch")
-    st.download_button("Скачать PNG", figure_bytes(fig, "png", style.dpi), file_name="boxplot.png", mime="image/png", key="box_png")
-    plt.close(fig)
+    st.pyplot(figure, width="stretch")
+    c1, c2 = st.columns(2)
+    c1.download_button(
+        "PNG",
+        figure_bytes(figure, "png", style.dpi),
+        file_name="boxplot.png",
+        mime="image/png",
+        key="box_png",
+    )
+    c2.download_button(
+        "SVG",
+        figure_bytes(figure, "svg", style.dpi),
+        file_name="boxplot.svg",
+        mime="image/svg+xml",
+        key="box_svg",
+    )
+    plt.close(figure)
 
 
 def render_science_plots_page() -> None:
-    st.title("Научные диаграммы")
-    st.write(
-        "Готовые схемы для минералов кимберлитов, лампрофиров и щелочно-ультраосновных пород, "
-        "а также REE/spider, гистограммы и boxplot. Литературные поля рисуются только там, "
-        "где в коде есть проверяемая геометрия и источник."
+    render_page_header(
+        "Научные диаграммы",
+        "Классификационные XY, REE/spider, гистограммы и boxplot с проверяемыми литературными полями и явной нормировкой.",
+        eyebrow="Исследование",
     )
     scope = render_analysis_scope("science_plots")
     if scope is None:
         return
     tab_xy, tab_pattern, tab_hist, tab_box = st.tabs([
-        "Классификационные и рабочие XY", "REE / Spider", "Гистограмма", "Boxplot",
+        "Классификационные и рабочие XY",
+        "REE / Spider",
+        "Гистограмма",
+        "Boxplot",
     ])
     with tab_xy:
         _render_scientific_xy(scope.dataframe)

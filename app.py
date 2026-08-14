@@ -29,12 +29,10 @@ from petrolab.ui.pages import (
     render_ternary_page,
     render_updates_page,
 )
-from petrolab.ui.science_page_policy import install as install_science_page_policy
 from petrolab.ui.theme import apply_theme
 
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
-install_science_page_policy()
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
