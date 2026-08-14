@@ -22,7 +22,7 @@ permissions:
 jobs:
   build-installer:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -99,6 +99,103 @@ jobs:
           if (-not (Test-Path $installer)) { throw "Installer output was not created." }
           $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  PetroLab-Setup-x64.exe" | Set-Content -LiteralPath "dist\PetroLab-Setup-x64.sha256" -Encoding ASCII
+
+      - name: Smoke-test installed EXE, Streamlit and Windows PowerShell updater
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $installer = Join-Path $PWD "dist\PetroLab-Setup-x64.exe"
+          $installRoot = Join-Path $env:RUNNER_TEMP "PetroLabInstallSmoke"
+          $smokeData = Join-Path $env:RUNNER_TEMP "PetroLabInstalledData"
+          $documents = [Environment]::GetFolderPath("MyDocuments")
+          $preservedData = Join-Path $documents "PetroLab Data"
+          $marker = Join-Path $preservedData "installer-preservation-marker.txt"
+
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $preservedData | Out-Null
+          Set-Content -LiteralPath $marker -Value "must survive uninstall" -Encoding ASCII
+
+          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- "/DIR=$installRoot"
+          if ($LASTEXITCODE -ne 0) { throw "Silent installer returned exit code $LASTEXITCODE." }
+
+          $python = Join-Path $installRoot "runtime\python.exe"
+          $app = Join-Path $installRoot "current\app.py"
+          $updater = Join-Path $installRoot "update_petrolab.ps1"
+          foreach ($required in @(
+              $python,
+              (Join-Path $installRoot "runtime\pythonw.exe"),
+              $app,
+              (Join-Path $installRoot "launch_petrolab.vbs"),
+              $updater,
+              (Join-Path $installRoot "update_petrolab.cmd"),
+              (Join-Path $installRoot "diagnose_petrolab.cmd")
+          )) {
+              if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+                  throw "Installed file is missing: $required"
+              }
+          }
+
+          $env:PETROLAB_DATA_DIR = $smokeData
+          New-Item -ItemType Directory -Force -Path $smokeData | Out-Null
+          & $python -c "import sys; sys.path.insert(0, r'$($installRoot)\current'); import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('installed payload OK', petrolab.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw "Installed payload smoke failed." }
+
+          $port = 8765
+          $server = $null
+          try {
+              $server = Start-Process -FilePath $python -ArgumentList @(
+                  "-m", "streamlit", "run", $app,
+                  "--server.headless=true",
+                  "--server.port=$port",
+                  "--browser.gatherUsageStats=false"
+              ) -WindowStyle Hidden -PassThru
+
+              $healthy = $false
+              for ($attempt = 0; $attempt -lt 60; $attempt++) {
+                  Start-Sleep -Seconds 1
+                  if ($server.HasExited) {
+                      throw "Installed Streamlit process exited before becoming healthy (code $($server.ExitCode))."
+                  }
+                  try {
+                      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/_stcore/health" -UseBasicParsing -TimeoutSec 2
+                      if ($response.StatusCode -eq 200) {
+                          $healthy = $true
+                          break
+                      }
+                  }
+                  catch {
+                      # Retry until the bounded startup deadline.
+                  }
+              }
+              if (-not $healthy) { throw "Installed PetroLab did not become healthy on Streamlit." }
+          }
+          finally {
+              if ($server -and -not $server.HasExited) {
+                  Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+                  $server.WaitForExit(10000) | Out-Null
+              }
+          }
+
+          $headers = @{ "User-Agent" = "PetroLab-Installer-CI"; "Accept" = "application/vnd.github+json" }
+          $remoteSha = [string](Invoke-RestMethod -Uri "https://api.github.com/repos/alexeyvozniak/PetroLab/commits/main" -Headers $headers).sha
+          if ([string]::IsNullOrWhiteSpace($remoteSha)) { throw "Could not resolve main SHA for updater smoke." }
+          Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value $remoteSha -NoNewline -Encoding ASCII
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -NoLaunch
+          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell 5.1 updater smoke failed with exit code $LASTEXITCODE." }
+
+          $uninstaller = Join-Path $installRoot "unins000.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
+          & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0) { throw "Silent uninstall failed with exit code $LASTEXITCODE." }
+          if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+              throw "Uninstall removed user scientific data marker."
+          }
+
+          Remove-Item -LiteralPath $preservedData -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
