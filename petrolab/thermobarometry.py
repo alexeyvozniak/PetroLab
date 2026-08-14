@@ -25,7 +25,8 @@ QC_FAIL = "FAIL"
 QC_INSUFFICIENT_INPUT = "INSUFFICIENT_INPUT"
 QC_OUTSIDE_CALIBRATION = "OUTSIDE_CALIBRATION"
 QC_NOT_APPLICABLE = "NOT_APPLICABLE"
-QC_STATUSES = (QC_PASS, QC_FAIL, QC_INSUFFICIENT_INPUT, QC_OUTSIDE_CALIBRATION, QC_NOT_APPLICABLE)
+QC_WARNING = "WARNING"
+QC_STATUSES = (QC_PASS, QC_WARNING, QC_FAIL, QC_INSUFFICIENT_INPUT, QC_OUTSIDE_CALIBRATION, QC_NOT_APPLICABLE)
 
 PUTIRKA_2008_CPX_T32D = ThermobarometerMethod(
     method_id="putirka_2008_cpx_only_t32d",
@@ -38,7 +39,7 @@ PUTIRKA_2008_CPX_T32D = ThermobarometerMethod(
     calibration_range="Anhydrous clinopyroxene thermometer; pressure must be supplied independently. "
     "Do not use it as a hydrous Cpx thermometer or as an automatic equilibrium test.",
     uncertainty="SEE ±58 °C for anhydrous data; ±87 °C reported for hydrous data.",
-    equilibrium_test="PetroLab requires an explicit petrographic applicability confirmation and flags "
+    equilibrium_test="PetroLab asks for petrographic applicability confirmation and flags "
     "cation sums outside 3.99–4.02 (6 O screening after Neave & Putirka, 2017).",
     assumptions="Total Fe is required as FeOt (FeO-equivalent). Pressure is a recorded user assumption; "
     "the result is a temperature, not an independent P–T solution.",
@@ -169,12 +170,7 @@ def calculate_putirka_2008_cpx_only_t32d(
     result["T (°C)"] = np.nan
     result["Published SEE (°C)"] = 58.0
 
-    if not applicability_confirmed:
-        result["Thermobarometry status"] = QC_NOT_APPLICABLE
-        result["Thermobarometry reason"] = (
-            "Нужно подтвердить магматический безводный Cpx и осмысленность заданного давления."
-        )
-        return result
+    applicability_warning = not applicability_confirmed
 
     oxides = _oxide_frame(dataframe)
     finite = pd.DataFrame({column: _finite_column(oxides, column) for column in oxides.columns}, index=dataframe.index)
@@ -212,10 +208,16 @@ def calculate_putirka_2008_cpx_only_t32d(
         cation_ok = value.loc[good_index, "Cation sum (6 O)"].between(3.99, 4.02, inclusive="both")
         passing = good_index[cation_ok]
         failing = good_index[~cation_ok]
-        result.loc[passing, "Thermobarometry status"] = QC_PASS
-        result.loc[passing, "Thermobarometry reason"] = "Входы полны; cation-sum screen 3.99–4.02 пройден."
+        result.loc[passing, "Thermobarometry status"] = QC_WARNING if applicability_warning else QC_PASS
+        result.loc[passing, "Thermobarometry reason"] = (
+            "Входы полны; cation-sum screen 3.99–4.02 пройден. " +
+            ("Применимость метода не подтверждена; результат сохранён с предупреждением." if applicability_warning else "")
+        ).strip()
         result.loc[failing, "Thermobarometry status"] = QC_FAIL
-        result.loc[failing, "Thermobarometry reason"] = "Cation-sum screen 3.99–4.02 не пройден; число показано только для диагностики."
+        result.loc[failing, "Thermobarometry reason"] = (
+            "Cation-sum screen 3.99–4.02 не пройден; число показано только для диагностики. " +
+            ("Применимость метода также не подтверждена." if applicability_warning else "")
+        ).strip()
         bad_math = activity_index[~calculation_ok]
         result.loc[bad_math, "Thermobarometry reason"] = "Невалидный математический результат Eq. 32d."
     invalid_activity = components.index[~valid_activity]
@@ -264,7 +266,11 @@ def save_run(
     if not analysis_ids or len(set(analysis_ids)) != len(analysis_ids):
         raise ValueError("Входные _analysis_id должны быть непустыми и уникальными")
     fingerprints = _input_fingerprints(int(project_id), analysis_ids)
-    summary_status = QC_PASS if (results_dataframe["Thermobarometry status"] == QC_PASS).any() else QC_FAIL
+    summary_status = (
+        QC_PASS if (results_dataframe["Thermobarometry status"] == QC_PASS).any()
+        else QC_WARNING if (results_dataframe["Thermobarometry status"] == QC_WARNING).any()
+        else QC_FAIL
+    )
     now = _utcnow()
     records = results_dataframe.copy()
     records.insert(0, "_analysis_id", analysis_ids)
