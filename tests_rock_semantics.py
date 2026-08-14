@@ -21,26 +21,26 @@ except ValueError as exc:
 else:
     raise AssertionError("Duplicate canonical whole-rock chemistry must block import")
 
-# Verify update semantics without opening SQLite: the service must merge the incoming
-# partial composition with existing chemistry before passing it to the transactional repository.
-original_list_rocks = rock_service.list_rocks
-original_existing = rock_service._existing_composition_with_units
-original_apply = rock_service.apply_rock_import_batch
+# Verify update semantics without opening SQLite. Runtime installation intentionally binds
+# the service workflow to repository functions, so patch the repository boundary itself.
+original_list_rocks = rock_repository.list_rocks
+original_get_composition = rock_repository.get_composition
+original_apply = rock_repository.apply_rock_import_batch
 captured: dict[str, object] = {}
 
 try:
-    rock_service.list_rocks = lambda project_id=None: [{"id": 7, "name": "R1"}]
-    rock_service._existing_composition_with_units = lambda rock_id: (
-        {"SiO2": 44.0, "La [µg/g]": 120.0},
-        {"SiO2": "wt%", "La [µg/g]": "µg/g"},
-    )
+    rock_repository.list_rocks = lambda project_id=None: [{"id": 7, "name": "R1"}]
+    rock_repository.get_composition = lambda rock_id: pd.DataFrame([
+        {"analyte": "SiO2", "value": 44.0, "unit": "wt%"},
+        {"analyte": "La [µg/g]", "value": 120.0, "unit": "µg/g"},
+    ])
 
     def fake_apply(project_id, prepared_rows, **kwargs):
         rows = list(prepared_rows)
         captured["rows"] = rows
         return (), (7,), ()
 
-    rock_service.apply_rock_import_batch = fake_apply
+    rock_repository.apply_rock_import_batch = fake_apply
     result = rock_service.import_rocks_wide(
         pd.DataFrame({"Rock": ["R1"], "SiO2": [46.0]}),
         project_id=1,
@@ -53,9 +53,9 @@ try:
     assert prepared["composition"]["La [µg/g]"] == 120.0
     assert prepared["units"]["La [µg/g]"] == "µg/g"
 finally:
-    rock_service.list_rocks = original_list_rocks
-    rock_service._existing_composition_with_units = original_existing
-    rock_service.apply_rock_import_batch = original_apply
+    rock_repository.list_rocks = original_list_rocks
+    rock_repository.get_composition = original_get_composition
+    rock_repository.apply_rock_import_batch = original_apply
 
 # The manual dynamic editor sends the complete current table. Saving it must start by
 # deleting the old rows, so a row removed in the UI is really removed. Recognized units
@@ -66,6 +66,11 @@ class FakeConnection:
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(str(sql).split()), tuple(params)))
+        return self
+
+    def executemany(self, sql, params):
+        for row in params:
+            self.calls.append((" ".join(str(sql).split()), tuple(row)))
         return self
 
 
