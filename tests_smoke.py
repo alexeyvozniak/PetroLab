@@ -33,7 +33,7 @@ def main() -> None:
             update_dataset_metadata,
         )
         from petrolab.io_utils import read_tabular_path, sha256_file
-        from petrolab.minerals.registry import MINERALS
+        from petrolab.minerals import MINERALS, calculate_formula
         from petrolab.sources import reload_linked_source, source_status, sync_cell_changes
 
         xlsx = base / "smoke.xlsx"
@@ -76,7 +76,12 @@ def main() -> None:
         unified = load_unified_analyses(project_id, [dataset_id])
         assert len(unified) == 3
         assert "Σ оксидов" in unified.columns
-        assert "Mg#" in unified.columns
+        # Import snapshots retain measured values only. Mg# depends on the Fe
+        # assumption, so it must arise in the versioned formula layer instead
+        # of being silently baked into raw imported chemistry.
+        assert "Mg#" not in unified.columns
+        formula = calculate_formula(frame, "mica")
+        assert "Mg#_formula" in formula.data.columns
         first = unified.iloc[0]
         analysis_id = str(first["_analysis_id"])
 
