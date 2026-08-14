@@ -20,6 +20,7 @@ SUGGESTION_REASON_COLUMN = "Mineral suggestion reason"
 SUGGESTION_RULESET_COLUMN = "Mineral suggestion ruleset"
 _MIXED_SUFFIX = " · Неразобранные / mixed"
 _RESOLVED_SUFFIX = " · Исходный mixed (разобрано)"
+_TEMP_ROW_BASE = -1_000_000_000
 
 # `suggest_phase()` predates Mineral Recognition v1 and is retained as a broad-family compatibility
 # API. Dataframe suggestions use the richer conservative chemical targets.
@@ -226,6 +227,51 @@ def _record_confirmed_phases(con, assignments: Mapping[str, str]) -> None:
     )
 
 
+def _temporary_row_start(con, dataset_id: int, count: int) -> int:
+    row = con.execute(
+        "SELECT MIN(row_index) AS min_index FROM analysis_rows WHERE dataset_id=?",
+        (int(dataset_id),),
+    ).fetchone()
+    current_min = int(row["min_index"]) if row and row["min_index"] is not None else 0
+    return min(_TEMP_ROW_BASE, current_min - int(count) - 10)
+
+
+def _reindex_dataset_rows(con, dataset_id: int) -> int:
+    """Normalize row_index without violating the unique(dataset_id,row_index) constraint."""
+    rows = con.execute(
+        "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
+        (int(dataset_id),),
+    ).fetchall()
+    if not rows:
+        con.execute("UPDATE datasets SET row_count=0 WHERE id=?", (int(dataset_id),))
+        return 0
+    temp_start = _temporary_row_start(con, int(dataset_id), len(rows))
+    con.executemany(
+        "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+        [(temp_start - index, row["analysis_id"]) for index, row in enumerate(rows)],
+    )
+    con.executemany(
+        "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+        [(index, row["analysis_id"]) for index, row in enumerate(rows)],
+    )
+    con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(rows), int(dataset_id)))
+    return len(rows)
+
+
+def _move_rows_to_dataset(con, source_dataset_id: int, target_dataset_id: int, analysis_ids: list[str]) -> None:
+    """Append selected rows to an existing child using collision-free temporary indices."""
+    if not analysis_ids:
+        return
+    temp_start = _temporary_row_start(con, int(target_dataset_id), len(analysis_ids))
+    for offset, analysis_id in enumerate(analysis_ids):
+        con.execute(
+            """UPDATE analysis_rows SET dataset_id=?, row_index=?
+               WHERE dataset_id=? AND analysis_id=?""",
+            (int(target_dataset_id), temp_start - offset, int(source_dataset_id), str(analysis_id)),
+        )
+    _reindex_dataset_rows(con, int(target_dataset_id))
+
+
 def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[str, str]) -> dict[str, int]:
     """Move confirmed analyses from one mixed dataset into reusable child phase datasets.
 
@@ -290,34 +336,14 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
 
         for phase_label, child_id in created.items():
             ids = [analysis_id for analysis_id, assigned in clean.items() if assigned == phase_label]
-            marks = ",".join("?" for _ in ids)
-            con.execute(
-                f"UPDATE analysis_rows SET dataset_id=? WHERE dataset_id=? AND analysis_id IN ({marks})",
-                [int(child_id), int(source_dataset_id), *ids],
-            )
-            moved = con.execute(
-                "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
-                (int(child_id),),
-            ).fetchall()
-            con.executemany(
-                "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
-                [(index, row["analysis_id"]) for index, row in enumerate(moved)],
-            )
-            con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(moved), int(child_id)))
+            _move_rows_to_dataset(con, int(source_dataset_id), int(child_id), ids)
 
         _record_confirmed_phases(con, clean)
-        remaining = con.execute(
-            "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
-            (int(source_dataset_id),),
-        ).fetchall()
-        con.executemany(
-            "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
-            [(index, row["analysis_id"]) for index, row in enumerate(remaining)],
-        )
-        source_name = f"{root_name}{_MIXED_SUFFIX}" if remaining else f"{root_name}{_RESOLVED_SUFFIX}"
+        remaining_count = _reindex_dataset_rows(con, int(source_dataset_id))
+        source_name = f"{root_name}{_MIXED_SUFFIX}" if remaining_count else f"{root_name}{_RESOLVED_SUFFIX}"
         con.execute(
-            "UPDATE datasets SET row_count=?, name=? WHERE id=?",
-            (len(remaining), source_name, int(source_dataset_id)),
+            "UPDATE datasets SET name=? WHERE id=?",
+            (source_name, int(source_dataset_id)),
         )
         con.commit()
     return created
