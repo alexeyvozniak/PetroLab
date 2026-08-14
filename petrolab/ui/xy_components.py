@@ -18,10 +18,18 @@ GROUP_COLORS = (
     "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
 )
 OUTLINE_OPTIONS = ("Чёрный", "Белый", "Цвет группы", "Нет")
+DISPLAY_OPTIONS = ("Точки", "Поле", "Точки + поле", "Только центр")
+ENVELOPE_OPTIONS = ("Confidence ellipse", "Convex hull", "KDE 90%")
 
 
 def style_dataframe(groups: list[str], existing: dict | None = None) -> pd.DataFrame:
     existing = existing or {}
+    reverse_display = {
+        "points": "Точки", "field": "Поле", "points+field": "Точки + поле", "centroid": "Только центр",
+    }
+    reverse_method = {
+        "confidence_ellipse": "Confidence ellipse", "convex_hull": "Convex hull", "kde": "KDE 90%",
+    }
     rows: list[dict] = []
     for index, name in enumerate(groups):
         raw = existing.get(str(name), {})
@@ -33,16 +41,23 @@ def style_dataframe(groups: list[str], existing: dict | None = None) -> pd.DataF
             "Заливка": bool(raw.get("filled", True)),
             "Контур": raw.get("outline_label", "Чёрный"),
             "Контур px": float(raw.get("outline_width", 1.0) or 0.0),
+            "Показывать": reverse_display.get(str(raw.get("display_mode", "points")), "Точки"),
+            "Поле": reverse_method.get(str(raw.get("envelope_method", "confidence_ellipse")), "Confidence ellipse"),
+            "Уровень": float(raw.get("envelope_level", 0.90) or 0.90),
+            "Alpha поля": float(raw.get("envelope_alpha", 0.16) or 0.16),
         })
     return pd.DataFrame(rows)
 
 
 def style_map(dataframe: pd.DataFrame) -> dict[str, dict]:
     outline_map = {
-        "Чёрный": "black",
-        "Белый": "white",
-        "Цвет группы": "group",
-        "Нет": "none",
+        "Чёрный": "black", "Белый": "white", "Цвет группы": "group", "Нет": "none",
+    }
+    display_map = {
+        "Точки": "points", "Поле": "field", "Точки + поле": "points+field", "Только центр": "centroid",
+    }
+    method_map = {
+        "Confidence ellipse": "confidence_ellipse", "Convex hull": "convex_hull", "KDE 90%": "kde",
     }
     return {
         str(row["Группа"]): {
@@ -53,6 +68,10 @@ def style_map(dataframe: pd.DataFrame) -> dict[str, dict]:
             "outline_label": str(row.get("Контур", "Чёрный")),
             "outline_color": outline_map.get(str(row.get("Контур", "Чёрный")), "black"),
             "outline_width": float(row.get("Контур px", 1.0) or 0.0),
+            "display_mode": display_map.get(str(row.get("Показывать", "Точки")), "points"),
+            "envelope_method": method_map.get(str(row.get("Поле", "Confidence ellipse")), "confidence_ellipse"),
+            "envelope_level": float(row.get("Уровень", 0.90) or 0.90),
+            "envelope_alpha": float(row.get("Alpha поля", 0.16) or 0.16),
             "color": GROUP_COLORS[index % len(GROUP_COLORS)],
         }
         for index, (_, row) in enumerate(dataframe.iterrows())
@@ -76,27 +95,11 @@ def grouped_outliers(
     if not group_column or group_column not in dataframe.columns:
         return robust_outliers(dataframe, columns, method=method, threshold=threshold)
     outlier_mask = pd.Series(False, index=dataframe.index, dtype=bool)
-    groups = (
-        dataframe[group_column]
-        .astype("string")
-        .fillna("Без группы")
-        .replace("", "Без группы")
-    )
+    groups = dataframe[group_column].astype("string").fillna("Без группы").replace("", "Без группы")
     for _, index in groups.groupby(groups, sort=False).groups.items():
-        result = robust_outliers(
-            dataframe.loc[index],
-            columns,
-            method=method,
-            threshold=threshold,
-        )
+        result = robust_outliers(dataframe.loc[index], columns, method=method, threshold=threshold)
         outlier_mask.loc[result.outlier_mask.index] |= result.outlier_mask
-    return OutlierResult(
-        ~outlier_mask,
-        outlier_mask,
-        method,
-        tuple(columns),
-        float(threshold),
-    )
+    return OutlierResult(~outlier_mask, outlier_mask, method, tuple(columns), float(threshold))
 
 
 def render_outlier_controls(
@@ -114,18 +117,15 @@ def render_outlier_controls(
         st.caption("Фильтры действуют только на текущий график; исходные анализы не удаляются.")
         saved_ranges = cfg.get("ranges", {}) if isinstance(cfg.get("ranges", {}), dict) else {}
         range_columns = st.multiselect(
-            "Ограничить числовые колонки вручную",
-            numeric_columns,
-            default=[column for column in saved_ranges if column in numeric_columns],
-            key="plot_range_columns",
+            "Ограничить числовые колонки вручную", numeric_columns,
+            default=[column for column in saved_ranges if column in numeric_columns], key="plot_range_columns",
         )
         ranges: dict[str, tuple[float, float]] = {}
         for column in range_columns:
             values = pd.to_numeric(dataframe[column], errors="coerce").replace([float("inf"), float("-inf")], pd.NA).dropna()
             if values.empty:
                 continue
-            observed_min = float(values.min())
-            observed_max = float(values.max())
+            observed_min, observed_max = float(values.min()), float(values.max())
             saved = saved_ranges.get(column, [observed_min, observed_max])
             c1, c2 = st.columns(2)
             low = c1.number_input(f"{column}: минимум", value=float(saved[0]), key=f"range_low_{column}")
@@ -140,7 +140,10 @@ def render_outlier_controls(
         reverse = {value: label for label, value in options.items()}
         configured = str(load_settings().get("default_outlier_method", "MAD")).upper()
         saved_method = str(cfg.get("auto_method", configured)).upper()
-        auto_label = st.selectbox("Автоматически искать выбросы", list(options), index=list(options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method")
+        auto_label = st.selectbox(
+            "Автоматически искать выбросы", list(options),
+            index=list(options).index(reverse.get(saved_method, reverse.get(configured, "Нет"))), key="outlier_method",
+        )
         auto_method = options[auto_label]
         auto_columns: list[str] = []
         outlier_ids: list[str] = []
@@ -149,11 +152,20 @@ def render_outlier_controls(
         outlier_scope = str(cfg.get("scope", "all"))
         outlier_group = str(cfg.get("scope_group", ""))
         if auto_method != "NONE":
-            auto_columns = st.multiselect("Колонки для автоматической проверки", numeric_columns, default=[c for c in cfg.get("auto_columns", [x, y]) if c in numeric_columns] or [x, y], key="outlier_columns")
-            threshold = st.number_input("Порог MAD" if auto_method == "MAD" else "Множитель IQR", min_value=0.1, max_value=20.0, value=float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5)), step=0.1, key="outlier_threshold")
+            auto_columns = st.multiselect(
+                "Колонки для автоматической проверки", numeric_columns,
+                default=[c for c in cfg.get("auto_columns", [x, y]) if c in numeric_columns] or [x, y], key="outlier_columns",
+            )
+            threshold = st.number_input(
+                "Порог MAD" if auto_method == "MAD" else "Множитель IQR", min_value=0.1, max_value=20.0,
+                value=float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5)), step=0.1, key="outlier_threshold",
+            )
             candidates = [column for column in [WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"] if column in ranged.columns and ranged[column].nunique(dropna=True) > 1]
             scope_options = ["По всей выборке", "Внутри групп"] if candidates else ["По всей выборке"]
-            scope_label = st.selectbox("Область статистики выбросов", scope_options, index=1 if outlier_scope == "group" and candidates else 0, key="outlier_scope")
+            scope_label = st.selectbox(
+                "Область статистики выбросов", scope_options,
+                index=1 if outlier_scope == "group" and candidates else 0, key="outlier_scope",
+            )
             scope_group = None
             if scope_label == "Внутри групп":
                 default_group = outlier_group if outlier_group in candidates else candidates[0]
@@ -186,13 +198,9 @@ def render_outlier_controls(
     removed = original[original["_analysis_id"].astype(str).isin(before_ids - after_ids)].copy() if "_analysis_id" in original.columns else pd.DataFrame()
     config = {
         "ranges": {column: [bounds[0], bounds[1]] for column, bounds in ranges.items()},
-        "auto_method": auto_method,
-        "auto_columns": auto_columns,
-        "threshold": threshold,
-        "exclude_auto": exclude_auto,
-        "manual_excluded_ids": list(dict.fromkeys(manual_ids)),
-        "scope": outlier_scope,
-        "scope_group": outlier_group,
+        "auto_method": auto_method, "auto_columns": auto_columns, "threshold": threshold,
+        "exclude_auto": exclude_auto, "manual_excluded_ids": list(dict.fromkeys(manual_ids)),
+        "scope": outlier_scope, "scope_group": outlier_group,
     }
     return filtered, config, removed
 
