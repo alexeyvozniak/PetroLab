@@ -6,7 +6,6 @@ import json
 import streamlit as st
 
 from petrolab import __version__
-from petrolab.db import get_dataset
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
 from petrolab.ui.navigation import render_sidebar
@@ -40,6 +39,7 @@ from petrolab.ui.pages import (
     render_updates_page,
 )
 from petrolab.ui.theme import apply_theme
+from petrolab.ui.workflow_routing import route_fresh_import_to_workflow
 
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
@@ -81,43 +81,8 @@ def _reconcile_plot_recipe_state() -> None:
     st.session_state[token_key] = token
 
 
-def _route_fresh_import_to_workflow() -> None:
-    """Open the most useful next screen once for each newly imported batch."""
-    recent = tuple(int(value) for value in st.session_state.get("workflow_recent_dataset_ids", []) if value is not None)
-    if not recent:
-        return
-    token = ",".join(str(value) for value in recent)
-    if str(st.session_state.get("_workflow_import_redirect_token", "")) == token:
-        return
-    # Only intercept the automatic rerun from the import page. A later manual visit to
-    # "Новые анализы" stays exactly where the user put it.
-    if str(st.session_state.get("nav_route", "home")) != "sources":
-        return
-
-    st.session_state["_workflow_import_redirect_token"] = token
-    datasets = []
-    for dataset_id in recent:
-        try:
-            datasets.append(get_dataset(int(dataset_id)))
-        except (KeyError, ValueError):
-            continue
-    mixed = next(
-        (item for item in datasets if str(item.get("mineral_key") or "generic") == "generic"),
-        None,
-    )
-    if mixed is not None:
-        st.session_state["workflow_mixed_dataset_id"] = int(mixed["id"])
-        st.session_state["workflow_focus_dataset_id"] = int(mixed["id"])
-        st.session_state["nav_route"] = "mixed_minerals"
-        return
-
-    focus_id = int(datasets[0]["id"]) if datasets else int(recent[0])
-    st.session_state["workflow_focus_dataset_id"] = focus_id
-    st.session_state["nav_route"] = "workflow"
-
-
 _reconcile_plot_recipe_state()
-_route_fresh_import_to_workflow()
+route_fresh_import_to_workflow()
 
 ROUTES = {
     "home": render_home_page,
