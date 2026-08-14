@@ -18,6 +18,7 @@ class WindowsInstallerContractTests(unittest.TestCase):
             line for line in uninstall_section.splitlines() if not line.lstrip().startswith(";")
         )
         self.assertNotIn(r"{userdocs}\PetroLab Data", active_uninstall_lines)
+        self.assertIn(r'Type: filesandordirs; Name: "{app}\runtime.previous"', active_uninstall_lines)
 
     def test_launcher_uses_embedded_runtime_and_explicit_data_directory(self):
         launcher = (INSTALLER / "launch_petrolab.vbs").read_text(encoding="utf-8")
@@ -36,6 +37,12 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertNotIn("PetroLab Data", updater)
         self.assertNotIn("Remove-Item $env:PETROLAB_DATA_DIR", updater)
 
+    def test_updater_is_compatible_with_windows_powershell_process_matching(self):
+        updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
+        self.assertIn(".IndexOf($appPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0", updater)
+        self.assertNotIn(".Contains((Join-Path $Current", updater)
+        self.assertIn('if (-not $NoLaunch)', updater)
+
     def test_runtime_changes_are_staged_before_swap(self):
         updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
         self.assertIn('$requirementsChanged', updater)
@@ -43,11 +50,15 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertIn('& $pythonForTest -m pip check', updater)
         self.assertIn('Move-Item -LiteralPath $Runtime -Destination $RuntimePrevious', updater)
 
-    def test_installer_ci_builds_self_contained_runtime(self):
+    def test_installer_ci_builds_and_smokes_self_contained_installation(self):
         workflow = (ROOT / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
         self.assertIn("python-3.12.10-embed-amd64.zip", workflow)
         self.assertIn("Lib\\site-packages", workflow)
         self.assertIn("PetroLab-Setup-x64.exe", workflow)
+        self.assertIn("/VERYSILENT /SUPPRESSMSGBOXES /NORESTART", workflow)
+        self.assertIn("/_stcore/health", workflow)
+        self.assertIn("powershell.exe -NoProfile -ExecutionPolicy Bypass", workflow)
+        self.assertIn("installer-preservation-marker.txt", workflow)
         self.assertIn("actions/upload-artifact@v4", workflow)
         self.assertIn("windows-latest", workflow)
 
