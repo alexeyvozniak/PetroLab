@@ -35,6 +35,7 @@ from petrolab.ui.pages import (
     render_sources_page,
     render_statistics_page,
     render_ternary_page,
+    render_thermobarometry_page,
     render_updates_page,
 )
 from petrolab.ui.theme import apply_theme
@@ -93,6 +94,7 @@ ROUTES = {
     "formulae": render_formulae_page,
     "plots": render_plots_page,
     "ternary": render_ternary_page,
+    "thermobarometry": render_thermobarometry_page,
     "science_plots": render_science_plots_page,
     "statistics": render_statistics_page,
     "generations": render_generations_page,
