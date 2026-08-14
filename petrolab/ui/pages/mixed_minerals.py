@@ -90,14 +90,17 @@ def _recent_split_actions(project_id: int) -> None:
         _jump("workflow")
 
 
-def _trace_only_hint(frame: pd.DataFrame) -> None:
+def _trace_only_hint(frame: pd.DataFrame) -> bool:
     measured = sorted(_MAJOR_PHASE_COLUMNS.intersection(frame.columns))
-    if len(measured) >= 3:
-        return
+    trace_only = len(measured) < 3
+    if not trace_only:
+        return False
     st.warning(
         "В этом наборе мало major-element колонок для честного химического распознавания фазы. Это похоже на LA-ICP-MS / trace-only данные: минерал лучше наследовать через Sample, зерно, физическую точку/кратер или назначить вручную, а не угадывать по микроэлементам."
     )
-    st.caption("Ниже ручное назначение остаётся доступным; автоматические предложения с низкой информативностью можно просто оставить пустыми.")
+    st.caption(
+        "Для такого набора PetroLab не подготавливает ни одну фазу к автоматическому подтверждению, даже если отдельная эвристика дала высокий score."
+    )
     c1, c2, c3 = st.columns(3)
     if c1.button("Sample и сессии", key="trace_to_sessions", width="stretch"):
         _jump("sessions")
@@ -105,6 +108,7 @@ def _trace_only_hint(frame: pd.DataFrame) -> None:
         _jump("measurements")
     if c3.button("Шлиф / физическая точка", key="trace_to_slides", width="stretch"):
         _jump("slides")
+    return True
 
 
 def render_mixed_minerals_page() -> None:
@@ -144,7 +148,7 @@ def render_mixed_minerals_page() -> None:
         st.info("В наборе нет точек.")
         return
 
-    _trace_only_hint(frame)
+    trace_only = _trace_only_hint(frame)
     suggested = attach_phase_suggestions(frame)
     screened = attach_chemical_outlier_screen(suggested, group_column=SUGGESTED_MINERAL_COLUMN)
     screened["Статус разбора"] = screened.apply(_review_status, axis=1)
@@ -156,7 +160,7 @@ def render_mixed_minerals_page() -> None:
     outliers = int(screened[OUTLIER_COLUMN].fillna(False).astype(bool).sum())
     render_badges([
         (f"{len(screened)} точек", "accent"),
-        (f"{high} готово", "success"),
+        (f"{high} high-score" if trace_only else f"{high} готово", "neutral" if trace_only else "success"),
         (f"{medium} вероятно", "neutral"),
         (f"{ambiguous + unresolved} требуют решения", "warning"),
         (f"{outliers} потенциальных выбросов", "warning" if outliers else "neutral"),
@@ -188,14 +192,20 @@ def render_mixed_minerals_page() -> None:
     phase_options = sorted(value for value in screened[SUGGESTED_MINERAL_COLUMN].dropna().astype(str).unique() if value.strip())
     chosen_phase = st.selectbox("Фаза", ["Все", *phase_options], key=f"mixed_phase_filter_{dataset_id}")
     if chosen_phase != "Все":
-        view = view[view[SUGGESTED_MINERAL_COLUMN].astype(str) == chosen_phase]
+        view = view[view[SUGGESTION_CONFIDENCE_COLUMN].index.isin(view.index) & (view[SUGGESTED_MINERAL_COLUMN].astype(str) == chosen_phase)]
 
+    policy_options = ["Только high без выбросов", "High + medium без выбросов", "Ничего — выбрать вручную"]
     policy = st.radio(
         "Что подготовить к подтверждению",
-        ["Только high без выбросов", "High + medium без выбросов", "Ничего — выбрать вручную"],
+        policy_options,
+        index=2 if trace_only else 0,
         horizontal=True,
         key=f"mixed_policy_{dataset_id}",
-        help="Это только начальные галочки. Любую строку можно включить, выключить или переименовать вручную.",
+        help=(
+            "Для trace-only LA автоматическое подтверждение отключено; фазы назначаются вручную или через физическую привязку."
+            if trace_only else
+            "Это только начальные галочки. Любую строку можно включить, выключить или переименовать вручную."
+        ),
     )
 
     display_cols = [
@@ -210,9 +220,9 @@ def render_mixed_minerals_page() -> None:
     review["Подтвердить"] = False
     review["Подтверждённая фаза"] = review[SUGGESTED_MINERAL_COLUMN].fillna("").astype(str)
     no_outlier = ~review.get(OUTLIER_COLUMN, pd.Series(False, index=review.index)).fillna(False).astype(bool)
-    if policy == "Только high без выбросов":
+    if not trace_only and policy == "Только high без выбросов":
         review["Подтвердить"] = review[SUGGESTION_CONFIDENCE_COLUMN].eq("high") & no_outlier
-    elif policy == "High + medium без выбросов":
+    elif not trace_only and policy == "High + medium без выбросов":
         review["Подтвердить"] = review[SUGGESTION_CONFIDENCE_COLUMN].isin(["high", "medium"]) & no_outlier
 
     render_section_header("Проверка", f"Показано {len(review)} из {len(screened)} точек")
