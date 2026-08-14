@@ -6,21 +6,21 @@ from typing import Any
 import pandas as pd
 
 from petrolab.db import _utcnow, connect
-from petrolab.mineral_recognition import (
-    MINERAL_RECOGNITION_RULESET_VERSION,
-    recognize_dataframe,
-    recognize_mineral,
-    score_candidates,
+from petrolab.mineral_recognition_extended import (
+    EXTENDED_RULESET_VERSION,
+    recognize_dataframe_extended,
+    recognize_mineral_extended,
+    score_candidates_extended,
 )
 
-PHASE_SUGGESTION_RULESET_VERSION = MINERAL_RECOGNITION_RULESET_VERSION
+PHASE_SUGGESTION_RULESET_VERSION = EXTENDED_RULESET_VERSION
 SUGGESTED_MINERAL_COLUMN = "Suggested Mineral"
 SUGGESTION_CONFIDENCE_COLUMN = "Mineral suggestion confidence"
 SUGGESTION_REASON_COLUMN = "Mineral suggestion reason"
 SUGGESTION_RULESET_COLUMN = "Mineral suggestion ruleset"
 
 # `suggest_phase()` predates Mineral Recognition v1 and is retained as a broad-family compatibility
-# API. Dataframe suggestions use the new, more informative chemical targets.
+# API. Dataframe suggestions use the richer conservative chemical targets.
 _LEGACY_BROAD_TARGETS = {
     "trioctahedral mica": "mica",
     "dioctahedral mica": "mica",
@@ -35,30 +35,31 @@ _LEGACY_BROAD_TARGETS = {
 
 
 def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, list[str]]]:
-    """Compatibility wrapper around the versioned Mineral Recognition engine."""
+    """Compatibility wrapper around the versioned extended Mineral Recognition engine."""
     return {
         name: (candidate.score, list(candidate.reasons))
-        for name, candidate in score_candidates(row).items()
+        for name, candidate in score_candidates_extended(row).items()
     }
 
 
 def suggest_phase(row: Mapping[str, Any]) -> tuple[str, str, str]:
-    """Legacy broad-family suggestion API; use recognize_mineral for v1 chemical targets."""
-    result = recognize_mineral(row)
+    """Legacy broad-family suggestion API backed by the extended chemical recognizer."""
+    result = recognize_mineral_extended(row)
     target = _LEGACY_BROAD_TARGETS.get(result.target, result.target)
     return target, result.confidence, "; ".join(result.reasons)
 
 
 def attach_phase_suggestions(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Attach conservative v1 chemical targets; no mineral is ever confirmed automatically."""
-    return recognize_dataframe(dataframe)
+    """Attach conservative extended targets; no mineral is ever confirmed automatically."""
+    return recognize_dataframe_extended(dataframe)
 
 
 def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[str, str]) -> dict[str, int]:
     """Move confirmed analyses from one mixed dataset into child mineral datasets.
 
     Analysis IDs, data_json, source row, image links and provenance remain intact. No rows are
-    duplicated. Unassigned analyses stay in the source dataset.
+    duplicated. Unassigned analyses stay in the source dataset. Suggestions never reach this
+    function unless the user explicitly confirms an assignment.
     """
     clean = {
         str(analysis_id).strip(): str(mineral).strip()
