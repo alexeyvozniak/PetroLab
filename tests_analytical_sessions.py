@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -43,6 +44,9 @@ class Workspace:
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        # Windows can keep sqlite3.Row/statement references alive until collection.
+        # Match the proven Sample Registry test cleanup before deleting the temp DB.
+        gc.collect()
         self.stack.close()
 
 
