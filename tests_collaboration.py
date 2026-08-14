@@ -38,7 +38,9 @@ class Workspace:
                    VALUES (100,?,'existing','mica','mine.xlsx','S','sha','',1,'2026-08-14')""",
                 (self.project_id,),
             )
-            con.execute("INSERT INTO analysis_rows(analysis_id,dataset_id,row_index,source_row,data_json,updated_at) VALUES ('collision',100,0,2,'{}','2026-08-14')")
+            con.execute(
+                "INSERT INTO analysis_rows(analysis_id,dataset_id,row_index,source_row,data_json,updated_at) VALUES ('collision',100,0,2,'{}','2026-08-14')"
+            )
             con.commit()
         self.sample_id = create_sample(self.project_id, "PG-15")
         return self
@@ -64,6 +66,8 @@ def make_incoming_archive(root: Path) -> Path:
             CREATE TABLE studies(id INTEGER PRIMARY KEY,project_id INTEGER,source_type TEXT,title TEXT,citation TEXT,doi TEXT,authors TEXT,year TEXT,journal TEXT,colleague TEXT,notes TEXT,created_at TEXT,updated_at TEXT);
             CREATE TABLE dataset_studies(dataset_id INTEGER PRIMARY KEY,study_id INTEGER,source_table TEXT,source_note TEXT);
             CREATE TABLE semantic_mappings(id INTEGER PRIMARY KEY,study_id INTEGER,domain TEXT,source_label TEXT,normalized_value TEXT,author_interpretation TEXT,user_interpretation TEXT,status TEXT,created_at TEXT,updated_at TEXT);
+            CREATE TABLE physical_entities(id INTEGER PRIMARY KEY,project_id INTEGER,sample_id INTEGER,parent_id INTEGER,kind TEXT,name TEXT,description TEXT,created_at TEXT);
+            CREATE TABLE observations(id INTEGER PRIMARY KEY,project_id INTEGER,entity_id INTEGER,analysis_id TEXT,dataset_id INTEGER,session_id INTEGER,analyte TEXT,reported_form TEXT,value REAL,qualifier TEXT,unit TEXT,uncertainty REAL,method TEXT,instrument TEXT,standard_name TEXT,source_note TEXT,created_at TEXT);
             """
         )
         con.execute("INSERT INTO projects VALUES (9,'Colleague project','','2026-08-14')")
@@ -74,12 +78,22 @@ def make_incoming_archive(root: Path) -> Path:
         con.execute("INSERT INTO studies VALUES (7,9,'article','Paper','Citation','10.1/demo','A','2024','J','','','2026-08-14','2026-08-14')")
         con.execute("INSERT INTO dataset_studies VALUES (5,7,'Table S1','')")
         con.execute("INSERT INTO semantic_mappings VALUES (8,7,'morphology','core','core','','','resolved','2026-08-14','2026-08-14')")
+        con.execute("INSERT INTO physical_entities VALUES (20,9,1,NULL,'thin_section','PG-15-TS1','','2026-08-14')")
+        con.execute("INSERT INTO physical_entities VALUES (21,9,1,20,'probe_point','EDS-1','','2026-08-14')")
+        con.execute(
+            """INSERT INTO observations VALUES (
+                   30,9,21,'collision',5,NULL,'SiO2','oxide',40.0,'','wt%',0.5,
+                   'SEM-EDS','SEM','standard','source','2026-08-14'
+               )"""
+        )
         con.commit()
     finally:
         con.close()
     (staging / "manifest.json").write_text(json.dumps({
-        "format": "petrolab-project-archive", "format_version": 2,
-        "project": {"id": 9, "name": "Colleague project"}, "mode": "project",
+        "format": "petrolab-project-archive",
+        "format_version": 2,
+        "project": {"id": 9, "name": "Colleague project"},
+        "mode": "project",
     }), encoding="utf-8")
     archive = root / "colleague.petrolab"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -96,26 +110,46 @@ class CollaborationTests(unittest.TestCase):
             plan = collab.plan_collaboration_merge(archive, ws.project_id)
             self.assertEqual(plan.samples[0].name, "PG_15")
             self.assertEqual(plan.samples[0].suggested_target_ids, (ws.sample_id,))
+            self.assertEqual(plan.entity_count, 2)
+            self.assertEqual(plan.observation_count, 1)
             with self.assertRaises(ValueError):
                 collab.apply_collaboration_merge(archive, ws.project_id, {})
 
-    def test_explicit_merge_remaps_colliding_analysis_id_and_preserves_provenance(self):
+    def test_explicit_merge_remaps_analysis_and_physical_observation_provenance(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
             archive = make_incoming_archive(Path(temp_dir))
             result = collab.apply_collaboration_merge(archive, ws.project_id, {1: ws.sample_id})
             self.assertEqual(result.analysis_count, 1)
+            self.assertEqual(result.entity_count, 2)
+            self.assertEqual(result.observation_count, 1)
             with db.connect() as con:
                 analyses = con.execute("SELECT analysis_id,data_json FROM analysis_rows ORDER BY rowid").fetchall()
                 samples = con.execute("SELECT COUNT(*) FROM samples WHERE project_id=?", (ws.project_id,)).fetchone()[0]
                 studies = con.execute("SELECT title,doi FROM studies WHERE project_id=?", (ws.project_id,)).fetchall()
                 imported = con.execute("SELECT COUNT(*) FROM collaboration_imports").fetchone()[0]
                 aliases = con.execute("SELECT alias FROM sample_aliases WHERE sample_id=?", (ws.sample_id,)).fetchall()
+                entities = con.execute(
+                    "SELECT kind,name,sample_id,parent_id FROM physical_entities WHERE project_id=? ORDER BY id",
+                    (ws.project_id,),
+                ).fetchall()
+                observation = con.execute(
+                    "SELECT entity_id,analysis_id,dataset_id,analyte,unit,method,uncertainty FROM observations WHERE project_id=?",
+                    (ws.project_id,),
+                ).fetchone()
             self.assertEqual(len(analyses), 2)
             self.assertEqual(len({row["analysis_id"] for row in analyses}), 2)
+            imported_analysis = next(row["analysis_id"] for row in analyses if row["data_json"] != "{}")
             self.assertEqual(samples, 1)
             self.assertEqual([(row["title"], row["doi"]) for row in studies], [("Paper", "10.1/demo")])
             self.assertEqual(imported, 1)
             self.assertIn("PG 15", [row["alias"] for row in aliases])
+            self.assertEqual([row["kind"] for row in entities], ["thin_section", "probe_point"])
+            self.assertTrue(all(int(row["sample_id"]) == ws.sample_id for row in entities))
+            self.assertEqual(observation["analysis_id"], imported_analysis)
+            self.assertEqual(observation["analyte"], "SiO2")
+            self.assertEqual(observation["unit"], "wt%")
+            self.assertEqual(observation["method"], "SEM-EDS")
+            self.assertEqual(observation["uncertainty"], 0.5)
             with self.assertRaises(ValueError):
                 collab.plan_collaboration_merge(archive, ws.project_id)
 
