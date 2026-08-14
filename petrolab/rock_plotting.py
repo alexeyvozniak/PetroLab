@@ -8,6 +8,7 @@ import pandas as pd
 
 from petrolab.plot_text import matplotlib_label
 from petrolab.services.rock_service import rhodes_equilibrium_fo
+from petrolab.tas import prepare_tas_dataframe
 from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
 
@@ -92,11 +93,10 @@ def build_tas_figure(
     show_labels: bool = True,
     grid: bool = False,
     figure_size: tuple[float, float] = (7.3, 5.6),
+    normalize_volatile_free: bool = True,
 ):
-    work = dataframe.copy()
-    work["SiO2"] = _numeric(work, "SiO2")
-    work["Total alkalis"] = _numeric(work, "Na2O") + _numeric(work, "K2O")
-    work = work.dropna(subset=["SiO2", "Total alkalis"])
+    work = prepare_tas_dataframe(dataframe, normalize_volatile_free=normalize_volatile_free)
+    work = work.dropna(subset=["TAS_SiO2", "TAS_Total_alkalis"])
     with plt.rc_context({"font.family": font_family, "font.size": font_size}):
         fig, ax = plt.subplots(figsize=figure_size)
         for path in TAS_SOLID_PATHS:
@@ -112,7 +112,7 @@ def build_tas_figure(
             groups = list(work.groupby(group_column, dropna=False, sort=False))
             for index, (name, subset) in enumerate(groups):
                 ax.scatter(
-                    subset["SiO2"], subset["Total alkalis"],
+                    subset["TAS_SiO2"], subset["TAS_Total_alkalis"],
                     label=str(name), zorder=5,
                     **_scatter_style(index, point_style_name, marker_size, monochrome),
                 )
@@ -120,19 +120,25 @@ def build_tas_figure(
                 ax.legend(frameon=False, fontsize=max(6, font_size - 1))
         else:
             ax.scatter(
-                work["SiO2"], work["Total alkalis"], zorder=5,
+                work["TAS_SiO2"], work["TAS_Total_alkalis"], zorder=5,
                 **_scatter_style(0, point_style_name, marker_size, monochrome),
             )
         if label_column and label_column in work.columns:
             for _, row in work.iterrows():
                 label = str(row.get(label_column, "")).strip()
                 if label and label.lower() != "nan":
-                    ax.annotate(label, (row["SiO2"], row["Total alkalis"]), xytext=(3, 3), textcoords="offset points", fontsize=max(6, font_size - 1))
+                    ax.annotate(
+                        label,
+                        (row["TAS_SiO2"], row["TAS_Total_alkalis"]),
+                        xytext=(3, 3), textcoords="offset points",
+                        fontsize=max(6, font_size - 1),
+                    )
         ax.set_xlim(35, 80)
         ax.set_ylim(0, 16)
         ax.set_xlabel(matplotlib_label("SiO₂, wt.%"), fontsize=label_size)
         ax.set_ylabel(matplotlib_label("Na₂O + K₂O, wt.%"), fontsize=label_size)
-        ax.set_title("TAS · Le Bas et al. (1986), IUGS")
+        suffix = " · normalized volatile-free" if normalize_volatile_free else " · raw reported values"
+        ax.set_title("TAS · Le Bas et al. (1986), IUGS" + suffix)
         _finish_axes(ax, tick_size=tick_size, spine_width=spine_width, grid=grid, grid_alpha=0.15)
         fig.tight_layout()
         return fig

@@ -7,7 +7,15 @@ import streamlit as st
 
 from petrolab.analysis_groups import set_work_group
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
-from petrolab.statistics import correlation_matrix, descriptive_statistics, numeric_feature_candidates, prepare_matrix, run_clustering, run_pca
+from petrolab.statistics import (
+    correlation_matrix,
+    descriptive_statistics,
+    logratio_variation_matrix,
+    numeric_feature_candidates,
+    prepare_matrix,
+    run_clustering,
+    run_pca,
+)
 from petrolab.ui.data_scope import render_analysis_scope
 from petrolab.ui.layout import render_badges, render_page_header
 
@@ -22,18 +30,53 @@ def _xlsx_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
 
 def _feature_selector(dataframe: pd.DataFrame, key: str) -> list[str]:
     numeric = numeric_feature_candidates(dataframe)
-    preferred = [column for column in numeric if column.startswith("apfu_") or column in {"SiO2", "TiO2", "Al2O3", "Cr2O3", "MgO", "CaO", "Na2O", "K2O", "Mg#", "Cr#"} or "[µg/g]" in column]
-    return st.multiselect("Переменные", numeric, default=preferred[: min(12, len(preferred))] or numeric[: min(8, len(numeric))], key=key)
+    preferred = [
+        column for column in numeric
+        if column.startswith("apfu_")
+        or column in {"SiO2", "TiO2", "Al2O3", "Cr2O3", "MgO", "CaO", "Na2O", "K2O", "Mg#", "Cr#"}
+        or "[µg/g]" in column
+    ]
+    return st.multiselect(
+        "Переменные",
+        numeric,
+        default=preferred[: min(12, len(preferred))] or numeric[: min(8, len(numeric))],
+        key=key,
+    )
+
+
+def _analysis_basis(key: str) -> str:
+    value = st.segmented_control(
+        "Геометрия данных",
+        ["clr", "euclidean"],
+        default="clr",
+        format_func=lambda item: "CoDA · CLR" if item == "clr" else "Евклидова · exploratory",
+        key=key,
+    )
+    if value == "clr":
+        st.caption(
+            "CLR использует отношения компонентов (Aitchison geometry). Строки с пропуском, нулём или отрицательным "
+            "значением среди выбранных компонентов исключаются; PetroLab не подставляет псевдосчёт без DL."
+        )
+    else:
+        st.warning(
+            "Евклидовый режим полезен для разведочного анализа, но для закрытых геохимических составов может создавать "
+            "ложные зависимости. Для major-element и других compositional наборов обычно предпочтителен CLR."
+        )
+    return str(value)
 
 
 def render_statistics_page() -> None:
-    render_page_header("Статистика", "Описание, корреляции, PCA и кластеризация поверх текущей научной выборки. Исходные анализы не изменяются.", eyebrow="Исследование")
+    render_page_header(
+        "Статистика",
+        "Описание, log-ratio анализ, PCA и кластеризация поверх текущей научной выборки. Исходные анализы не изменяются.",
+        eyebrow="Исследование",
+    )
     scope = render_analysis_scope("statistics")
     if scope is None:
         return
     dataframe = scope.dataframe
     render_badges([(f"{len(dataframe):,} анализов".replace(",", " "), "accent")])
-    tab_desc, tab_corr, tab_pca, tab_cluster = st.tabs(["Описание", "Корреляции", "PCA", "Кластеры"])
+    tab_desc, tab_corr, tab_pca, tab_cluster = st.tabs(["Описание", "Связи", "PCA", "Кластеры"])
 
     with tab_desc:
         columns = _feature_selector(dataframe, "stats_desc_features")
@@ -44,10 +87,19 @@ def render_statistics_page() -> None:
 
     with tab_corr:
         columns = _feature_selector(dataframe, "stats_corr_features")
-        method = st.segmented_control("Коэффициент", ["pearson", "spearman", "kendall"], default="spearman", key="stats_corr_method")
+        basis = _analysis_basis("stats_corr_basis")
         if len(columns) < 2:
             st.caption("Выберите минимум две переменные.")
+        elif basis == "clr":
+            variation = logratio_variation_matrix(dataframe, columns)
+            st.caption(
+                "Variation matrix: var[ln(xᵢ/xⱼ)]. Чем меньше значение, тем стабильнее отношение двух компонентов. "
+                "Это не обычный коэффициент корреляции."
+            )
+            st.dataframe(variation.style.background_gradient(cmap="viridis"), width="stretch", height=560)
+            st.download_button("Скачать Excel", _xlsx_bytes({"Logratio variation": variation}), file_name="logratio_variation_matrix.xlsx")
         else:
+            method = st.segmented_control("Коэффициент", ["pearson", "spearman", "kendall"], default="spearman", key="stats_corr_method")
             corr = correlation_matrix(dataframe, columns, method=str(method))
             st.dataframe(corr.style.background_gradient(cmap="RdBu_r", vmin=-1, vmax=1), width="stretch", height=560)
             st.download_button("Скачать Excel", _xlsx_bytes({"Correlation": corr}), file_name="correlation_matrix.xlsx")
@@ -57,29 +109,49 @@ def render_statistics_page() -> None:
         if len(columns) < 2:
             st.caption("Для PCA выберите минимум две переменные.")
         else:
-            c1, c2 = st.columns(2)
-            scaler = c1.selectbox("Масштабирование", ["standard", "robust", "none"], key="stats_pca_scaler")
-            impute = c2.selectbox("Пропуски", ["median", "mean"], format_func=lambda value: "Медиана" if value == "median" else "Среднее", key="stats_pca_impute")
+            basis = _analysis_basis("stats_pca_basis")
+            if basis == "clr":
+                scaler, impute = "none", "median"
+            else:
+                c1, c2 = st.columns(2)
+                scaler = c1.selectbox("Масштабирование", ["standard", "robust", "none"], key="stats_pca_scaler")
+                impute = c2.selectbox(
+                    "Пропуски",
+                    ["median", "mean"],
+                    format_func=lambda value: "Медиана" if value == "median" else "Среднее",
+                    key="stats_pca_impute",
+                )
             try:
-                prepared = prepare_matrix(dataframe, columns, scaler=scaler, impute=impute)
+                prepared = prepare_matrix(dataframe, columns, scaler=scaler, impute=impute, transform=basis)
             except ValueError as exc:
                 st.info(str(exc)); prepared = None
+            if prepared is not None and prepared.excluded_rows:
+                st.caption(f"CLR: исключено строк с пропуском/нулём/отрицательным компонентом: {prepared.excluded_rows}.")
             if prepared is not None and len(prepared.index) >= 2:
-                pca = run_pca(prepared, n_components=max(2, min(6, len(columns), len(prepared.index))))
+                pca = run_pca(prepared, n_components=max(2, min(6, prepared.matrix.shape[1], len(prepared.index))))
                 explained = pd.DataFrame({"PC": pca.scores.columns, "Объяснённая дисперсия, %": pca.explained_variance * 100.0})
                 st.dataframe(explained, width="stretch", hide_index=True)
                 meta = [column for column in ["_analysis_id", "Sample", "Grain", "Point", "Generation", "PetroLab Generation", "Набор", "Минерал"] if column in dataframe.columns]
                 score_view = dataframe.loc[pca.scores.index, meta].copy().join(pca.scores)
                 groups = [column for column in ["PetroLab Generation", "Generation", "Минерал", "Набор", "Рабочая группа"] if column in score_view.columns]
                 group = st.selectbox("Группировка", ["Нет"] + groups, key="stats_pca_group")
-                fig = build_interactive_scatter(score_view, "PC1", "PC2", group_col=None if group == "Нет" else group, x_label="PC1", y_label="PC2", title="PCA")
+                fig = build_interactive_scatter(
+                    score_view, "PC1", "PC2",
+                    group_col=None if group == "Нет" else group,
+                    x_label="PC1", y_label="PC2",
+                    title="PCA · CLR" if basis == "clr" else "PCA · Euclidean",
+                )
                 event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode=("points", "box", "lasso"), key="stats_pca_plot")
                 ids = selected_analysis_ids(event)
                 if ids:
                     render_badges([(f"Выбрано: {len(ids)}", "accent")])
                 st.markdown("#### Нагрузки")
                 st.dataframe(pca.loadings, width="stretch", height=360)
-                st.download_button("Скачать PCA Excel", _xlsx_bytes({"Scores": score_view.set_index("_analysis_id"), "Loadings": pca.loadings, "Variance": explained.set_index("PC")}), file_name="pca.xlsx")
+                st.download_button(
+                    "Скачать PCA Excel",
+                    _xlsx_bytes({"Scores": score_view.set_index("_analysis_id"), "Loadings": pca.loadings, "Variance": explained.set_index("PC")}),
+                    file_name="pca.xlsx",
+                )
             elif prepared is not None:
                 st.info("После обработки остался один анализ. Для PCA нужны минимум два.")
 
@@ -88,15 +160,22 @@ def render_statistics_page() -> None:
         if len(columns) < 2:
             st.caption("Для кластеризации выберите минимум две переменные.")
             return
+        basis = _analysis_basis("stats_cluster_basis")
         c1, c2 = st.columns(2)
         methods = ["kmeans", "hierarchical", "dbscan", "hdbscan"]
         labels = {"kmeans": "K-means", "hierarchical": "Иерархический", "dbscan": "DBSCAN", "hdbscan": "HDBSCAN"}
         method = c1.selectbox("Метод", methods, format_func=lambda value: labels[value], key="stats_cluster_method")
-        scaler = c2.selectbox("Масштабирование", ["standard", "robust", "none"], key="stats_cluster_scaler")
+        if basis == "clr":
+            scaler = "none"
+            c2.caption("CLR используется без дополнительного scaler.")
+        else:
+            scaler = c2.selectbox("Масштабирование", ["standard", "robust", "none"], key="stats_cluster_scaler")
         try:
-            prepared = prepare_matrix(dataframe, columns, scaler=scaler, impute="median")
+            prepared = prepare_matrix(dataframe, columns, scaler=scaler, impute="median", transform=basis)
         except ValueError as exc:
             st.info(str(exc)); return
+        if prepared.excluded_rows:
+            st.caption(f"CLR: исключено строк с пропуском/нулём/отрицательным компонентом: {prepared.excluded_rows}.")
         if len(prepared.index) < 2:
             st.info("Для кластеризации нужны минимум два анализа."); return
         kwargs = {"method": method}
@@ -123,7 +202,8 @@ def render_statistics_page() -> None:
         render_badges([(f"{clusters} кластеров", "accent"), (f"{noise} шум/неуверенные", "neutral")])
         pca = run_pca(prepared, n_components=2)
         plot_view = cluster_view.join(pca.scores)
-        st.plotly_chart(build_interactive_scatter(plot_view, "PC1", "PC2", group_col="Cluster", title=f"{result.method} · PCA"), width="stretch", key="stats_cluster_plot")
+        title = f"{result.method} · {'CLR' if basis == 'clr' else 'Euclidean'} PCA"
+        st.plotly_chart(build_interactive_scatter(plot_view, "PC1", "PC2", group_col="Cluster", title=title), width="stretch", key="stats_cluster_plot")
         with st.expander("Сохранить кластеры как рабочие группы"):
             prefix = st.text_input("Префикс", value="Cluster", key="stats_cluster_prefix")
             include_noise = st.checkbox("Сохранить шум (−1) отдельной рабочей группой", value=False, key="stats_cluster_noise")

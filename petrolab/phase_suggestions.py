@@ -9,9 +9,11 @@ import pandas as pd
 
 from petrolab.db import _utcnow, connect
 
+PHASE_SUGGESTION_RULESET_VERSION = "2026.08.1"
 SUGGESTED_MINERAL_COLUMN = "Suggested Mineral"
 SUGGESTION_CONFIDENCE_COLUMN = "Mineral suggestion confidence"
 SUGGESTION_REASON_COLUMN = "Mineral suggestion reason"
+SUGGESTION_RULESET_COLUMN = "Mineral suggestion ruleset"
 
 
 def _value(row: Mapping[str, Any], key: str) -> float:
@@ -44,6 +46,7 @@ def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, lis
 
     These are suggestions only. Rules intentionally favour high-specificity signatures and
     leave overlapping silicates unresolved rather than pretending to provide IMA classification.
+    The public ruleset version must change whenever thresholds or scoring semantics change.
     """
     sio2 = _value(row, "SiO2")
     tio2 = _value(row, "TiO2")
@@ -129,6 +132,7 @@ def attach_phase_suggestions(dataframe: pd.DataFrame) -> pd.DataFrame:
     out[SUGGESTED_MINERAL_COLUMN] = [item[0] for item in suggestions]
     out[SUGGESTION_CONFIDENCE_COLUMN] = [item[1] for item in suggestions]
     out[SUGGESTION_REASON_COLUMN] = [item[2] for item in suggestions]
+    out[SUGGESTION_RULESET_COLUMN] = PHASE_SUGGESTION_RULESET_VERSION
     return out
 
 
