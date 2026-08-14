@@ -1,10 +1,74 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import streamlit as st
 
 from petrolab.db import create_project, list_datasets, list_projects
+from petrolab.project_archive import create_project_archive
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
+
+
+def _portable_archive_controls(project: dict) -> None:
+    project_id = int(project["id"])
+    with st.expander("Перенос и резервная копия", expanded=False):
+        st.caption(
+            "Создайте один файл .petrolab для другого компьютера или резервной копии. "
+            "Исходные Excel и изображения можно включать отдельно."
+        )
+        mode_labels = {
+            "Только проект": "project",
+            "Проект + Excel/CSV": "project_sources",
+            "Полный проект + Excel/CSV + изображения": "full",
+        }
+        mode_label = st.radio(
+            "Состав архива",
+            list(mode_labels),
+            key=f"archive_mode_{project_id}",
+        )
+        mode = mode_labels[mode_label]
+        if mode == "full":
+            st.info("В полном архиве изображения сохраняются в исходном качестве.")
+        if st.button("Подготовить переносимый архив", key=f"build_archive_{project_id}"):
+            try:
+                with tempfile.TemporaryDirectory(prefix="petrolab_export_") as tmp:
+                    filename = f"{project['name']}.petrolab"
+                    result = create_project_archive(
+                        project_id,
+                        Path(tmp) / filename,
+                        mode=mode,
+                        image_mode="originals" if mode == "full" else "none",
+                    )
+                    payload = result.path.read_bytes()
+                st.session_state[f"project_archive_bytes_{project_id}"] = payload
+                st.session_state[f"project_archive_name_{project_id}"] = filename
+                st.session_state[f"project_archive_meta_{project_id}"] = (
+                    result.dataset_count,
+                    result.source_count,
+                    result.image_count,
+                )
+            except Exception as exc:
+                st.error(f"Не удалось создать архив: {exc}")
+        payload = st.session_state.get(f"project_archive_bytes_{project_id}")
+        if payload:
+            dataset_count, source_count, image_count = st.session_state.get(
+                f"project_archive_meta_{project_id}", (0, 0, 0)
+            )
+            st.caption(
+                f"Готово: {dataset_count} наборов, {source_count} исходных файлов, "
+                f"{image_count} изображений."
+            )
+            st.download_button(
+                "Скачать .petrolab",
+                data=payload,
+                file_name=st.session_state.get(
+                    f"project_archive_name_{project_id}", "PetroLab_project.petrolab"
+                ),
+                mime="application/zip",
+                key=f"download_archive_{project_id}",
+            )
 
 
 def render_projects_page() -> None:
@@ -57,3 +121,4 @@ def render_projects_page() -> None:
                     st.session_state["sidebar_project"] = project_id
                     navigate("home")
                     st.rerun()
+            _portable_archive_controls(project)
