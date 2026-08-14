@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
 from petrolab.group_envelopes import compute_group_envelope
+from petrolab.group_styles import default_group_color, display_group_series
 
 
 PLOTLY_SYMBOLS = {
@@ -16,10 +17,6 @@ PLOTLY_SYMBOLS = {
     "v": "triangle-down", "P": "cross", "X": "x", "<": "triangle-left",
     ">": "triangle-right", "h": "hexagon", "*": "star", "p": "pentagon", "8": "octagon",
 }
-_GROUP_COLORS = (
-    "#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A",
-    "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
-)
 
 
 def _text(value: Any) -> str:
@@ -77,14 +74,7 @@ def _field_dash(value: Any) -> str:
     return value if value in {"solid", "dot", "dash", "longdash", "dashdot", "longdashdot"} else "solid"
 
 
-def _add_envelope_traces(
-    figure: go.Figure,
-    subset: pd.DataFrame,
-    x: str,
-    y: str,
-    group_name: str,
-    style: Mapping[str, Any],
-) -> None:
+def _add_envelope_traces(figure: go.Figure, subset: pd.DataFrame, x: str, y: str, group_name: str, style: Mapping[str, Any]) -> None:
     display_mode = str(style.get("display_mode", "points") or "points")
     if display_mode not in {"field", "points+field", "centroid"}:
         return
@@ -100,11 +90,9 @@ def _add_envelope_traces(
             text=[str(group_name)], textposition="top center", name=f"{group_name} · центр",
             marker={"size": _marker_size(style) + 3.0, "color": color, "symbol": _marker_symbol(style),
                     "line": {"width": float(style.get("outline_width", 1.0) or 0.0), "color": _outline_color(style)}},
-            hovertemplate=f"<b>{group_name}</b><br>медианный центр<extra></extra>",
-            showlegend=False,
+            hovertemplate=f"<b>{group_name}</b><br>медианный центр<extra></extra>", showlegend=False,
         ))
         return
-
     method = str(style.get("envelope_method", "confidence_ellipse") or "confidence_ellipse")
     level = float(style.get("envelope_level", 0.90) or 0.90)
     polygons = _manual_polygons(style)
@@ -116,7 +104,6 @@ def _add_envelope_traces(
             polygons = result.polygons
         except (ValueError, np.linalg.LinAlgError):
             return
-
     fill_alpha = float(style.get("envelope_alpha", 0.16) or 0.0)
     fill_color = str(style.get("envelope_fill_color") or color)
     line_color = str(style.get("envelope_line_color") or color)
@@ -124,10 +111,7 @@ def _add_envelope_traces(
     line_width = float(style.get("envelope_line_width", 1.5) or 0.0)
     line_dash = _field_dash(style.get("envelope_line_dash", "solid"))
     for index, polygon in enumerate(polygons):
-        if manual:
-            description = f"manual; исходное: {method}, уровень {level:.0%}; n={len(subset)}"
-        else:
-            description = f"{result.method}; уровень {result.level:.0%}; n={result.n}"
+        description = f"manual; исходное: {method}, уровень {level:.0%}; n={len(subset)}" if manual else f"{result.method}; уровень {result.level:.0%}; n={result.n}"
         figure.add_trace(go.Scatter(
             x=polygon[:, 0], y=polygon[:, 1], mode="lines", fill="toself" if fill_enabled else None,
             fillcolor=_rgba(fill_color, fill_alpha) if fill_enabled else "rgba(0,0,0,0)",
@@ -138,24 +122,11 @@ def _add_envelope_traces(
         ))
 
 
-def build_interactive_scatter(
-    dataframe: pd.DataFrame,
-    x: str,
-    y: str,
-    group_col: str | None = None,
-    *,
-    x_label: str | None = None,
-    y_label: str | None = None,
-    title: str = "",
-    log_x: bool = False,
-    log_y: bool = False,
-    style_map: Mapping[str, Mapping[str, Any]] | None = None,
-) -> go.Figure:
+def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col: str | None = None, *, x_label: str | None = None, y_label: str | None = None, title: str = "", log_x: bool = False, log_y: bool = False, style_map: Mapping[str, Mapping[str, Any]] | None = None) -> go.Figure:
     if "_analysis_id" not in dataframe.columns:
         raise ValueError("Для интерактивного выбора требуется _analysis_id")
     if x not in dataframe.columns or y not in dataframe.columns:
         raise ValueError("Выбранные оси отсутствуют в таблице")
-
     work = dataframe.copy()
     work[x] = pd.to_numeric(work[x], errors="coerce").replace([np.inf, -np.inf], np.nan)
     work[y] = pd.to_numeric(work[y], errors="coerce").replace([np.inf, -np.inf], np.nan)
@@ -164,63 +135,34 @@ def build_interactive_scatter(
         work = work[work[x] > 0]
     if log_y:
         work = work[work[y] > 0]
-
-    hover_columns = [
-        column for column in ["Sample", "Point", "Generation", WORK_GROUP_COLUMN]
-        if column in work.columns
-    ]
-
+    hover_columns = [column for column in ["Sample", "Point", "Generation", WORK_GROUP_COLUMN] if column in work.columns]
     if group_col and group_col in work.columns:
-        labels = work[group_col].astype("string").fillna("Без группы").replace("", "Без группы")
+        labels = display_group_series(work[group_col])
         groups = [(name, work[labels == name]) for name in labels.unique().tolist()]
     else:
         groups = [("Все точки", work)]
-
     figure = go.Figure()
     for group_index, (group_name, subset) in enumerate(groups):
         if subset.empty:
             continue
         style = dict((style_map or {}).get(str(group_name), {}))
-        style.setdefault("color", _GROUP_COLORS[group_index % len(_GROUP_COLORS)])
+        style.setdefault("color", default_group_color(group_index))
         _add_envelope_traces(figure, subset, x, y, str(group_name), style)
         display_mode = str(style.get("display_mode", "points") or "points")
         if display_mode in {"field", "centroid"}:
             continue
-        customdata = [
-            [str(row["_analysis_id"])] + [_text(row.get(column)) for column in hover_columns]
-            for _, row in subset.iterrows()
-        ]
+        customdata = [[str(row["_analysis_id"])] + [_text(row.get(column)) for column in hover_columns] for _, row in subset.iterrows()]
         hover_lines = [f"<b>{x_label or x}</b>: %{{x}}", f"<b>{y_label or y}</b>: %{{y}}"]
         for index, column in enumerate(hover_columns, start=1):
             hover_lines.append(f"<b>{column}</b>: %{{customdata[{index}]}}")
         hover_lines.append("<extra></extra>")
-        figure.add_trace(
-            go.Scattergl(
-                x=subset[x], y=subset[y], mode="markers", name=str(group_name),
-                customdata=customdata,
-                marker={
-                    "size": _marker_size(style),
-                    "symbol": _marker_symbol(style),
-                    "opacity": float(style.get("alpha", 0.9) or 0.9),
-                    "color": style["color"],
-                    "line": {
-                        "width": float(style.get("outline_width", 1.0) or 0.0),
-                        "color": _outline_color(style),
-                    },
-                },
-                hovertemplate="<br>".join(hover_lines),
-                selected={"marker": {"opacity": 1.0, "size": _marker_size(style) + 3.0}},
-                unselected={"marker": {"opacity": 0.35}},
-            )
-        )
-
-    figure.update_layout(
-        title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y,
-        dragmode="lasso", clickmode="event+select", selectdirection="any",
-        margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
-        height=610,
-    )
+        figure.add_trace(go.Scattergl(
+            x=subset[x], y=subset[y], mode="markers", name=str(group_name), customdata=customdata,
+            marker={"size": _marker_size(style), "symbol": _marker_symbol(style), "opacity": float(style.get("alpha", 0.9) or 0.9), "color": style["color"],
+                    "line": {"width": float(style.get("outline_width", 1.0) or 0.0), "color": _outline_color(style)}},
+            hovertemplate="<br>".join(hover_lines), selected={"marker": {"opacity": 1.0, "size": _marker_size(style) + 3.0}}, unselected={"marker": {"opacity": 0.35}},
+        ))
+    figure.update_layout(title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y, dragmode="lasso", clickmode="event+select", selectdirection="any", margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55}, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}, height=610)
     if log_x:
         figure.update_xaxes(type="log")
     if log_y:
