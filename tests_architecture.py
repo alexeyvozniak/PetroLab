@@ -26,7 +26,7 @@ for renderer in [
     assert renderer in app_text
 
 for page_name in [
-    "projects.py", "formulae.py", "plots.py", "plots_advanced.py",
+    "projects.py", "formulae.py", "plots_advanced.py",
     "ternary.py", "plots_ternary.py", "minerals.py", "export.py", "change_log.py",
     "science_plots.py", "statistics.py", "rocks.py", "article_tables.py", "updates.py",
     "settings.py", "help.py", "home_dashboard.py", "sources_dashboard.py",
@@ -34,20 +34,24 @@ for page_name in [
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
-# Dashboard migrations are authoritative: removed renderers/policies must not return.
+# Dashboard migrations are authoritative: no parallel legacy renderers or runtime policy modules.
 for obsolete in [
     pages_dir / "home.py",
     pages_dir / "sources.py",
     pages_dir / "analyses.py",
     pages_dir / "images.py",
+    pages_dir / "plots.py",
     ui_dir / "import_page_policy.py",
     ui_dir / "plot_page_policy.py",
     ui_dir / "image_page_policy.py",
+    ui_dir / "science_page_policy.py",
+    ui_dir / "destructive_page_policy.py",
 ]:
     assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
+assert not list(ui_dir.glob("*_page_policy.py")), "runtime page policy module returned"
 for bootstrap in [
     "install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy",
-    "install_image_page_policy",
+    "install_image_page_policy", "install_science_page_policy",
 ]:
     assert bootstrap not in app_text, bootstrap
 
@@ -106,6 +110,12 @@ for coefficient in ["51.9078", "52.8316", "3.375", "0.94"]:
     assert coefficient not in science_page_text, f"scientific coefficient {coefficient} leaked into UI"
 assert "10.1016/j.lithos.2004.04.025" in science_overlay_text
 assert "10.1016/j.lithos.2004.04.012" in science_overlay_text
+for marker in [
+    "def _mineral_filtered_presets(", "require_known_units=True", "_PATTERN_YLABELS",
+    "def _apply_pattern_group_styles(", "def _sync_science_axis_defaults(", "matches_preset",
+    "Grouped boxplot требует ровно один числовой параметр", 'key="hist_svg"', 'key="box_svg"',
+]:
+    assert marker in science_page_text, marker
 
 overlay_text = (ROOT / "petrolab" / "ternary_overlays.py").read_text(encoding="utf-8")
 preset_text = (ROOT / "petrolab" / "ternary_presets.py").read_text(encoding="utf-8")
@@ -138,20 +148,26 @@ assert "apply_measurement_overrides" in import_service
 formula_page = (pages_dir / "formulae.py").read_text(encoding="utf-8")
 assert "save_formula_results" in formula_page and "calculate_formula_safe" in formula_page
 
-# XY implementation lives in dashboard/advanced/components; plots.py is only a tiny guarded-action facade for now.
-plots_facade = (pages_dir / "plots.py").read_text(encoding="utf-8")
-assert "def render_plots_page(" not in plots_facade
-assert "load_unified_with_derived" not in plots_facade
-for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "confirm_then"]:
-    assert marker in plots_facade, marker
+# XY implementation lives in dashboard/advanced/components/actions; there is no legacy plots page.
 plots_advanced = (pages_dir / "plots_advanced.py").read_text(encoding="utf-8")
-for marker in ["load_unified_with_derived", "render_outlier_controls", "render_advanced_interactive", "save_plot_recipe"]:
+for marker in [
+    "load_unified_with_derived", "render_outlier_controls", "render_advanced_interactive",
+    "save_plot_recipe", "from petrolab.ui.plot_actions import (", "delete_plot_recipe", "delete_style_profile",
+]:
     assert marker in plots_advanced, marker
+assert "from petrolab.ui.pages import plots" not in plots_advanced
 xy_components = (ui_dir / "xy_components.py").read_text(encoding="utf-8")
-for marker in ["robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids", "set_work_group", "st.plotly_chart"]:
+for marker in [
+    "robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids",
+    "set_work_group", "st.plotly_chart", "from petrolab.ui.plot_actions import clear_work_group",
+]:
     assert marker in xy_components, marker
+assert "from petrolab.ui.pages import plots" not in xy_components
+plot_actions = (ui_dir / "plot_actions.py").read_text(encoding="utf-8")
+for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "render_plot_confirmations", "confirm_then"]:
+    assert marker in plot_actions, marker
 
-# Analysis and image dashboards now own their UI directly.
+# Analysis and image dashboards own their UI directly.
 analyses_dashboard = (pages_dir / "analyses_dashboard.py").read_text(encoding="utf-8")
 for marker in ["analysis_components", "load_unified_with_derived", "active_derived_columns", "attach_work_groups"]:
     assert marker in analyses_dashboard, marker
