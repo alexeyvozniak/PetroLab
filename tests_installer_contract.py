@@ -57,6 +57,22 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertIn('& $pythonForTest -m pip check', updater)
         self.assertIn('Move-Item -LiteralPath $Runtime -Destination $RuntimePrevious', updater)
 
+    def test_rollback_becomes_armed_immediately_after_backup_moves(self):
+        updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
+        runtime_move = updater.index('Move-Item -LiteralPath $Runtime -Destination $RuntimePrevious')
+        runtime_arm = updater.index('$runtimeBackupCreated = $true', runtime_move)
+        runtime_install = updater.index('Move-Item -LiteralPath $runtimeStage -Destination $Runtime', runtime_move)
+        self.assertLess(runtime_move, runtime_arm)
+        self.assertLess(runtime_arm, runtime_install)
+
+        code_move = updater.index('Move-Item -LiteralPath $Current -Destination $Previous')
+        code_arm = updater.index('$codeBackupCreated = $true', code_move)
+        code_install = updater.index('Move-Item -LiteralPath $appStage -Destination $Current', code_move)
+        self.assertLess(code_move, code_arm)
+        self.assertLess(code_arm, code_install)
+        self.assertIn('if ($codeBackupCreated -and (Test-Path -LiteralPath $Previous))', updater)
+        self.assertIn('if ($runtimeBackupCreated -and (Test-Path -LiteralPath $RuntimePrevious))', updater)
+
     def test_installer_ci_builds_and_smokes_self_contained_installation(self):
         workflow = (ROOT / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
         self.assertIn("python-3.12.10-embed-amd64.zip", workflow)
