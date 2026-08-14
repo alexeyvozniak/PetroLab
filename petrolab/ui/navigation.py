@@ -9,28 +9,42 @@ from petrolab.update_checker import available_update
 
 
 NAV_SECTIONS = {
+    "Основное": [
+        ("home", "Главная"),
+        ("workflow", "Рабочий процесс"),
+        ("add_data", "Добавить данные"),
+        ("attention", "Требует внимания"),
+    ],
     "Данные": [
-        ("home", "Главная"), ("workflow", "Рабочий процесс"), ("sources", "Новые анализы"),
-        ("sessions", "Сессии"), ("mixed_minerals", "Фазы и выбросы"),
-        ("measurements", "Образцы и измерения"), ("intake", "Источники и литература"),
-        ("database", "Вся база"), ("analyses", "База анализов"), ("formulae", "Расчёты"),
+        ("analyses", "База анализов"),
+        ("database", "Вся база"),
+        ("images", "Изображения"),
+        ("slides", "Шлифы и поля"),
+    ],
+    "Интерпретация": [
+        ("mixed_minerals", "Фазы и выбросы"),
+        ("batch_edit", "Массовые действия"),
+        ("formulae", "Формулы и APFU"),
+        ("generations", "Поколения"),
+        ("measurements", "Образцы и измерения"),
     ],
     "Исследование": [
         ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
         ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
-        ("generations", "Поколения"),
         ("equilibrium", "Равновесные пары"), ("distribution", "Распределение элементов"),
-        ("thermobarometry", "Термобарометрия"),
-    ],
-    "Материалы": [
-        ("rocks", "Породы"), ("slides", "Шлифы и поля"), ("images", "Изображения"),
-        ("minerals", "Минералогические модули"),
+        ("thermobarometry", "Термобарометрия"), ("rocks", "Породы"),
     ],
     "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
-    "Система": [
-        ("projects", "Проекты"), ("collaboration", "Совместная работа"),
-        ("settings", "Настройки"), ("help", "Справка"), ("updates", "Что нового"),
-        ("change_log", "История правок данных"),
+    "Расширенные инструменты": [
+        ("sources", "Импорт и обновление файлов"),
+        ("sessions", "Аналитические сессии"),
+        ("intake", "Источники и литература"),
+        ("minerals", "Минералогические модули"),
+        ("projects", "Проекты"),
+        ("collaboration", "Совместная работа"),
+        ("change_log", "История действий"),
+        ("settings", "Настройки"), ("help", "Справка"),
+        ("updates", "Что нового"),
     ],
 }
 ROUTE_LABELS = {route: label for entries in NAV_SECTIONS.values() for route, label in entries}
