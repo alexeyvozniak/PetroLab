@@ -46,7 +46,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -75,6 +75,10 @@ jobs:
       - name: Run group envelope scientific regressions
         shell: cmd
         run: python tests_group_envelopes.py
+
+      - name: Run manual field editor regressions
+        shell: cmd
+        run: python tests_manual_fields.py
 
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
