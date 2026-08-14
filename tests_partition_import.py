@@ -56,7 +56,7 @@ created = import_partition_table(pd.DataFrame([
     },
 ]))
 assert len(created) == 1
-model = list_partition_models()[0]
+model = next(item for item in list_partition_models() if item["id"] == created[0])
 assert model["values"]["La"] == 0.06
 assert model["values"]["Cs"] == {"low": 0.03, "high": 0.05}
 assert model["source"]["database"] == "GERM KdD"
