@@ -3,7 +3,21 @@ name: Guided analysis workflow verification
 on:
   push:
     branches:
+      - main
       - feature/guided-analysis-workflow
+    paths:
+      - "petrolab/workflow_screening.py"
+      - "petrolab/phase_suggestions.py"
+      - "petrolab/repositories/image_repository.py"
+      - "petrolab/ui/pages/guided_workflow.py"
+      - "petrolab/ui/pages/mixed_minerals.py"
+      - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/navigation.py"
+      - "petrolab/ui/pages/__init__.py"
+      - "app.py"
+      - "tests_guided_workflow.py"
+      - "tests_guided_ui_viewports.py"
+      - ".github/workflows/guided-workflow.yml"
   pull_request:
     paths:
       - "petrolab/workflow_screening.py"
