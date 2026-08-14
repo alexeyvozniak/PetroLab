@@ -11,6 +11,7 @@ on:
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
+      - "petrolab/ui/theme.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
       - "petrolab/ui/pages/images_dashboard.py"
@@ -29,6 +30,7 @@ on:
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
+      - "petrolab/ui/theme.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
       - "petrolab/ui/pages/images_dashboard.py"
@@ -69,6 +71,7 @@ jobs:
           petrolab/ui/pages/sources_dashboard.py
           petrolab/ui/pages/home_dashboard.py
           petrolab/ui/navigation.py
+          petrolab/ui/theme.py
           tests_guided_ui_viewports.py
       - name: Run guided workflow integrity tests
         run: python tests_guided_workflow.py
