@@ -15,18 +15,24 @@ from petrolab.repositories.rock_repository import (
     list_mineral_links,
     list_rocks,
     replace_isotopes,
-    set_mineral_links,
+    set_mineral_links as _set_mineral_links,
     update_rock,
     upsert_composition_values,
 )
-from petrolab.services.rock_image_service import delete_rock_image, list_rock_images, save_rock_image
+from petrolab.services.rock_image_service import (
+    delete_rock_image as _delete_rock_image,
+    list_rock_images,
+    save_rock_image,
+)
 from petrolab.services.rock_service import (
     composition_dict,
     delete_rock_with_assets,
     import_rocks_wide,
     whole_rock_mg_number,
 )
-from petrolab.ui.components import render_project_selector
+from petrolab.ui.destructive_actions import confirm_then, pending_key, render_pending
+from petrolab.ui.layout import render_page_header
+from petrolab.ui.project_context import active_project_id
 from petrolab.ui.rock_plots import render_rock_plots
 
 
@@ -297,16 +303,29 @@ def _render_links_and_images(rock: dict) -> None:
         f"{dataset['name']} · {dataset['mineral_key']} · {dataset['source_filename']}": int(dataset["id"])
         for dataset in datasets
     }
-    current = set(list_mineral_links(rock_id))
+    current = {int(value) for value in list_mineral_links(rock_id)}
     selected_labels = st.multiselect(
         "Минералогические наборы из этой породы",
         list(label_to_id),
         default=[label for label, dataset_id in label_to_id.items() if dataset_id in current],
         key=f"rock_links_{rock_id}",
     )
+    new_ids = tuple(sorted(label_to_id[label] for label in selected_labels))
+    removed = current - set(new_ids)
+    link_target = (rock_id, *new_ids)
+    if removed and st.session_state.get(pending_key("rock_links")) == link_target:
+        render_pending(
+            "rock_links",
+            f"Будет удалено связей минерал–порода: {len(removed)}. Нажмите «Сохранить связи минерал–порода» ещё раз или отмените действие.",
+        )
     if st.button("Сохранить связи минерал–порода", key=f"rock_links_save_{rock_id}"):
-        set_mineral_links(rock_id, [label_to_id[label] for label in selected_labels])
-        st.success("Связи сохранены.")
+        if removed:
+            if confirm_then("rock_links", link_target, lambda: _set_mineral_links(rock_id, new_ids)):
+                st.success("Связи сохранены.")
+                st.rerun()
+        else:
+            _set_mineral_links(rock_id, new_ids)
+            st.success("Связи сохранены.")
 
     st.divider()
     uploads = st.file_uploader(
@@ -332,6 +351,7 @@ def _render_links_and_images(rock: dict) -> None:
         return
     columns = st.columns(min(3, len(images)))
     for index, image in enumerate(images):
+        image_id = int(image["id"])
         path = Path(str(image["stored_path"]))
         with columns[index % len(columns)]:
             if path.exists():
@@ -340,21 +360,26 @@ def _render_links_and_images(rock: dict) -> None:
                     caption=image["title"] or image["original_filename"],
                     width="stretch",
                 )
-            if st.button("Удалить", key=f"rock_image_delete_{image['id']}"):
-                delete_rock_image(int(image["id"]))
-                st.rerun()
+            if st.session_state.get(pending_key("rock_image")) == image_id:
+                render_pending(
+                    "rock_image",
+                    "Фотография породы будет удалена с диска и из базы. Нажмите «Удалить» ещё раз или отмените действие.",
+                )
+            if st.button("Удалить", key=f"rock_image_delete_{image_id}"):
+                if confirm_then("rock_image", image_id, lambda: _delete_rock_image(image_id)):
+                    st.rerun()
 
 
 def render_rocks_page() -> None:
-    st.title("Породы")
-    st.write(
-        "Отдельная база валовых составов, изотопии, возраста, методики и фотографий. "
-        "Породы связываются с минералогическими dataset'ами без копирования анализов."
+    render_page_header(
+        "Породы",
+        "Валовые составы, изотопия, возраст, методика, фотографии и связи с минералогическими наборами.",
+        eyebrow="Материалы",
     )
-    project = render_project_selector("rocks_project")
-    if project is None:
+    project_id = active_project_id()
+    if project_id is None:
+        st.info("Сначала создайте проект.")
         return
-    project_id = int(project["id"])
 
     c1, c2 = st.columns([1, 2])
     with c1:
