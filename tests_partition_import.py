@@ -10,10 +10,25 @@ os.environ["PETROLAB_DATA_DIR"] = str(Path(_TMP.name) / "data")
 import pandas as pd
 
 from petrolab.db import ensure_storage
-from petrolab.partition_import import import_partition_table
+from petrolab.partition_import import import_partition_table, read_partition_upload
 from petrolab.partitioning import assess_model_context, list_partition_models
 
 ensure_storage()
+syenite_export = b"""tab delimited\tcontribution
+data_model_version\tdescription
+1.0\tDownloaded from KdD.
+>>>>>>>>>>
+tab delimited\tkds
+rock_types\tminerals\telement\tkd\tkd_low\tkd_high\tkd_definition\tkd_types
+Syenite\tClinopyroxene\tRb\t\t0.02\t0.04\tSolid-Melt\tPhenocryst-Matrix
+"""
+syenite_table = read_partition_upload(syenite_export, "syenite.txt")
+assert syenite_table.attrs["germ_kdd_export"] is True
+syenite_created = import_partition_table(syenite_table)
+assert len(syenite_created) == 1
+assert list_partition_models()[0]["source"]["database"] == "GERM KdD"
+print("GERM export without contribution_id tests: OK")
+
 created = import_partition_table(pd.DataFrame([
     {
         "contribution_id": 265,
