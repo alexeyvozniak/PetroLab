@@ -1,0 +1,106 @@
+name: Publish Windows package
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read PetroLab version
+        id: version
+        shell: pwsh
+        run: |
+          $text = Get-Content "petrolab/__init__.py" -Raw
+          if ($text -notmatch '__version__\s*=\s*"([^"]+)"') {
+            throw "PetroLab version was not found"
+          }
+          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+
+      - name: Check whether this version is already published
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.version.outputs.version }}"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "exists=false" >> $env:GITHUB_OUTPUT
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Build portable Windows installer package
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $dist = Join-Path $PWD "dist"
+          $root = Join-Path $dist "PetroLab-$version-Windows"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          $files = @(
+            "app.py",
+            "requirements.txt",
+            "INSTALL_PETROLAB.bat",
+            "START_PETROLAB.bat",
+            "UPDATE_PETROLAB.bat",
+            "DIAGNOSE_PETROLAB.bat"
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Required package file missing: $file" }
+            Copy-Item $file $root
+          }
+          Copy-Item "petrolab" (Join-Path $root "petrolab") -Recurse
+          if (Test-Path ".streamlit") {
+            Copy-Item ".streamlit" (Join-Path $root ".streamlit") -Recurse
+          }
+
+          $readme = @"
+          PetroLab $version — Windows package
+
+          1. Extract this ZIP to a normal writable folder.
+          2. Run INSTALL_PETROLAB.bat once.
+          3. Then run START_PETROLAB.bat.
+
+          PetroLab stores the working database in its PetroLab data directory, not inside this release archive.
+          Before replacing an existing installation, keep a .petrolab backup of important projects.
+          "@
+          Set-Content -Path (Join-Path $root "README_INSTALL.txt") -Value $readme -Encoding UTF8
+
+          $zip = Join-Path $dist "PetroLab-$version-Windows.zip"
+          Compress-Archive -Path $root -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  PetroLab-$version-Windows.zip" | Set-Content (Join-Path $dist "SHA256SUMS.txt") -Encoding ASCII
+
+      - name: Publish GitHub Release
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "v$version"
+          $zip = "dist/PetroLab-$version-Windows.zip"
+          $notes = @"
+          PetroLab $version for Windows.
+
+          Download `PetroLab-$version-Windows.zip`, extract it, run `INSTALL_PETROLAB.bat` once, then use `START_PETROLAB.bat`.
+
+          This release also supports portable `.petrolab` project packages and selective collaboration fragments.
+          "@
+          gh release create $tag $zip "dist/SHA256SUMS.txt" `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "PetroLab $version" `
+            --notes $notes
