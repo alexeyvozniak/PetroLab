@@ -36,7 +36,8 @@ try:
         {},
     )
 except ValueError as exc:
-    assert "явно подтвердить" in str(exc)
+    message = str(exc)
+    assert "Fe2O3" in message and "явно" in message and "Fe2O3t" in message
 else:
     raise AssertionError("Bare Fe2O3 was accepted without explicit semantics")
 
