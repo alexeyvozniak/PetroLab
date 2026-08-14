@@ -11,6 +11,7 @@ import pandas as pd
 
 import petrolab.db as db
 from petrolab.derived import load_dataset_with_derived, save_point_formula_results
+from petrolab.mineral_assignments import assign_mineral
 from petrolab.storage import ensure_storage
 
 
@@ -58,6 +59,7 @@ class Workspace:
 class PointFormulaTests(unittest.TestCase):
     def test_point_formula_is_loaded_without_replacing_dataset_default(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
+            assign_mineral("a1", "olivine", reason="проверка")
             source = db.load_dataset_dataframe(ws.dataset_id, include_meta=True)
             result = source.copy()
             result["apfu_Mg"] = 2.0
@@ -69,7 +71,7 @@ class PointFormulaTests(unittest.TestCase):
             self.assertEqual(saved.row_count, 1)
             loaded = load_dataset_with_derived(ws.dataset_id)
             self.assertEqual(float(loaded.loc[0, "apfu_Mg"]), 2.0)
-            self.assertEqual(loaded.loc[0, "Минерал"], "mica")
+            self.assertEqual(loaded.loc[0, "Минерал"], "olivine")
 
 
 if __name__ == "__main__":
