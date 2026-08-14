@@ -29,6 +29,11 @@ def render_settings_page() -> None:
             default="Компактная" if current_density == "compact" else "Комфортная",
         )
         show_help = st.checkbox("Показывать поясняющие подсказки", value=bool(settings.get("show_help_hints", True)))
+        show_sample_location_prompt = st.checkbox(
+            "Напоминать о местонахождении при открытии карточки образца",
+            value=bool(settings.get("show_sample_location_prompt", True)),
+            help="Напоминание не блокирует работу. Текущую локацию и историю всегда можно открыть в карточке образца.",
+        )
         show_updates = st.checkbox("Показывать «Что нового» на главной", value=bool(settings.get("show_release_notes_on_home", True)))
         check_updates = st.checkbox(
             "Проверять наличие новой версии", value=bool(settings.get("check_updates_automatically", True)),
@@ -82,6 +87,7 @@ def render_settings_page() -> None:
             "default_point_style": point,
             "ui_density": density_labels.get(density_label or "Комфортная", "comfortable"),
             "show_help_hints": show_help,
+            "show_sample_location_prompt": show_sample_location_prompt,
             "show_release_notes_on_home": show_updates,
             "check_updates_automatically": check_updates,
             "default_ree_reference": ree_ref,
