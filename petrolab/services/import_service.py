@@ -64,6 +64,8 @@ class ImportSchemaPreview:
     detection_limit_cells: int = 0
     import_sections: tuple[tuple[str, int], ...] = ()
     quality_counts: tuple[tuple[str, int], ...] = ()
+    adapter_name: str = ""
+    adapter_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -130,7 +132,7 @@ def _prioritize_analytical_sheets(file_bytes: bytes, filename: str, sheet_names:
             adapter = column_map.get("__schema__", {}).get("adapter")
         except Exception:
             adapter = None
-        (eds if adapter == "eds_multiblock" else other).append(sheet_name)
+        (eds if adapter in {"eds_multiblock", "oxford_eds", "la_icp_ms_raw"} else other).append(sheet_name)
     return eds + other
 
 
@@ -554,6 +556,8 @@ def _schema_preview(
         detection_limit_cells=detection_limit_cells,
         import_sections=sections,
         quality_counts=quality_counts,
+        adapter_name=str(column_map.get("__schema__", {}).get("adapter") or ""),
+        adapter_note=str(column_map.get("__schema__", {}).get("adapter_note") or ""),
     )
 
 
