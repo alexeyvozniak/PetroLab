@@ -25,7 +25,7 @@ for renderer in [
     assert renderer in app_text
 
 for page_name in [
-    "home.py", "projects.py", "sources.py", "analyses.py", "formulae.py", "plots.py",
+    "projects.py", "analyses.py", "formulae.py", "plots.py",
     "ternary.py", "plots_ternary.py", "images.py", "minerals.py", "export.py", "change_log.py",
     "science_plots.py", "statistics.py", "rocks.py", "article_tables.py", "updates.py",
     "settings.py", "help.py", "home_dashboard.py", "sources_dashboard.py",
@@ -33,14 +33,28 @@ for page_name in [
 ]:
     assert (pages_dir / page_name).exists(), page_name
 
+# The first dashboard migration is authoritative: do not re-introduce parallel home/source renderers.
+for legacy_path in [
+    pages_dir / "home.py",
+    pages_dir / "sources.py",
+    ROOT / "petrolab" / "ui" / "import_page_policy.py",
+]:
+    assert not legacy_path.exists(), f"obsolete UI layer returned: {legacy_path.name}"
+assert "install_import_page_policy" not in app_text
+
 components = ROOT / "petrolab" / "ui" / "components.py"
 components_text = components.read_text(encoding="utf-8")
 for function_name in ["def render_project_selector(", "def collect_related_images(", "def render_asset_gallery("]:
     assert function_name in components_text
+project_context = ROOT / "petrolab" / "ui" / "project_context.py"
+assert project_context.exists()
+project_context_text = project_context.read_text(encoding="utf-8")
+for function_name in ["def active_project(", "def active_project_id(", "def set_active_project("]:
+    assert function_name in project_context_text
 ternary_controls = ROOT / "petrolab" / "ui" / "ternary_controls.py"
 assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
-for ui_file in ["data_scope.py", "plot_style_controls.py", "rock_plots.py", "theme.py", "layout.py", "navigation.py"]:
+for ui_file in ["data_scope.py", "plot_style_controls.py", "rock_plots.py", "theme.py", "layout.py", "navigation.py", "project_context.py"]:
     assert (ROOT / "petrolab" / "ui" / ui_file).exists(), ui_file
 
 pure_files = [
