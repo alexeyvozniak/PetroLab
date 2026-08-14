@@ -3,8 +3,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+import pandas as pd
+
 from petrolab.db import connect
 from petrolab.sample_registry import ensure_sample_registry_schema, normalize_sample_key
+
+
+SOURCE_LABEL_COLUMN = "Статья / источник"
+SOURCE_TYPE_COLUMN = "Тип источника"
+SOURCE_TITLE_COLUMN = "Название источника"
+SOURCE_CITATION_COLUMN = "Цитирование"
+SOURCE_DOI_COLUMN = "DOI"
+SOURCE_TABLE_COLUMN = "Таблица источника"
+UNLINKED_SOURCE_LABEL = "Без статьи / источника"
+
+_SOURCE_TYPE_LABELS = {
+    "article": "Статья",
+    "colleague": "Данные коллеги",
+    "other": "Другой источник",
+}
 
 
 @dataclass(frozen=True)
@@ -137,6 +154,130 @@ def list_studies(project_id: int | None = None) -> list[dict]:
                 (int(project_id),),
             ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _study_display_label(study: dict) -> str:
+    """Return a compact, stable label suitable for filters and figure legends."""
+    citation = str(study.get("citation") or "").strip()
+    title = str(study.get("title") or "").strip()
+    colleague = str(study.get("colleague") or "").strip()
+    doi = str(study.get("doi") or "").strip()
+    year = str(study.get("year") or "").strip()
+    label = citation or title or colleague or doi or f"Источник #{int(study['study_id'])}"
+    if year and year not in label:
+        label = f"{label} ({year})"
+    return label
+
+
+def dataset_study_metadata(dataset_ids: Iterable[int]) -> dict[int, dict]:
+    """Return source metadata keyed by dataset, including datasets from linked projects."""
+    ids = sorted({int(value) for value in dataset_ids})
+    if not ids:
+        return {}
+    ensure_source_registry_schema()
+    rows: list[dict] = []
+    with connect() as con:
+        for start in range(0, len(ids), 900):
+            chunk = ids[start:start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            result = con.execute(
+                f"""
+                SELECT ds.dataset_id, ds.study_id, ds.source_table, ds.source_note,
+                       s.source_type, s.title, s.citation, s.doi, s.authors,
+                       s.year, s.journal, s.colleague, s.project_id
+                FROM dataset_studies ds
+                JOIN studies s ON s.id=ds.study_id
+                WHERE ds.dataset_id IN ({placeholders})
+                ORDER BY ds.dataset_id
+                """,
+                tuple(chunk),
+            ).fetchall()
+            rows.extend(dict(row) for row in result)
+
+    base_by_study: dict[int, str] = {}
+    for row in rows:
+        base_by_study[int(row["study_id"])] = _study_display_label(row)
+    label_counts: dict[str, int] = {}
+    for label in base_by_study.values():
+        label_counts[label] = label_counts.get(label, 0) + 1
+
+    metadata: dict[int, dict] = {}
+    for row in rows:
+        study_id = int(row["study_id"])
+        label = base_by_study[study_id]
+        if label_counts[label] > 1:
+            label = f"{label} · source #{study_id}"
+        metadata[int(row["dataset_id"])] = {
+            "study_id": study_id,
+            SOURCE_LABEL_COLUMN: label,
+            SOURCE_TYPE_COLUMN: _SOURCE_TYPE_LABELS.get(
+                str(row.get("source_type") or "").strip().lower(),
+                str(row.get("source_type") or "Другой источник"),
+            ),
+            SOURCE_TITLE_COLUMN: str(row.get("title") or ""),
+            SOURCE_CITATION_COLUMN: str(row.get("citation") or ""),
+            SOURCE_DOI_COLUMN: str(row.get("doi") or ""),
+            SOURCE_TABLE_COLUMN: str(row.get("source_table") or ""),
+        }
+    return metadata
+
+
+def attach_study_metadata(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Attach publication/source fields without changing stored analytical rows."""
+    result = dataframe.copy()
+    if "_dataset_id" not in result.columns:
+        result[SOURCE_LABEL_COLUMN] = UNLINKED_SOURCE_LABEL
+        result[SOURCE_TYPE_COLUMN] = "Не указан"
+        result[SOURCE_TITLE_COLUMN] = ""
+        result[SOURCE_CITATION_COLUMN] = ""
+        result[SOURCE_DOI_COLUMN] = ""
+        result[SOURCE_TABLE_COLUMN] = ""
+        result["_study_id"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
+        return result
+
+    dataset_ids = pd.to_numeric(result["_dataset_id"], errors="coerce").astype("Int64")
+    metadata = dataset_study_metadata(dataset_ids.dropna().astype(int).tolist())
+    result[SOURCE_LABEL_COLUMN] = dataset_ids.map(
+        lambda value: metadata.get(int(value), {}).get(SOURCE_LABEL_COLUMN, UNLINKED_SOURCE_LABEL)
+        if pd.notna(value) else UNLINKED_SOURCE_LABEL
+    )
+    result[SOURCE_TYPE_COLUMN] = dataset_ids.map(
+        lambda value: metadata.get(int(value), {}).get(SOURCE_TYPE_COLUMN, "Не указан")
+        if pd.notna(value) else "Не указан"
+    )
+    for column in (SOURCE_TITLE_COLUMN, SOURCE_CITATION_COLUMN, SOURCE_DOI_COLUMN, SOURCE_TABLE_COLUMN):
+        result[column] = dataset_ids.map(
+            lambda value, field=column: metadata.get(int(value), {}).get(field, "")
+            if pd.notna(value) else ""
+        )
+    result["_study_id"] = dataset_ids.map(
+        lambda value: metadata.get(int(value), {}).get("study_id", pd.NA)
+        if pd.notna(value) else pd.NA
+    ).astype("Int64")
+    return result
+
+
+def source_labels(dataframe: pd.DataFrame) -> list[str]:
+    if SOURCE_LABEL_COLUMN not in dataframe.columns:
+        return []
+    values = {
+        str(value).strip()
+        for value in dataframe[SOURCE_LABEL_COLUMN].dropna().tolist()
+        if str(value).strip()
+    }
+    return sorted(values, key=lambda value: (value == UNLINKED_SOURCE_LABEL, value.casefold()))
+
+
+def filter_visible_sources(
+    dataframe: pd.DataFrame,
+    visible_sources: Iterable[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split one graph selection into visible and hidden rows without deleting data."""
+    if SOURCE_LABEL_COLUMN not in dataframe.columns:
+        return dataframe.copy(), dataframe.iloc[0:0].copy()
+    wanted = {str(value) for value in visible_sources}
+    mask = dataframe[SOURCE_LABEL_COLUMN].astype(str).isin(wanted)
+    return dataframe.loc[mask].copy(), dataframe.loc[~mask].copy()
 
 
 def link_dataset_to_study(dataset_id: int, study_id: int, *, source_table: str = "", source_note: str = "") -> None:

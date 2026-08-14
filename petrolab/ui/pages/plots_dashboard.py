@@ -13,9 +13,11 @@ from petrolab.minerals.registry import MINERALS
 from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes, workbook_with_manifest
 from petrolab.settings_service import load_settings
+from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
 from petrolab.ui.project_context import active_project_id
+from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import (
     render_quick_interactive,
     sanitize_xy_rows,
@@ -55,7 +57,9 @@ def _quick_workspace(project_id: int) -> None:
         if not selected_ids:
             st.info("Выберите хотя бы один набор.")
             return
-        dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        dataframe = attach_study_metadata(
+            attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        )
         if requested_analysis_ids:
             dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
             st.caption(f"Получен точный отбор из базы: {len(dataframe)} точек до QC-проверки.")
@@ -90,9 +94,16 @@ def _quick_workspace(project_id: int) -> None:
             return
         dataframe = dataframe[dataframe["Минерал"].astype(str).isin(selected_minerals)]
         query = st.text_input(
-            "Поиск", placeholder="Образец, поколение, группа…", key="quick_plot_search"
+            "Поиск", placeholder="Образец, поколение, статья, группа…", key="quick_plot_search"
         )
         dataframe = apply_quick_filter(dataframe, query)
+        dataframe, _source_excluded, visible_sources, hidden_sources = render_source_visibility_controls(
+            dataframe,
+            key="quick_plot",
+        )
+        if dataframe.empty:
+            st.info("Включите хотя бы один источник, чтобы построить график.")
+            return
         numeric = numeric_candidates(dataframe)
         if len(numeric) < 2:
             st.info("После фильтрации недостаточно числовых колонок.")
@@ -108,11 +119,20 @@ def _quick_workspace(project_id: int) -> None:
         ]
         preferred = [
             column
-            for column in [WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал"]
+            for column in [SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал"]
             if column in categorical
         ]
         groups = preferred + [column for column in categorical if column not in preferred]
-        group = st.selectbox("Группа", ["Без группировки"] + groups, key="quick_group")
+        group_options = ["Без группировки"] + groups
+        suggested_group = SOURCE_LABEL_COLUMN if len(visible_sources) > 1 and SOURCE_LABEL_COLUMN in groups else "Без группировки"
+        if st.session_state.get("quick_group") not in group_options:
+            st.session_state.pop("quick_group", None)
+        group = st.selectbox(
+            "Группа",
+            group_options,
+            index=group_options.index(suggested_group),
+            key="quick_group",
+        )
         group_col = None if group == "Без группировки" else group
         with st.expander("Оси и вид", expanded=False):
             log_x = st.checkbox("Логарифмическая X", key="quick_log_x")
@@ -192,12 +212,15 @@ def _quick_workspace(project_id: int) -> None:
             "database_selection": requested_context,
             "minerals": selected_minerals,
             "search": query,
+            "visible_sources": visible_sources,
+            "hidden_sources": hidden_sources,
             "qc_policy": "manual exclude and automatic QC exclusions omitted",
         },
         recipe={
             "x": x, "y": y, "group_column": group_col or "", "log_x": log_x,
             "log_y": log_y, "title": title, "marker_size": marker_size,
             "figure_preset": preset_name, "style_map": styles,
+            "source_visibility_column": SOURCE_LABEL_COLUMN,
         },
     )
     xlsx = workbook_with_manifest({"Точки графика": plot_source}, manifest)

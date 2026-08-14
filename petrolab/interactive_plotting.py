@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
 from petrolab.group_envelopes import compute_group_envelope
 from petrolab.group_styles import default_group_color, display_group_series
+from petrolab.source_registry import SOURCE_LABEL_COLUMN
 
 
 PLOTLY_SYMBOLS = {
@@ -135,7 +136,11 @@ def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col
         work = work[work[x] > 0]
     if log_y:
         work = work[work[y] > 0]
-    hover_columns = [column for column in ["Sample", "Point", "Generation", WORK_GROUP_COLUMN] if column in work.columns]
+    hover_columns = [
+        column
+        for column in ["Sample", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN]
+        if column in work.columns
+    ]
     if group_col and group_col in work.columns:
         labels = display_group_series(work[group_col])
         groups = [(name, work[labels == name]) for name in labels.unique().tolist()]

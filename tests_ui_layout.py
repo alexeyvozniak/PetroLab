@@ -12,6 +12,7 @@ NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
 COMPONENTS = (UI / "components.py").read_text(encoding="utf-8")
 PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
 XY_COMPONENTS = (UI / "xy_components.py").read_text(encoding="utf-8")
+SOURCE_CONTROLS = (UI / "source_controls.py").read_text(encoding="utf-8")
 IMAGE_COMPONENTS = (UI / "image_components.py").read_text(encoding="utf-8")
 DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
 PLOT_ACTIONS = (UI / "plot_actions.py").read_text(encoding="utf-8")
@@ -116,6 +117,17 @@ for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group",
 assert "from petrolab.ui.pages import plots" not in advanced + XY_COMPONENTS
 assert "_petrolab_workspace_call_index" not in APP + plots + XY_COMPONENTS
 assert "render_advanced_xy_workspace(project_id)" in plots
+for marker in [
+    "Видимые статьи / источники", "Показать все источники", "Скрыть все источники",
+    "Данные остаются в базе", "filter_visible_sources",
+]:
+    assert marker in SOURCE_CONTROLS, marker
+database_browser = (PAGES / "database_browser.py").read_text(encoding="utf-8")
+for text in [database_browser, plots, advanced]:
+    assert "attach_study_metadata" in text
+assert "Источник / статья" in database_browser
+assert "visible_sources" in plots and "hidden_sources" in plots
+assert "visible_sources" in advanced and "hidden_sources" in advanced
 
 # Science safeguards are direct page behavior, not monkeypatches.
 for marker in [
