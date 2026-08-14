@@ -17,6 +17,9 @@ from petrolab.db import ASSETS_DIR, BACKUPS_DIR, DATA_DIR, DB_PATH, ensure_stora
 
 ArchiveMode = Literal["project", "project_sources", "full"]
 ImageMode = Literal["none", "optimized", "originals"]
+PORTABLE_FORMAT = "petrolab-portable-archive"
+PORTABLE_FORMAT_VERSION = 3
+LEGACY_PROJECT_FORMAT = "petrolab-project-archive"
 
 
 @dataclass(frozen=True)
@@ -74,10 +77,18 @@ def _project_owned_ids(con: sqlite3.Connection, table: str, project_id: int) -> 
     tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     if table not in tables or "project_id" not in _table_columns(con, table):
         return set()
-    return {int(row[0]) for row in con.execute(f"SELECT id FROM {table} WHERE project_id=?", (int(project_id),)).fetchall()}
+    return {
+        int(row[0])
+        for row in con.execute(f"SELECT id FROM {table} WHERE project_id=?", (int(project_id),)).fetchall()
+    }
 
 
-def _delete_refs_outside(con: sqlite3.Connection, table: str, column: str, allowed: set[int] | set[str]) -> None:
+def _delete_refs_outside(
+    con: sqlite3.Connection,
+    table: str,
+    column: str,
+    allowed: set[int] | set[str],
+) -> None:
     if allowed:
         marks = ",".join("?" for _ in allowed)
         con.execute(
@@ -89,18 +100,15 @@ def _delete_refs_outside(con: sqlite3.Connection, table: str, column: str, allow
 
 
 def _project_database_snapshot(project_id: int, target: Path) -> None:
-    """Copy DB and retain only rows belonging to one project and its child entities.
-
-    Global rows with nullable project_id are intentionally retained because global styles or
-    classifications may be required by the selected project's saved recipes. Child tables are
-    scoped by their owning Sample/Study/Session/Dataset/Analysis/Rock/Asset IDs, preventing
-    metadata from another project leaking into a portable archive.
-    """
+    """Copy DB and retain rows belonging to one project and its dependent entities."""
     shutil.copy2(DB_PATH, target)
     con = sqlite3.connect(target)
     try:
         con.execute("PRAGMA foreign_keys=OFF")
-        table_names = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        table_names = {
+            str(row[0])
+            for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
 
         dataset_ids = _project_owned_ids(con, "datasets", project_id)
         sample_ids = _project_owned_ids(con, "samples", project_id)
@@ -108,19 +116,23 @@ def _project_database_snapshot(project_id: int, target: Path) -> None:
         session_ids = _project_owned_ids(con, "analytical_sessions", project_id)
         rock_ids = _project_owned_ids(con, "rock_samples", project_id)
         asset_ids = _project_owned_ids(con, "image_assets", project_id)
+        entity_ids = _project_owned_ids(con, "physical_entities", project_id)
+        observation_ids = _project_owned_ids(con, "observations", project_id)
 
         analysis_ids: set[str] = set()
         if "analysis_rows" in table_names and dataset_ids:
             marks = ",".join("?" for _ in dataset_ids)
             analysis_ids = {
-                str(row[0]) for row in con.execute(
+                str(row[0])
+                for row in con.execute(
                     f"SELECT analysis_id FROM analysis_rows WHERE dataset_id IN ({marks})",
                     tuple(dataset_ids),
                 ).fetchall()
             }
 
         tables = [
-            str(row[0]) for row in con.execute(
+            str(row[0])
+            for row in con.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
         ]
@@ -132,6 +144,8 @@ def _project_database_snapshot(project_id: int, target: Path) -> None:
             ("session_id", session_ids),
             ("rock_id", rock_ids),
             ("asset_id", asset_ids),
+            ("entity_id", entity_ids),
+            ("observation_id", observation_ids),
         )
         for table in tables:
             columns = _table_columns(con, table)
@@ -154,7 +168,7 @@ def _project_database_snapshot(project_id: int, target: Path) -> None:
 
 
 def _optimized_image_bytes(path: Path) -> tuple[bytes, str]:
-    """Create a clearly derivative, portable preview without modifying the original."""
+    """Create a derivative portable preview without modifying the original."""
     with Image.open(path) as image:
         image = image.convert("RGB")
         image.thumbnail((2400, 2400))
@@ -170,7 +184,7 @@ def create_project_archive(
     mode: ArchiveMode = "full",
     image_mode: ImageMode = "originals",
 ) -> ProjectArchiveResult:
-    """Create a portable single-file .petrolab archive for exactly one project."""
+    """Create a portable single-file .petrolab package for exactly one project."""
     if mode not in {"project", "project_sources", "full"}:
         raise ValueError(f"Неизвестный режим архива: {mode}")
     if image_mode not in {"none", "optimized", "originals"}:
@@ -195,13 +209,19 @@ def create_project_archive(
 
     source_map = []
     for index, path in enumerate(source_paths, start=1):
-        source_map.append({"archive_name": f"{index:03d}_{_safe_name(path.name)}", "original_name": path.name})
+        source_map.append({
+            "archive_name": f"{index:03d}_{_safe_name(path.name)}",
+            "original_name": path.name,
+        })
 
     manifest = {
-        "format": "petrolab-project-archive",
-        "format_version": 2,
+        "format": PORTABLE_FORMAT,
+        "format_version": PORTABLE_FORMAT_VERSION,
+        "payload_kind": "project",
         "project": {
-            "id": int(project["id"]), "name": project["name"], "description": project.get("description", ""),
+            "id": int(project["id"]),
+            "name": project["name"],
+            "description": project.get("description", ""),
         },
         "mode": mode,
         "image_mode": image_mode,
@@ -216,7 +236,9 @@ def create_project_archive(
         database_dir = root / "database"
         database_dir.mkdir(parents=True, exist_ok=True)
         _project_database_snapshot(int(project_id), database_dir / DB_PATH.name)
-        (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        (root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         if source_paths:
             source_dir = root / "sources"
@@ -267,15 +289,27 @@ def _workspace_backup() -> Path | None:
     return target
 
 
+def _restore_manifest_kind(manifest: dict) -> str:
+    format_name = str(manifest.get("format") or "")
+    version = int(manifest.get("format_version", 0) or 0)
+    if format_name == LEGACY_PROJECT_FORMAT and version in {1, 2}:
+        return "project"
+    if format_name == PORTABLE_FORMAT and version == PORTABLE_FORMAT_VERSION:
+        payload_kind = str(manifest.get("payload_kind") or "")
+        if payload_kind in {"project", "fragment"}:
+            return payload_kind
+    raise ValueError("Неподдерживаемый формат архива PetroLab")
+
+
 def restore_project_archive(
     archive_path: str | Path,
     *,
     allow_replace_workspace: bool = False,
 ) -> ProjectRestoreResult:
-    """Restore a .petrolab archive into this PetroLab workspace.
+    """Restore a full project package as a workspace.
 
-    Default safety policy only allows restore into an empty workspace. Explicit replacement
-    first creates a database backup. This avoids silent merging of incompatible local IDs.
+    Small ``payload_kind=fragment`` packages must be imported through collaboration merge;
+    replacing a workspace with a fragment is intentionally forbidden.
     """
     source = Path(archive_path).expanduser().resolve()
     if not source.exists() or not source.is_file():
@@ -283,7 +317,10 @@ def restore_project_archive(
     ensure_storage()
     existing_projects = list_projects()
     if existing_projects and not allow_replace_workspace:
-        raise ValueError("В текущем PetroLab уже есть проекты. Для восстановления нужен пустой workspace или явное подтверждение замены.")
+        raise ValueError(
+            "В текущем PetroLab уже есть проекты. Для восстановления нужен пустой workspace "
+            "или явное подтверждение замены."
+        )
 
     with tempfile.TemporaryDirectory(prefix="petrolab_restore_") as temp_dir:
         root = Path(temp_dir)
@@ -293,8 +330,12 @@ def restore_project_archive(
         if not manifest_path.exists():
             raise ValueError("В архиве отсутствует manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("format") != "petrolab-project-archive" or int(manifest.get("format_version", 0)) not in {1, 2}:
-            raise ValueError("Неподдерживаемый формат архива PetroLab")
+        payload_kind = _restore_manifest_kind(manifest)
+        if payload_kind != "project":
+            raise ValueError(
+                "Это фрагмент PetroLab. Добавьте его в существующий проект через раздел совместной работы, "
+                "а не заменяйте им всю базу."
+            )
         archived_db = root / "database" / DB_PATH.name
         if not archived_db.exists():
             raise ValueError("В архиве отсутствует база PetroLab")
@@ -338,17 +379,28 @@ def restore_project_archive(
         con = sqlite3.connect(DB_PATH)
         try:
             con.row_factory = sqlite3.Row
-            if restored_sources.exists():
+            tables = {
+                str(row[0])
+                for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            }
+            if restored_sources.exists() and "datasets" in tables:
                 files = [p for p in restored_sources.iterdir() if p.is_file()]
-                datasets = con.execute("SELECT id, source_filename FROM datasets WHERE project_id=?", (project_id,)).fetchall()
+                datasets = con.execute(
+                    "SELECT id, source_filename FROM datasets WHERE project_id=?", (project_id,)
+                ).fetchall()
                 for row in datasets:
                     name = str(row["source_filename"] or "")
                     matches = [p for p in files if p.name.endswith(name)]
                     if len(matches) == 1:
-                        con.execute("UPDATE datasets SET source_path=? WHERE id=?", (str(matches[0].resolve()), int(row["id"])))
-            if restored_assets.exists():
+                        con.execute(
+                            "UPDATE datasets SET source_path=? WHERE id=?",
+                            (str(matches[0].resolve()), int(row["id"])),
+                        )
+            if restored_assets.exists() and "image_assets" in tables:
                 asset_files = [p for p in restored_assets.rglob("*") if p.is_file()]
-                records = con.execute("SELECT id, stored_path FROM image_assets WHERE project_id=?", (project_id,)).fetchall()
+                records = con.execute(
+                    "SELECT id, stored_path FROM image_assets WHERE project_id=?", (project_id,)
+                ).fetchall()
                 for row in records:
                     old = Path(str(row["stored_path"] or ""))
                     exact = [p for p in asset_files if p.name == old.name]
@@ -358,10 +410,19 @@ def restore_project_archive(
                         same_stem = [p for p in asset_files if p.stem == old.stem]
                         target = same_stem[0] if len(same_stem) == 1 else None
                     if target is not None:
-                        con.execute("UPDATE image_assets SET stored_path=? WHERE id=?", (str(target.resolve()), int(row["id"])))
+                        con.execute(
+                            "UPDATE image_assets SET stored_path=? WHERE id=?",
+                            (str(target.resolve()), int(row["id"])),
+                        )
             con.commit()
         finally:
             con.close()
 
     ensure_storage()
-    return ProjectRestoreResult(project_id, str(project.get("name") or "PetroLab project"), source_count, image_count, backup)
+    return ProjectRestoreResult(
+        project_id,
+        str(project.get("name") or "PetroLab project"),
+        source_count,
+        image_count,
+        backup,
+    )
