@@ -107,7 +107,11 @@ def assign_mineral(
     with connect() as con:
         # A formula is valid only in the mineral context for which it was calculated.
         # Keep historical result payloads, but force a new active APFU choice after reclassification.
-        con.execute("DELETE FROM analysis_formula_state WHERE analysis_id=?", (str(analysis_id),))
+        has_formula_state = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='analysis_formula_state'"
+        ).fetchone() is not None
+        if has_formula_state:
+            con.execute("DELETE FROM analysis_formula_state WHERE analysis_id=?", (str(analysis_id),))
         if requested == dataset_key:
             con.execute("DELETE FROM analysis_mineral_assignments WHERE analysis_id=?", (str(analysis_id),))
         else:
