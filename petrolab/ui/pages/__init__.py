@@ -21,6 +21,7 @@ from .projects import render_projects_page
 from .rocks import render_rocks_page
 from .science_plots import render_science_plots_page
 from .settings import render_settings_page
+from .slides import render_slides_page
 from .sources_dashboard import render_sources_dashboard_page as render_sources_page
 from .statistics import render_statistics_page
 from .ternary import render_ternary_page
@@ -33,6 +34,6 @@ __all__ = [
     "render_generations_page", "render_help_page", "render_home_page", "render_images_page", "render_measurements_page",
     "render_minerals_page", "render_mixed_minerals_page", "render_plots_page",
     "render_projects_page", "render_rocks_page", "render_science_plots_page",
-    "render_settings_page", "render_sources_page", "render_statistics_page",
+    "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
     "render_ternary_page", "render_updates_page",
 ]
