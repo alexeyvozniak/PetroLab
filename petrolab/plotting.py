@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO, StringIO
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from petrolab.group_envelopes import compute_group_envelope
@@ -23,7 +24,8 @@ def _resolve_style(group_name, idx: int, style_map: dict | None, monochrome: boo
     if monochrome:
         edge_color = "black"
         face_color = "black" if filled else "white"
-        field_color = "black"
+        field_fill_color = "black"
+        field_line_color = "black"
     else:
         if outline == "white":
             edge_color = "white"
@@ -34,7 +36,8 @@ def _resolve_style(group_name, idx: int, style_map: dict | None, monochrome: boo
         else:
             edge_color = "black"
         face_color = base_color if filled else "none"
-        field_color = base_color
+        field_fill_color = raw.get("envelope_fill_color") or base_color
+        field_line_color = raw.get("envelope_line_color") or base_color
     return {
         "marker": marker,
         "size_multiplier": size_multiplier,
@@ -43,13 +46,36 @@ def _resolve_style(group_name, idx: int, style_map: dict | None, monochrome: boo
         "edgecolors": edge_color,
         "facecolors": face_color,
         "outline_width": outline_width,
-        "field_color": field_color,
+        "field_fill_color": field_fill_color,
+        "field_line_color": field_line_color,
         "display_mode": str(raw.get("display_mode", "points") or "points"),
         "envelope_method": str(raw.get("envelope_method", "confidence_ellipse") or "confidence_ellipse"),
         "envelope_level": float(raw.get("envelope_level", 0.90) or 0.90),
-        "envelope_alpha": float(raw.get("envelope_alpha", 0.16) or 0.16),
-        "envelope_line_width": float(raw.get("envelope_line_width", 1.5) or 1.5),
+        "envelope_alpha": float(raw.get("envelope_alpha", 0.16) or 0.0),
+        "envelope_fill": bool(raw.get("envelope_fill", True)),
+        "envelope_line_width": float(raw.get("envelope_line_width", 1.5) or 0.0),
+        "envelope_line_dash": str(raw.get("envelope_line_dash", "solid") or "solid"),
+        "manual_envelope_points": raw.get("manual_envelope_points"),
     }
+
+
+def _manual_polygon(stl: dict) -> np.ndarray | None:
+    raw = stl.get("manual_envelope_points")
+    if not isinstance(raw, list) or len(raw) < 3:
+        return None
+    try:
+        polygon = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if polygon.ndim != 2 or polygon.shape[1] != 2 or not np.isfinite(polygon).all():
+        return None
+    if not np.allclose(polygon[0], polygon[-1]):
+        polygon = np.vstack([polygon, polygon[0]])
+    return polygon
+
+
+def _mpl_linestyle(value: str) -> str:
+    return {"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(str(value).lower(), "-")
 
 
 def _draw_group_field(ax, part: pd.DataFrame, x: str, y: str, name, stl: dict) -> None:
@@ -69,20 +95,34 @@ def _draw_group_field(ax, part: pd.DataFrame, x: str, y: str, name, stl: dict) -
         return
     if mode not in {"field", "points+field"}:
         return
-    try:
-        result = compute_group_envelope(
-            part, x, y,
-            method=stl["envelope_method"],
-            level=stl["envelope_level"],
-        )
-    except ValueError:
-        return
-    for polygon in result.polygons:
-        ax.fill(
-            polygon[:, 0], polygon[:, 1],
-            facecolor=stl["field_color"], edgecolor=stl["field_color"],
-            alpha=stl["envelope_alpha"], linewidth=stl["envelope_line_width"], zorder=1,
-        )
+
+    manual = _manual_polygon(stl)
+    if manual is not None:
+        polygons = [manual]
+    else:
+        try:
+            result = compute_group_envelope(
+                part, x, y,
+                method=stl["envelope_method"],
+                level=stl["envelope_level"],
+            )
+        except ValueError:
+            return
+        polygons = result.polygons
+
+    for polygon in polygons:
+        if stl["envelope_fill"]:
+            ax.fill(
+                polygon[:, 0], polygon[:, 1],
+                facecolor=stl["field_fill_color"], edgecolor="none",
+                alpha=stl["envelope_alpha"], zorder=1,
+            )
+        if stl["envelope_line_width"] > 0:
+            ax.plot(
+                polygon[:, 0], polygon[:, 1],
+                color=stl["field_line_color"], linewidth=stl["envelope_line_width"],
+                linestyle=_mpl_linestyle(stl["envelope_line_dash"]), zorder=2,
+            )
 
 
 def build_scatter(
@@ -133,8 +173,7 @@ def build_scatter(
                         linewidths=stl["outline_width"], zorder=3,
                     )
                 elif stl["display_mode"] == "field":
-                    # Invisible legend handle preserves group identification without plotting the raw points.
-                    ax.plot([], [], color=stl["field_color"], label=str(name), linewidth=max(1.0, stl["envelope_line_width"]))
+                    ax.plot([], [], color=stl["field_line_color"], label=str(name), linewidth=max(1.0, stl["envelope_line_width"]))
                 if annotate and stl["display_mode"] not in {"field", "centroid"} and label_col and label_col in part.columns:
                     subset = part.head(annotate_top_n) if annotate_top_n else part
                     for _, row in subset.iterrows():

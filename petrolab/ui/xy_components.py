@@ -5,6 +5,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, list_work_groups, set_work_group
 from petrolab.dataframe_utils import display_value, row_identity
+from petrolab.group_envelopes import compute_group_envelope
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.outliers import OutlierResult, apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 from petrolab.plotting import MARKERS
@@ -269,9 +270,113 @@ def _render_selected_analysis(dataframe: pd.DataFrame, selected_ids: list[str], 
             st.caption("Для этой точки пока нет связанных изображений.")
 
 
+def _field_editor(dataframe: pd.DataFrame, x: str, y: str, group_column: str | None, styles: dict) -> None:
+    if not group_column or group_column not in dataframe.columns or not styles:
+        return
+    groups = dataframe[group_column].astype("string").fillna("Без группы").replace("", "Без группы")
+    group_names = [str(value) for value in groups.unique().tolist()]
+    if not group_names:
+        return
+    overrides = st.session_state.setdefault("manual_field_overrides", {})
+    for name in group_names:
+        saved = overrides.get(name)
+        if isinstance(saved, dict):
+            styles.setdefault(name, {}).update(saved)
+
+    with st.expander("Оформление и ручная коррекция полей", expanded=False):
+        st.caption(
+            "Цвет, прозрачность и контур не меняют метод расчёта. Если изменить узлы геометрии, "
+            "поле помечается как manual; исходный hull/ellipse/KDE остаётся доступным для возврата."
+        )
+        chosen = st.selectbox("Группа / генерация", group_names, key="field_editor_group")
+        style = styles.setdefault(chosen, {})
+        group_mask = groups == chosen
+        subset = dataframe.loc[group_mask].copy()
+        base_color = str(style.get("color", "#636EFA"))
+
+        c1, c2, c3 = st.columns(3)
+        fill_enabled = c1.checkbox("Заливка поля", value=bool(style.get("envelope_fill", True)), key=f"field_fill_{chosen}")
+        fill_color = c2.color_picker("Цвет заливки", value=str(style.get("envelope_fill_color") or base_color), key=f"field_fill_color_{chosen}")
+        fill_alpha = c3.slider("Прозрачность заливки", 0.0, 1.0, float(style.get("envelope_alpha", 0.16) or 0.0), 0.02, key=f"field_alpha_{chosen}")
+
+        l1, l2, l3 = st.columns(3)
+        line_color = l1.color_picker("Цвет контура поля", value=str(style.get("envelope_line_color") or base_color), key=f"field_line_color_{chosen}")
+        line_width = l2.number_input("Толщина контура", min_value=0.0, max_value=8.0, value=float(style.get("envelope_line_width", 1.5) or 0.0), step=0.25, key=f"field_line_width_{chosen}")
+        dash_options = ["solid", "dash", "dot", "dashdot"]
+        current_dash = str(style.get("envelope_line_dash", "solid") or "solid")
+        if current_dash not in dash_options:
+            current_dash = "solid"
+        line_dash = l3.selectbox("Линия", dash_options, index=dash_options.index(current_dash), key=f"field_line_dash_{chosen}")
+
+        style.update({
+            "envelope_fill": fill_enabled,
+            "envelope_fill_color": fill_color,
+            "envelope_alpha": fill_alpha,
+            "envelope_line_color": line_color,
+            "envelope_line_width": line_width,
+            "envelope_line_dash": line_dash,
+        })
+
+        method = str(style.get("envelope_method", "confidence_ellipse") or "confidence_ellipse")
+        level = float(style.get("envelope_level", 0.90) or 0.90)
+        manual_points = style.get("manual_envelope_points")
+        manual_active = isinstance(manual_points, list) and len(manual_points) >= 3
+
+        if manual_active:
+            st.warning(f"Поле «{chosen}» сейчас ручное. Исходное расчётное поле: {method}, уровень {level:.0%}.")
+            initial_points = manual_points
+        else:
+            try:
+                result = compute_group_envelope(subset, x, y, method=method, level=level)
+                initial_points = result.polygons[0].tolist() if result.polygons else []
+            except Exception:
+                initial_points = []
+
+        manual_mode = st.checkbox("Редактировать геометрию вручную", value=manual_active, key=f"field_manual_mode_{chosen}")
+        if manual_mode and initial_points:
+            vertices = pd.DataFrame(initial_points, columns=[x, y])
+            edited = st.data_editor(
+                vertices,
+                width="stretch",
+                hide_index=False,
+                num_rows="dynamic",
+                column_config={
+                    x: st.column_config.NumberColumn(x, format="%.6g"),
+                    y: st.column_config.NumberColumn(y, format="%.6g"),
+                },
+                key=f"field_vertices_{chosen}",
+            )
+            edited[x] = pd.to_numeric(edited[x], errors="coerce")
+            edited[y] = pd.to_numeric(edited[y], errors="coerce")
+            edited = edited.dropna(subset=[x, y])
+            if len(edited) >= 3:
+                points = edited[[x, y]].astype(float).values.tolist()
+                style["manual_envelope_points"] = points
+                style["envelope_geometry_status"] = "manual"
+                style["envelope_original_method"] = method
+                style["envelope_original_level"] = level
+                st.caption(f"Ручной контур: {len(points)} узлов. Эти координаты сохранятся в рецепте и SVG/PNG.")
+            else:
+                st.error("Для ручного поля нужно минимум три узла.")
+        elif not manual_mode:
+            style.pop("manual_envelope_points", None)
+            style.pop("envelope_geometry_status", None)
+
+        reset_col, info_col = st.columns([1, 2])
+        if reset_col.button("Вернуть расчётное поле", key=f"reset_manual_field_{chosen}", disabled=not manual_active):
+            style.pop("manual_envelope_points", None)
+            style.pop("envelope_geometry_status", None)
+            overrides[chosen] = {key: value for key, value in style.items() if key.startswith("envelope_")}
+            st.rerun()
+        info_col.caption("Ручная форма никогда не обозначается как статистическая confidence/KDE-граница.")
+
+        overrides[chosen] = {key: value for key, value in style.items() if key.startswith("envelope_") or key == "manual_envelope_points"}
+
+
 def render_advanced_interactive(dataframe: pd.DataFrame, project_id: int, x: str, y: str, group_column: str | None, *, x_label: str, y_label: str, title: str, log_x: bool, log_y: bool, styles: dict) -> None:
     st.subheader("Интерактивный отбор точек")
     st.caption("Наведите курсор для свойств. Кликните точку или выделите несколько рамкой/лассо. Исключения относятся только к текущему графику.")
+    _field_editor(dataframe, x, y, group_column, styles)
     figure = build_interactive_scatter(dataframe, x, y, group_column, x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y, style_map=styles)
     event = st.plotly_chart(figure, width="stretch", theme=None, key="petrolab_advanced_interactive_plot", on_select="rerun", selection_mode=("points", "box", "lasso"), config={"displaylogo": False, "scrollZoom": True})
     selected_ids = selected_analysis_ids(event)
