@@ -10,6 +10,7 @@ from .database_browser import render_database_browser_page
 from .export import render_export_page
 from .formulae import render_formulae_page
 from .generations import render_generations_page
+from .guided_workflow import render_guided_workflow_page
 from .help import render_help_page
 from .home_dashboard import render_home_dashboard_page as render_home_page
 from .images_dashboard import render_images_dashboard_page as render_images_page
@@ -31,9 +32,10 @@ __all__ = [
     "render_analyses_page", "render_analytical_sessions_page", "render_article_tables_page",
     "render_change_log_page", "render_collaboration_page", "render_data_intake_page",
     "render_database_browser_page", "render_export_page", "render_formulae_page",
-    "render_generations_page", "render_help_page", "render_home_page", "render_images_page", "render_measurements_page",
-    "render_minerals_page", "render_mixed_minerals_page", "render_plots_page",
-    "render_projects_page", "render_rocks_page", "render_science_plots_page",
-    "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
+    "render_generations_page", "render_guided_workflow_page", "render_help_page", "render_home_page",
+    "render_images_page", "render_measurements_page", "render_minerals_page",
+    "render_mixed_minerals_page", "render_plots_page", "render_projects_page",
+    "render_rocks_page", "render_science_plots_page", "render_settings_page",
+    "render_slides_page", "render_sources_page", "render_statistics_page",
     "render_ternary_page", "render_updates_page",
 ]
