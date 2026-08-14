@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -45,6 +46,7 @@ class Workspace:
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        gc.collect()
         self.stack.close()
 
 
