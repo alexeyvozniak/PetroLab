@@ -112,8 +112,8 @@ $extractRoot = Join-Path $tempRoot "source"
 $appStage = Join-Path $tempRoot "current.new"
 $runtimeStage = Join-Path $tempRoot "runtime.new"
 $tempData = Join-Path $tempRoot "smoke-data"
-$codeSwapped = $false
-$runtimeSwapped = $false
+$codeBackupCreated = $false
+$runtimeBackupCreated = $false
 
 try {
     Require-File (Join-Path $Runtime "python.exe") "Embedded Python runtime"
@@ -198,13 +198,13 @@ try {
 
     if ($requirementsChanged) {
         Move-Item -LiteralPath $Runtime -Destination $RuntimePrevious
+        $runtimeBackupCreated = $true
         Move-Item -LiteralPath $runtimeStage -Destination $Runtime
-        $runtimeSwapped = $true
     }
 
     Move-Item -LiteralPath $Current -Destination $Previous
+    $codeBackupCreated = $true
     Move-Item -LiteralPath $appStage -Destination $Current
-    $codeSwapped = $true
 
     # Refresh installer-owned helpers when a newer version is present in the source tree.
     $installerSource = Join-Path $sourceRoot "installer"
@@ -240,13 +240,13 @@ catch {
     Write-Host "  Attempting rollback..." -ForegroundColor Yellow
 
     try {
-        if ($codeSwapped -and (Test-Path -LiteralPath $Previous)) {
+        if ($codeBackupCreated -and (Test-Path -LiteralPath $Previous)) {
             if (Test-Path -LiteralPath $Current) {
                 Remove-Item -LiteralPath $Current -Recurse -Force
             }
             Move-Item -LiteralPath $Previous -Destination $Current
         }
-        if ($runtimeSwapped -and (Test-Path -LiteralPath $RuntimePrevious)) {
+        if ($runtimeBackupCreated -and (Test-Path -LiteralPath $RuntimePrevious)) {
             if (Test-Path -LiteralPath $Runtime) {
                 Remove-Item -LiteralPath $Runtime -Recurse -Force
             }
