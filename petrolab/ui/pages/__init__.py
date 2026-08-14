@@ -25,6 +25,7 @@ from .slides import render_slides_page
 from .sources_dashboard import render_sources_dashboard_page as render_sources_page
 from .statistics import render_statistics_page
 from .ternary import render_ternary_page
+from .thermobarometry import render_thermobarometry_page
 from .updates import render_updates_page
 
 __all__ = [
@@ -35,5 +36,5 @@ __all__ = [
     "render_minerals_page", "render_mixed_minerals_page", "render_plots_page",
     "render_projects_page", "render_rocks_page", "render_science_plots_page",
     "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
-    "render_ternary_page", "render_updates_page",
+    "render_ternary_page", "render_thermobarometry_page", "render_updates_page",
 ]
