@@ -23,7 +23,7 @@ GERM_BASANITE_NOTE = (
     "Официальная выборка GERM KdD: 323 строки из 4 вкладов для Basanite, "
     "скачана 2026-08-14. Исходные Kd, σ и интервалы сохранены без усреднения."
 )
-GERM_ALKALINE_NOTE = (
+GERM_CORE_NOTE = (
     "Встроенная GERM-библиотека: Basanite (323 строки, 4 вклада), "
     "Phonolite (24 строки, 2 вклада), Carbonatite (197 строк, 9 вкладов) и "
     "Lamprophyre (31 строка, 1 вклад), Syenite (81 строка) и Granite (23 строки, 3 вклада), "
