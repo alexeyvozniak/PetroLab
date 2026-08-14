@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -33,7 +34,11 @@ class Workspace:
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        # sqlite3.Row objects can keep references to statements until GC on Windows.
+        # Force collection before TemporaryDirectory attempts to remove the DB file.
+        gc.collect()
         self.stack.close()
+        gc.collect()
 
 
 class SampleRegistryTests(unittest.TestCase):
@@ -46,8 +51,8 @@ class SampleRegistryTests(unittest.TestCase):
             self.assertEqual(len(matches), 1)
             self.assertEqual(matches[0].sample_id, sid)
             self.assertEqual(matches[0].match_kind, "normalized")
-            # no second sample has been created merely by matching
             self.assertEqual(len(registry.list_samples(ws.project_id)), 1)
+            del matches
 
     def test_confirmed_alias_resolves_to_canonical_sample(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
@@ -58,6 +63,7 @@ class SampleRegistryTests(unittest.TestCase):
             self.assertIn(matches[0].match_kind, {"alias", "normalized"})
             samples = registry.list_samples(ws.project_id)
             self.assertIn("ПГ_15", samples[0]["aliases"])
+            del matches, samples
 
     def test_empty_field_samples_are_valid_records(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
@@ -66,6 +72,7 @@ class SampleRegistryTests(unittest.TestCase):
             self.assertEqual(rows[0]["name"], "KV-01")
             self.assertEqual(rows[0]["field_lithology"], "карбонатит")
             self.assertEqual(rows[0]["locality"], "Ковдор")
+            del rows
 
 
 if __name__ == "__main__":
