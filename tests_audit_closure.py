@@ -176,24 +176,24 @@ for marker in [
 ]:
     assert marker in article_tables, marker
 
-# Destructive actions must be intercepted before storage (A-23 plus final audit UX closure).
+# Destructive actions are explicit UI actions, not runtime monkeypatches (A-23 plus final audit UX closure).
 app = _read("app.py")
-destructive = _read("petrolab/ui/destructive_page_policy.py")
-assert "install_destructive_page_policy()" in app
+destructive_actions = _read("petrolab/ui/destructive_actions.py")
+plot_facade = _read("petrolab/ui/pages/plots.py")
+rocks = _read("petrolab/ui/pages/rocks.py")
+assert "install_destructive_page_policy" not in app
+for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
+    assert marker in destructive_actions, marker
 for marker in [
-    '"plot_recipe"',
-    '"style_profile"',
-    '"work_group"',
-    '"rock_image"',
-    '"rock_links"',
-    "original_delete_recipe",
-    "original_delete_profile",
-    "original_delete_rock_image",
-    "original_set_mineral_links",
-    'st.button("Отмена"',
-    "render_plot_confirmations",
+    'confirm_then("plot_recipe"', 'confirm_then("style_profile"', 'confirm_then("work_group"',
+    "loaded_recipe = None", 'pop("style_profile_select", None)',
 ]:
-    assert marker in destructive, marker
+    assert marker in plot_facade, marker
+for marker in [
+    'confirm_then("rock_image"', 'confirm_then("rock_links"',
+    "set_mineral_links as _set_mineral_links", "delete_rock_image as _delete_rock_image",
+]:
+    assert marker in rocks, marker
 
 # Plot/science safeguards now have explicit owners instead of a combined runtime plot monkeypatch
 # (A-10/A-13/A-20/A-30/A-32/A-36/A-57/A-73/A-78/A-91/A-99).
