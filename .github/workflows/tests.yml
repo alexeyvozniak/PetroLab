@@ -47,7 +47,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_formula_input_validation.py tests_formula_fingerprint.py tests_mineral_classification.py tests_dataframe_utils.py tests_import_semantics.py tests_rock_semantics.py tests_new_features.py tests_group_styles.py tests_analysis_drafts.py tests_analytical_sessions.py tests_generations.py tests_mixed_minerals.py tests_density_clustering.py tests_collaboration.py tests_project_archive_scope.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_scientific_hardening.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab scripts/build_georoc_mineral_validation.py tests_architecture.py tests_formulae.py tests_formula_input_validation.py tests_formula_fingerprint.py tests_mineral_classification.py tests_mineral_recognition_v1.py tests_dataframe_utils.py tests_import_semantics.py tests_rock_semantics.py tests_new_features.py tests_group_styles.py tests_analysis_drafts.py tests_analytical_sessions.py tests_generations.py tests_mixed_minerals.py tests_density_clustering.py tests_collaboration.py tests_project_archive_scope.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_scientific_hardening.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -128,6 +128,10 @@ jobs:
       - name: Run mixed-mineral review/materialization regressions
         shell: cmd
         run: python tests_mixed_minerals.py
+
+      - name: Run Mineral Recognition v1 scientific contract
+        shell: cmd
+        run: python tests_mineral_recognition_v1.py
 
       - name: Run density clustering regressions
         shell: cmd
