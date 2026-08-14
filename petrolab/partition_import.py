@@ -94,6 +94,7 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
         for column in dataframe.columns
     }
     df = dataframe.rename(columns=renamed).copy()
+    is_germ_kdd = bool(dataframe.attrs.get("germ_kdd_export")) or "contribution_id" in df.columns
     required = {"rock_type", "mineral", "element"}
     if not required.issubset(df.columns):
         raise ValueError("Нужны колонки Rock Type(s), Mineral(s) и Element.")
@@ -146,7 +147,7 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
         source: dict[str, Any] = {
             "citation": reference,
             "doi": doi,
-            "database": "GERM KdD" if "contribution_id" in df.columns else "tabular import",
+            "database": "GERM KdD" if is_germ_kdd else "tabular import",
             "contribution_id": _first_text(group, "contribution_id"),
             "element_metadata": metadata,
             "raw_basis": "element",
@@ -209,6 +210,16 @@ def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
         ),
         None,
     )
+    if header_index is None:
+        header_index = next(
+            (
+                index for index, line in enumerate(lines)
+                if line.casefold().startswith("rock_types\tminerals\telement")
+            ),
+            None,
+        )
     if header_index is not None:
-        return pd.read_csv(StringIO("\n".join(lines[header_index:])), sep="\t")
+        table = pd.read_csv(StringIO("\n".join(lines[header_index:])), sep="\t")
+        table.attrs["germ_kdd_export"] = True
+        return table
     return pd.read_csv(StringIO(text), sep=None, engine="python")
