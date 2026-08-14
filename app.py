@@ -9,6 +9,7 @@ from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
 from petrolab.ui.destructive_page_policy import install as install_destructive_page_policy
+from petrolab.ui.image_page_policy import install as install_image_page_policy
 from petrolab.ui.navigation import render_sidebar
 from petrolab.ui.pages import (
     render_analyses_page,
@@ -30,17 +31,13 @@ from petrolab.ui.pages import (
     render_ternary_page,
     render_updates_page,
 )
-from petrolab.ui.pages import plots as legacy_plots
-from petrolab.ui.plot_page_policy import install as install_plot_page_policy
+from petrolab.ui.science_page_policy import install as install_science_page_policy
 from petrolab.ui.theme import apply_theme
 
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
-if not getattr(legacy_plots, "_petrolab_plot_policy_installed", False):
-    install_plot_page_policy()
-    legacy_plots._petrolab_plot_policy_installed = True
-else:
-    legacy_plots._petrolab_workspace_call_index = 0
+install_science_page_policy()
+install_image_page_policy()
 install_destructive_page_policy()
 ensure_storage()
 settings = load_settings()
@@ -64,7 +61,9 @@ def _reconcile_plot_recipe_state() -> None:
             "plot_datasets", "plot_minerals", "plot_search", "column_filter_columns",
             "journal_preset", "plot_range_columns", "outlier_method", "outlier_columns",
             "outlier_threshold", "exclude_auto_outliers", "manual_outlier_exclusions",
-            "style_profile_select", "interactive_selected_point", "petrolab_interactive_plot",
+            "outlier_scope", "outlier_scope_group", "keep_hidden_manual_exclusions",
+            "style_profile_select", "interactive_selected_point",
+            "petrolab_advanced_interactive_plot",
         }
         prefixes = ("filter_vals_", "range_low_", "range_high_", "style_editor_")
         for key in list(st.session_state):
