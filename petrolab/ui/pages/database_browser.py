@@ -3,7 +3,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.sample_locations import (\n    current_entity_location, current_sample_location, entity_location_history,\n    record_entity_location, record_sample_location, sample_location_history,\n)\nfrom petrolab.sample_registry import (
+from petrolab.sample_locations import (
+    current_entity_location,
+    current_sample_location,
+    entity_location_history,
+    record_entity_location,
+    record_sample_location,
+    sample_location_history,
+)
+from petrolab.sample_registry import (
     add_sample_alias,
     create_sample,
     find_sample_matches,
