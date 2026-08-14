@@ -82,9 +82,14 @@ def render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
 def render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
     candidates = [
         column
-        for column in ("Sample", "ThinSection", "Thin section", "Шлиф", "Препарат", "Grain", "Generation", "Point")
+        for column in ("Sample", "Grain", "Generation", "Point")
         if column in dataframe.columns and dataframe[column].notna().any()
     ]
+    candidates.extend(
+        column
+        for column in ("ThinSection", "Thin section", "Шлиф", "Препарат")
+        if column in dataframe.columns and dataframe[column].notna().any() and column not in candidates
+    )
     if not candidates:
         st.warning(
             "Для semantic field-link нужны Sample, Grain, Generation или Point. "
