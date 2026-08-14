@@ -441,7 +441,8 @@ def load_unified_with_derived(project_id: int | None = None, dataset_ids: list[i
             continue
         frame.insert(5 if len(frame.columns) >= 5 else len(frame.columns), "Проект", dataset["project_name"])
         frame.insert(6 if len(frame.columns) >= 6 else len(frame.columns), "Набор", dataset["name"])
-        frame.insert(7 if len(frame.columns) >= 7 else len(frame.columns), "Минерал", dataset["mineral_key"])
+        if "Минерал" not in frame.columns:
+            frame.insert(7 if len(frame.columns) >= 7 else len(frame.columns), "Минерал", dataset["mineral_key"])
         frame.insert(8 if len(frame.columns) >= 8 else len(frame.columns), "Источник", dataset["source_filename"])
         frame.insert(9 if len(frame.columns) >= 9 else len(frame.columns), "Лист", dataset["source_sheet"])
         frame.insert(10 if len(frame.columns) >= 10 else len(frame.columns), "Строка Excel", frame["_source_row"])
