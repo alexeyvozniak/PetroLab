@@ -10,6 +10,13 @@ from petrolab.generations import attach_generations
 from petrolab.publication_manifest import append_manifest_to_xlsx, build_selection_manifest, manifest_json_bytes
 from petrolab.repositories.rock_repository import composition_wide
 from petrolab.settings_service import load_settings
+from petrolab.source_registry import (
+    SOURCE_CITATION_COLUMN,
+    SOURCE_DOI_COLUMN,
+    SOURCE_LABEL_COLUMN,
+    SOURCE_TABLE_COLUMN,
+    attach_study_metadata,
+)
 from petrolab.ui.components import render_project_selector
 from petrolab.ui.data_scope import render_analysis_scope
 from petrolab.visualization_presets import TABLE_PRESETS
@@ -19,7 +26,8 @@ def _column_selector(dataframe: pd.DataFrame, key: str) -> list[str]:
     meta = [
         column for column in [
             "Project", "Проект", "Rock", "Sample", "Grain", "Point", "Generation",
-            "Набор", "Минерал", "Massif", "Lithology", "Age_Ma",
+            "Набор", "Минерал", SOURCE_LABEL_COLUMN, SOURCE_CITATION_COLUMN,
+            SOURCE_DOI_COLUMN, SOURCE_TABLE_COLUMN, "Massif", "Lithology", "Age_Ma",
         ]
         if column in dataframe.columns
     ]
@@ -91,8 +99,10 @@ def render_article_tables_page() -> None:
     ]
     selected_context = st.session_state.pop("workflow_table_context", {})
     if selected_analysis_ids and selected_dataset_ids:
-        dataframe = attach_generations(
-            attach_work_groups(load_unified_with_derived(None, selected_dataset_ids))
+        dataframe = attach_study_metadata(
+            attach_generations(
+                attach_work_groups(load_unified_with_derived(None, selected_dataset_ids))
+            )
         )
         dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_analysis_ids)].copy()
         st.success(

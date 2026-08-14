@@ -10,6 +10,7 @@ from petrolab.interactive_plotting import build_interactive_scatter, selected_an
 from petrolab.outliers import OutlierResult, apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 from petrolab.plotting import MARKERS
 from petrolab.settings_service import load_settings
+from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.ui.components import collect_related_images, render_asset_gallery
 from petrolab.ui.plot_actions import clear_work_group
 
@@ -80,8 +81,11 @@ def style_map(dataframe: pd.DataFrame) -> dict[str, dict]:
 
 
 def point_label(row: pd.Series) -> str:
+    source = row.get(SOURCE_LABEL_COLUMN, "")
+    if pd.isna(source) or not str(source).strip():
+        source = row.get("Источник", "")
     return (
-        f"{row_identity(row)} · {row.get('Источник', '')} · "
+        f"{row_identity(row)} · {source} · "
         f"строка {row.get('_source_row', '—')} · {str(row.get('_analysis_id', ''))[:8]}"
     )
 
@@ -161,7 +165,7 @@ def render_outlier_controls(
                 "Порог MAD" if auto_method == "MAD" else "Множитель IQR", min_value=0.1, max_value=20.0,
                 value=float(cfg.get("threshold", 3.5 if auto_method == "MAD" else 1.5)), step=0.1, key="outlier_threshold",
             )
-            candidates = [column for column in [WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"] if column in ranged.columns and ranged[column].nunique(dropna=True) > 1]
+            candidates = [column for column in [SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал", "Sample"] if column in ranged.columns and ranged[column].nunique(dropna=True) > 1]
             scope_options = ["По всей выборке", "Внутри групп"] if candidates else ["По всей выборке"]
             scope_label = st.selectbox(
                 "Область статистики выбросов", scope_options,
@@ -250,7 +254,7 @@ def _render_selected_analysis(dataframe: pd.DataFrame, selected_ids: list[str], 
     selected = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_ids)].copy()
     if selected.empty:
         return
-    summary = [column for column in ["Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN, x, y, "Набор", "Источник", "_source_row"] if column in selected.columns]
+    summary = [column for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, x, y, "Набор", "Источник", "_source_row"] if column in selected.columns]
     st.markdown(f"**Выбрано точек: {len(selected)}**")
     st.dataframe(selected[summary].head(1000), width="stretch", hide_index=True, height=240)
     point_map = {point_label(row): str(row["_analysis_id"]) for _, row in selected.iterrows()}

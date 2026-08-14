@@ -10,6 +10,12 @@ from openpyxl import load_workbook
 
 from petrolab.db import _utcnow
 from petrolab.derived import formula_provenance_rows
+from petrolab.source_registry import (
+    SOURCE_CITATION_COLUMN,
+    SOURCE_DOI_COLUMN,
+    SOURCE_LABEL_COLUMN,
+    SOURCE_TABLE_COLUMN,
+)
 
 
 def build_selection_manifest(
@@ -27,7 +33,10 @@ def build_selection_manifest(
         if "_analysis_id" in dataframe.columns else []
     )
     sources = []
-    for column in ("Проект", "Набор", "Источник", "Лист"):
+    for column in (
+        "Проект", "Набор", SOURCE_LABEL_COLUMN, SOURCE_CITATION_COLUMN,
+        SOURCE_DOI_COLUMN, SOURCE_TABLE_COLUMN, "Источник", "Лист",
+    ):
         if column in dataframe.columns:
             sources.append({"field": column, "values": sorted(dataframe[column].dropna().astype(str).unique().tolist())})
     return {

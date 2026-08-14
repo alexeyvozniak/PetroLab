@@ -22,11 +22,20 @@ from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes
+from petrolab.source_registry import (
+    SOURCE_CITATION_COLUMN,
+    SOURCE_DOI_COLUMN,
+    SOURCE_LABEL_COLUMN,
+    SOURCE_TABLE_COLUMN,
+    SOURCE_TYPE_COLUMN,
+    attach_study_metadata,
+)
 from petrolab.ui.plot_actions import (
     delete_plot_recipe,
     delete_style_profile,
     render_plot_confirmations,
 )
+from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import (
     apply_interactive_exclusions,
     render_advanced_interactive,
@@ -122,7 +131,8 @@ def _filter_controls(dataframe: pd.DataFrame, recipe: dict) -> tuple[pd.DataFram
         preferred = [
             column
             for column in [
-                WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист",
+                SOURCE_LABEL_COLUMN, SOURCE_TYPE_COLUMN, WORK_GROUP_COLUMN,
+                "Проект", "Набор", "Минерал", "Источник", "Лист",
                 "Generation", "Group", "Type", "Sample", "Grain",
             ]
             if column in candidates
@@ -307,6 +317,8 @@ def _export_and_save(
     query: str,
     chosen_filters: dict[str, list[str]],
     outlier_config: dict,
+    visible_sources: list[str],
+    hidden_sources: list[str],
     preset: str,
     x: str,
     y: str,
@@ -355,12 +367,15 @@ def _export_and_save(
             "search": query,
             "column_filters": chosen_filters,
             "outlier_filters": outlier_config,
+            "visible_sources": visible_sources,
+            "hidden_sources": hidden_sources,
         },
         recipe={
             "journal_preset": preset,
             "x": x,
             "y": y,
             "group_col": group_col or "",
+            "source_visibility_column": SOURCE_LABEL_COLUMN,
             **appearance,
             "style_map": styles,
         },
@@ -379,6 +394,8 @@ def _export_and_save(
         "query": query,
         "column_filters": json.dumps(chosen_filters, ensure_ascii=False),
         "outlier_filters": json.dumps(outlier_config, ensure_ascii=False),
+        "visible_sources": json.dumps(visible_sources, ensure_ascii=False),
+        "hidden_sources": json.dumps(hidden_sources, ensure_ascii=False),
     }
     with pd.ExcelWriter(excel, engine="openpyxl") as writer:
         plot_dataframe.to_excel(writer, index=False, sheet_name="Точки графика")
@@ -409,6 +426,8 @@ def _export_and_save(
         "query": query,
         "column_filters": chosen_filters,
         "outlier_filters": outlier_config,
+        "visible_sources": visible_sources,
+        "hidden_sources": hidden_sources,
         "journal_preset": preset,
         "x": x,
         "y": y,
@@ -458,7 +477,9 @@ def render_advanced_xy_workspace(project_id: int) -> None:
         st.info("Выберите хотя бы один набор.")
         return
 
-    dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+    dataframe = attach_study_metadata(
+        attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+    )
     if dataframe.empty:
         st.info("В выбранных наборах нет аналитических строк.")
         return
@@ -480,6 +501,18 @@ def render_advanced_xy_workspace(project_id: int) -> None:
     if dataframe.empty:
         st.info("После фильтрации не осталось строк.")
         return
+    saved_visible = recipe.get("visible_sources")
+    dataframe, source_excluded, visible_sources, hidden_sources = render_source_visibility_controls(
+        dataframe,
+        key="advanced_plot",
+        saved_visible=saved_visible if isinstance(saved_visible, list) else None,
+    )
+    if dataframe.empty:
+        st.info("Включите хотя бы один источник, чтобы продолжить работу с графиком.")
+        return
+    if not source_excluded.empty:
+        source_excluded = source_excluded.copy()
+        source_excluded["Причина исключения"] = "Источник выключен в текущем графике"
 
     numeric = numeric_candidates(dataframe)
     if len(numeric) < 2:
@@ -506,7 +539,7 @@ def render_advanced_xy_workspace(project_id: int) -> None:
         and dataframe[column].nunique(dropna=True) <= 80
     ]
     preferred_groups = [
-        column for column in [WORK_GROUP_COLUMN, "Набор", "Минерал", "Источник", "Лист"]
+        column for column in [SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, "Набор", "Минерал", "Источник", "Лист"]
         if column in categorical
     ]
     categorical = preferred_groups + [column for column in categorical if column not in preferred_groups]
@@ -520,13 +553,22 @@ def render_advanced_xy_workspace(project_id: int) -> None:
         index=numeric.index(recipe.get("y")) if recipe.get("y") in numeric else min(1, len(numeric) - 1),
     )
     group_options = ["Без группировки"] + categorical
-    group_default = recipe.get("group_col") if recipe.get("group_col") in categorical else "Без группировки"
+    if recipe.get("group_col") in categorical:
+        group_default = recipe.get("group_col")
+    elif len(visible_sources) > 1 and SOURCE_LABEL_COLUMN in categorical:
+        group_default = SOURCE_LABEL_COLUMN
+    else:
+        group_default = "Без группировки"
     group = c3.selectbox("Группировка", group_options, index=group_options.index(group_default))
     group_col = None if group == "Без группировки" else group
 
     finite = sanitize_xy_rows(dataframe, x, y, group_column=group_col)
     filtered, outlier_config, excluded = render_outlier_controls(finite, numeric, x, y, recipe)
     filtered, outlier_config, excluded = apply_interactive_exclusions(filtered, outlier_config, excluded)
+    if not source_excluded.empty:
+        excluded = pd.concat([source_excluded, excluded], ignore_index=True, sort=False)
+        if "_analysis_id" in excluded.columns:
+            excluded = excluded.drop_duplicates("_analysis_id", keep="first")
     appearance = _appearance_controls(filtered, recipe, preset_cfg, x, y)
     plot_source = sanitize_xy_rows(
         filtered,
@@ -565,7 +607,9 @@ def render_advanced_xy_workspace(project_id: int) -> None:
         column
         for column in [
             "_analysis_id", "_dataset_id", "_source_row", "Проект", "Набор", "Минерал",
-            "Источник", "Лист", "Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN,
+            SOURCE_LABEL_COLUMN, SOURCE_TYPE_COLUMN, SOURCE_CITATION_COLUMN, SOURCE_DOI_COLUMN,
+            SOURCE_TABLE_COLUMN, "Источник", "Лист", "Sample", "Grain", "Point",
+            "Generation", WORK_GROUP_COLUMN,
         ]
         if column in plot_source.columns
     ]
@@ -581,6 +625,8 @@ def render_advanced_xy_workspace(project_id: int) -> None:
         query=query,
         chosen_filters=chosen_filters,
         outlier_config=outlier_config,
+        visible_sources=visible_sources,
+        hidden_sources=hidden_sources,
         preset=preset,
         x=x,
         y=y,
