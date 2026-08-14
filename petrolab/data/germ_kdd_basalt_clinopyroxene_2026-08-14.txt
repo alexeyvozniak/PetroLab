@@ -1,0 +1,411 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:54:01.167Z.
+>>>>>>>>>>
+tab delimited	kds
+contribution_id	rock_types	minerals	element	kd	kd_sigma	kd_low	kd_high	kd_definition	kd_types
+4	Ankaramite:Basalt	Clinopyroxene	Yb	0.294				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Sm	0.26				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Ce	0.077				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Eu	0.273				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Gd	0.325				Solid-Melt	Interpolated
+4	Ankaramite:Basalt	Clinopyroxene	Er	0.33				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Nd	0.174				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Clinopyroxene	Dy	0.351				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Sr	0.109				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Ba	0.0035				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Gd	0.82				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Tb			0.046	0.97	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Cr	4.22				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	La	0.084				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Ce			0.0026	0.166	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Sm			0.014	0.736	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Li	0.26				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Eu			0.023	0.753	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Yb			0.107	1.01	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Lu			0.111	0.95	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Sc			1.23	2.92	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Mn			1.27	1.44	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Co			1.12	2.08	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Zn	0.41				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	In			0.45	1.67	Solid-Melt	Phenocryst-Matrix
+7	Ankaramite:Basalt	Clinopyroxene	Ba			0.0199	0.388	Solid-Melt	Phenocryst-Matrix
+7	Ankaramite:Basalt	Clinopyroxene	Rb			0.0146	0.284	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Nd	0.382				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Ti	0.786				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Tm	1.09				Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	Th	0.013				Solid-Melt	Phenocryst-Matrix
+7	Ankaramite:Basalt	Clinopyroxene	Sr			0.105	0.43	Solid-Melt	Phenocryst-Matrix
+7	Ankaramite:Basalt	Clinopyroxene	K			0.0286	0.273	Solid-Melt	Phenocryst-Matrix
+6	Basalt	Clinopyroxene	U	0.017				Solid-Melt	Phenocryst-Matrix
+14	Basalt	Clinopyroxene	Yb			0.4	0.5	Solid-Melt	Experimental
+14	Basalt	Clinopyroxene	La	0.05				Solid-Melt	Experimental
+14	Basalt	Clinopyroxene	Sm	0.4				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Pr			0.04	0.3	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Nd			0.06	0.3	Solid-Melt	Phenocryst-Matrix:Graphical
+20	Basalt	Clinopyroxene	Tb	0.42				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Yb	0.44				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Mn	1.6				Solid-Melt	Phenocryst-Matrix
+14	Basalt	Clinopyroxene	Ho			0.3	0.6	Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Cu	0.071				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	La	0.061				Solid-Melt	Phenocryst-Matrix
+21	Basalt	Clinopyroxene	Zr			0.05	0.22	Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Gd			0.2	0.8	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	La			0.02	0.1	Solid-Melt	Phenocryst-Matrix:Graphical
+26	Basalt	Clinopyroxene	Nb	0.06				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Ho			0.3	1	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Tb			0.3	0.9	Solid-Melt	Phenocryst-Matrix:Graphical
+25	Basalt	Clinopyroxene	Zr	0.21				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Yb			0.2	0.9	Solid-Melt	Phenocryst-Matrix:Graphical
+25	Basalt	Clinopyroxene	Nb	0.004				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	Ce	0.1				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Ga				0.25	Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Ce	0.26				Solid-Melt	Phenocryst-Matrix
+21	Basalt	Clinopyroxene	Nb			0.01	0.03	Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Sc	3.3				Solid-Melt	Phenocryst-Matrix
+24	Basalt	Clinopyroxene	Sc	0.808				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Co	1.3				Solid-Melt	Phenocryst-Matrix
+24	Basalt	Clinopyroxene	V	1.81				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Eu	0.27				Solid-Melt	Phenocryst-Matrix
+24	Basalt	Clinopyroxene	Sr	0.157				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Gd	0.41				Solid-Melt	Phenocryst-Matrix
+24	Basalt	Clinopyroxene	Nb	0.0081				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Cs	0.0058				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Ba	0.0058				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Lu			0.1	0.9	Solid-Melt	Phenocryst-Matrix:Graphical
+25	Basalt	Clinopyroxene	Sr	0.096				Solid-Melt	Experimental
+23	Basalt	Clinopyroxene	La			0.03	0.17	Solid-Melt	Experimental
+23	Basalt	Clinopyroxene	Gd			0.24	0.84	Solid-Melt	Experimental
+23	Basalt	Clinopyroxene	Y			0.38	1.05	Solid-Melt	Experimental
+23	Basalt	Clinopyroxene	Yb			0.38	1.14	Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Ce	0.108				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Sm			0.1	0.8	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Ce			0.03	0.2	Solid-Melt	Phenocryst-Matrix:Graphical
+27	Basalt	Clinopyroxene	Sm	0.281				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Sm	0.462				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Eu			0.2	0.7	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Pm			0.07	0.5	Solid-Melt	Phenocryst-Matrix:Graphical
+27	Basalt	Clinopyroxene	Lu	0.439				Solid-Melt	Experimental
+19	Basalt	Clinopyroxene	Er			0.3	1	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Dy			0.3	0.9	Solid-Melt	Phenocryst-Matrix:Graphical
+19	Basalt	Clinopyroxene	Tm			0.2	1	Solid-Melt	Phenocryst-Matrix:Graphical
+26	Basalt	Clinopyroxene	Ti			0.41	0.56	Solid-Melt	Experimental
+26	Basalt	Clinopyroxene	Ce			0.11	0.12	Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Ti	0.347				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Th	0.014				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	Y	0.72				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	U	0.0127				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Zn	0.49				Solid-Melt	Phenocryst-Matrix
+24	Basalt	Clinopyroxene	Hf	0.223				Solid-Melt	Experimental
+20	Basalt	Clinopyroxene	Nd	0.29				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Ho	0.44		0.44		Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Ba				0.05	Solid-Melt	Phenocryst-Matrix
+20	Basalt	Clinopyroxene	Sm	0.32				Solid-Melt	Phenocryst-Matrix
+27	Basalt	Clinopyroxene	Yb	0.432				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	La	0.05				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Nd	0.177				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Zr	0.128				Solid-Melt	Experimental
+26	Basalt	Clinopyroxene	Hf			0.24	0.44	Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Dy	0.42				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Er	0.36				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Hf	0.23				Solid-Melt	Experimental
+23	Basalt	Clinopyroxene	Sm			0.22	1.12	Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	La	0.0515				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	Hf	0.019				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Zr	0.195				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	Sc	1.42				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Er	0.66				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Yb	0.633				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Lu	0.623				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Cr	1.66				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Pb	0.0102				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	Ti	0.37				Solid-Melt	Experimental
+25	Basalt	Clinopyroxene	V	4.82				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Ti	0.451				Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Nd	0.277				Solid-Melt	Experimental
+26	Basalt	Clinopyroxene	Zr			0.12	0.27	Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Eu	0.458				Solid-Melt	Experimental
+26	Basalt	Clinopyroxene	Yb			0.59	0.61	Solid-Melt	Experimental
+24	Basalt	Clinopyroxene	Dy	0.711				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Sr	0.096				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Y	0.421				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Nb	0.004				Solid-Melt	Experimental
+27	Basalt	Clinopyroxene	Ce	0.072				Solid-Melt	Experimental
+33	Basalt	Clinopyroxene	Ti	0.1				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Ce	0.098				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Tb	0.31				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Hf	0.233				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	La	0.054				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Nd	0.21				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Eu	0.31				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Pr	0.15				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Er	0.29				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Ho	0.31				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Lu	0.28				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Yb	0.28				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	U	0.00036				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Os	0.01				Solid-Melt	Calculated
+37	Basalt	Clinopyroxene	Ti	0.2				Solid-Melt	Phenocryst-Matrix
+33	Basalt	Clinopyroxene	Dy	0.33				Solid-Melt	Calculated
+37	Basalt	Clinopyroxene	Fe	0.86				Solid-Melt	Phenocryst-Matrix
+33	Basalt	Clinopyroxene	Er	0.3				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Th	0.00026				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Sm	0.26				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Gd	0.3				Solid-Melt	Calculated
+37	Basalt	Clinopyroxene	Mn	0.81				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Clinopyroxene	Cu	0.18				Solid-Melt	Phenocryst-Matrix
+33	Basalt	Clinopyroxene	Rb	0.011				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Sr	0.067				Solid-Melt	Calculated
+33	Basalt	Clinopyroxene	Nb	0.05				Solid-Melt	Calculated
+39	Basalt	Clinopyroxene	Ti			0.35	0.43	Solid-Melt	Experimental
+39	Basalt	Clinopyroxene	Lu			0.5	0.61	Solid-Melt	Experimental
+37	Basalt	Clinopyroxene	V	0.74				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Clinopyroxene	Co	1.32				Solid-Melt	Phenocryst-Matrix
+39	Basalt	Clinopyroxene	Mn			0.81	0.91	Solid-Melt	Experimental
+39	Basalt	Clinopyroxene	Hf			0.26	0.35	Solid-Melt	Experimental
+48	Basalt	Clinopyroxene	Th			0.008	0.036	Solid-Melt	Experimental
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	U			0.000236	0.000495	Solid-Melt	Experimental
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Cs			0.0009	0.0042	Solid-Melt	Experimental
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Hf			0.327	0.375	Solid-Melt	Experimental
+37	Basalt	Clinopyroxene	Zn	0.5				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Eu	0.41				Solid-Melt	Phenocryst-Matrix
+49	Basalt	Clinopyroxene	Ba			0.00011	0.00056	Solid-Melt	Experimental
+47	Basalt	Clinopyroxene	Nb	0.008				Solid-Melt	Phenocryst-Matrix:Experimental
+47	Basalt	Clinopyroxene	Ce	0.08				Solid-Melt	Phenocryst-Matrix:Experimental
+47	Basalt	Clinopyroxene	K	0.007				Solid-Melt	Phenocryst-Matrix:Experimental
+37	Basalt	Clinopyroxene	Cr	13				Solid-Melt	Phenocryst-Matrix
+47	Basalt	Clinopyroxene	Sr	0.13				Solid-Melt	Phenocryst-Matrix:Experimental
+37	Basalt	Clinopyroxene	Ni	4.4				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Eu	0.85				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Ce			0.359	1.05	Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Er	1.17				Solid-Melt	Phenocryst-Matrix
+49	Basalt	Clinopyroxene	Th			0.00041	0.00531	Solid-Melt	Experimental
+46	Basalt	Clinopyroxene	P			0.0044	0.0094	Solid-Melt	Experimental
+47	Basalt	Clinopyroxene	Zr	0.12				Solid-Melt	Phenocryst-Matrix:Experimental
+55	Basalt	Clinopyroxene	Ni	2.6				Solid-Melt	Experimental
+49	Basalt	Clinopyroxene	Sr			0.0479	0.139	Solid-Melt	Experimental
+49	Basalt	Clinopyroxene	Pb			0.00498	0.00968	Solid-Melt	Experimental
+48	Basalt	Clinopyroxene	U			0.004	0.0146	Solid-Melt	Experimental
+49	Basalt	Clinopyroxene	U			0.00006	0.00361	Solid-Melt	Experimental
+52	Basalt	Clinopyroxene	Ho	0.6				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Dy	1.18				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Lu	1.12				Solid-Melt	Phenocryst-Matrix
+47	Basalt	Clinopyroxene	La	0.05				Solid-Melt	Phenocryst-Matrix:Experimental
+52	Basalt	Clinopyroxene	Lu	0.58				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Sr	0.119				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Ba	0.0309				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Sm	0.98				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Nd	0.14				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Sm	0.32				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Tb	0.53				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	La	0.002				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Yb	1.05				Solid-Melt	Phenocryst-Matrix
+50	Basalt	Clinopyroxene	Nd	0.69				Solid-Melt	Phenocryst-Matrix
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Pb			0.00892	0.0125	Solid-Melt	Experimental
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Yb			0.178	0.201	Solid-Melt	Experimental
+52	Basalt	Clinopyroxene	Ce	0.017				Solid-Melt	Phenocryst-Matrix
+64	Basalt	Clinopyroxene	Pu	0.06				Solid-Melt	Experimental
+52	Basalt	Clinopyroxene	Gd	0.46				Solid-Melt	Phenocryst-Matrix
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Os	0.075				Solid-Melt	Experimental
+51	Haplobasalt:Basalt	Cr Diopside:Clinopyroxene	Re	0.035				Solid-Melt	Experimental
+52	Basalt	Clinopyroxene	Pr	0.058				Solid-Melt	Phenocryst-Matrix
+65	Basalt	Clinopyroxene	Ce	0.057				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Nd	0.129				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Er	0.259				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Dy	0.256				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Y	0.245				Solid-Melt	Experimental
+66	Basalt	Clinopyroxene	Sr			0.281	0.449	Solid-Melt	Phenocryst-Matrix
+65	Basalt	Clinopyroxene	Zr	0.046				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Yb	0.214				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Ba	0.002				Solid-Melt	Experimental
+66	Basalt	Clinopyroxene	Eu			0.479	0.87	Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Er	0.57				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Yb	0.6				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Clinopyroxene	Er	0.54				Solid-Melt	Phenocryst-Matrix
+64	Basalt	Clinopyroxene	Th				0.0019	Solid-Melt	Experimental
+69	Ankaramite:Basalt	Clinopyroxene	K			0.00167	0.00283	Solid-Melt	Phenocryst-Matrix
+69	Ankaramite:Basalt	Clinopyroxene	Sr			0.0844	0.111	Solid-Melt	Phenocryst-Matrix
+69	Ankaramite:Basalt	Clinopyroxene	Sb			0.00152	0.00392	Solid-Melt	Phenocryst-Matrix
+69	Ankaramite:Basalt	Clinopyroxene	Ba			0.00218	0.00234	Solid-Melt	Phenocryst-Matrix
+65	Basalt	Clinopyroxene	Sr	0.082				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Ti	0.229				Solid-Melt	Experimental
+64	Basalt	Clinopyroxene	U				0.0018	Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	Sm	0.211				Solid-Melt	Experimental
+65	Basalt	Clinopyroxene	La	0.032				Solid-Melt	Experimental
+69	Ankaramite:Basalt	Clinopyroxene	Rb			0.00141	0.00327	Solid-Melt	Phenocryst-Matrix
+74	Basalt	Clinopyroxene	V			0.22	2.31	Solid-Melt	Experimental
+82	Basalt	Clinopyroxene	Nb			0.004	0.065	Solid-Melt	Experimental
+74	Basalt	Clinopyroxene	Mn			0.55	0.75	Solid-Melt	Experimental
+74	Basalt	Clinopyroxene	Co			1	1.7	Solid-Melt	Experimental
+74	Basalt	Clinopyroxene	Cr			8	36	Solid-Melt	Experimental
+74	Basalt	Clinopyroxene	Ni			1.2	10	Solid-Melt	Experimental
+88	Basalt	Clinopyroxene	Sm			0.58	1.2	Solid-Melt	Experimental
+82	Basalt	Clinopyroxene	Ti			0.09	1087	Solid-Melt	Experimental
+74	Basalt	Clinopyroxene	Ti			0.23	0.5	Solid-Melt	Experimental
+88	Basalt	Clinopyroxene	La			0.11	0.22	Solid-Melt	Experimental
+88	Basalt	Clinopyroxene	Lu			0.68	0.9	Solid-Melt	Experimental
+82	Basalt	Clinopyroxene	Zr			0.004	0.786	Solid-Melt	Experimental
+82	Basalt	Clinopyroxene	Ta			0.011	0.261	Solid-Melt	Experimental
+88	Basalt	Clinopyroxene	Ho			0.88	1.2	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Be	0.047				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	V	3.1				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Y	0.467				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Hf	0.256				Solid-Melt	Experimental
+139	Basalt	Clinopyroxene	Sc			2.38	3.23	Solid-Melt	Phenocryst-Matrix
+138	Basalt	Clinopyroxene	Zr	0.123				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	B	0.036				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Sm	0.291				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Ga	0.74				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Sr	0.1283				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Nb	0.0077				Solid-Melt	Experimental
+139	Basalt	Clinopyroxene	Ni			1.42	2.11	Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Eu	0.753				Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	La	0.084				Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Sm	0.736				Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Lu	0.95				Solid-Melt	Phenocryst-Matrix
+149	Picrite:Basalt	Clinopyroxene	Ba			0.248	0.416	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Nd	0.1873				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Dy	0.442				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Cr			2.94	26.91	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Er	0.387				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	La			0.041	0.212	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	La			0.287	0.409	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Yb	0.43				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Lu			0.006	0.958	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Ti	0.18				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Re	0.072				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Ta	0.02				Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Eu			0.347	0.59	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Sr			0.26	0.608	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Dy			0.647	0.922	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Nd			0.377	0.573	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Yb			0.692	0.912	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Sm			0.474	0.707	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	P	0.03				Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Er			0.694	0.944	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	K	0.0072				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Ba	0.00068				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Ti			0.193	0.886	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Sr			0.052	0.282	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Y			0.29	1.71	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Sc	0.51				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Pr			0.112	0.626	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Hf	0.22				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Tm			0.255	1.047	Solid-Melt	Experimental
+153	Basalt	Clinopyroxene	Yb	1.01				Solid-Melt	Phenocryst-Matrix
+139	Basalt	Clinopyroxene	Cr			4.72	11.43	Solid-Melt	Phenocryst-Matrix
+139	Basalt	Clinopyroxene	Mn			0.55	1.31	Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Nd	0.382				Solid-Melt	Phenocryst-Matrix
+149	Picrite:Basalt	Clinopyroxene	Lu			0.706	0.859	Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Lu	0.433				Solid-Melt	Experimental
+139	Basalt	Clinopyroxene	Fe			0.57	1.04	Solid-Melt	Phenocryst-Matrix
+139	Basalt	Clinopyroxene	Co			0.68	1.22	Solid-Melt	Phenocryst-Matrix
+138	Basalt	Clinopyroxene	Sc	1.31				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Ti	0.384		0.384		Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Cr	3.8				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Cu	0.36				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Zr	0.03				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	La	0.0536				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Nb	0.02				Solid-Melt	Experimental
+138	Basalt	Clinopyroxene	Ce	0.0858				Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Hf			0.004	0.098	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Ce			0.309	0.463	Solid-Melt	Experimental
+149	Picrite:Basalt	Clinopyroxene	Gd			0.563	0.835	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Zr			0.001	0.049	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	V	1.31				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Clinopyroxene	Y	0.2				Solid-Melt	Experimental
+153	Basalt	Clinopyroxene	Ce	0.166				Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Gd	0.82				Solid-Melt	Phenocryst-Matrix
+153	Basalt	Clinopyroxene	Tb	0.97				Solid-Melt	Phenocryst-Matrix
+157	Basalt	Clinopyroxene	V			0.648	6.18	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Ba			0.03	0.16	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Nd			0.201	0.804	Solid-Melt	Experimental
+157	Basalt	Clinopyroxene	Tb			0.28	1.124	Solid-Melt	Experimental
+197	Basalt	Clinopyroxene	P	0.05				Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Zr			0.027	0.204	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Nd			0.061	0.258	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Sm			0.067	0.494	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Er			0.144	0.726	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Yb			0.166	0.713	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	U			0.002	0.012	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Nb			0.008	0.045	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Eu			0.68	3.65	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Th			0.003	0.014	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Ti			0.12	0.64	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Yb			0.65	3.37	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	La	0.51				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Sm	2.62				Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Y			0.165	0.738	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Ce			0.24	0.8	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Dy			0.65	2.37	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Ti	0.55				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Dy	2.13				Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Hf			0.049	0.344	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Yb	2.56				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Sr			0.11	0.56	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Gd			0.59	1.55	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Y			0.65	2.48	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Ce	0.82				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Zr	0.28				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Sr	0.48				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Y	2.95				Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Ce			0.019	0.148	Solid-Melt	Experimental
+212	Basalt:Peridotite	Clinopyroxene	Lu			0.149	0.718	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Gd	3.69				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Zr			0.27	1.01	Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Zr	0.119				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Sm			0.64	2.24	Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Nb	0.119				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Er			0.56	1.43	Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Sm	0.293				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Nd	1.69				Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	La			0.14	0.47	Solid-Melt	Experimental
+216	Basalt	Clinopyroxene	Nd			0.46	1.67	Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Ba	0.005	0.002			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	La	0.034	0.006			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Hf	0.13	0.03			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	U			0.0094	0.024	Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Er	0.37				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Lu	0.449				Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Sm			0.18	0.4	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Dy			0.31	0.55	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Zr			0.06	0.83	Solid-Melt	Calculated
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Pb	0.2	0.1			Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Ce			0.05	0.14	Solid-Melt	Calculated
+230	Peridotite:Basalt	Clinopyroxene	La			0.034	0.155	Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Yb			0.32	0.53	Solid-Melt	Calculated
+230	Peridotite:Basalt	Clinopyroxene	Lu			0.505	1.333	Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Sr			0.1	0.46	Solid-Melt	Calculated
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	B	0.19	0.019			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Li			0.13	0.22	Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Nb			0.05	1.24	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Y			0.32	0.56	Solid-Melt	Calculated
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Cr	2.8	0.5			Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	Ti			0.1	0.9	Solid-Melt	Calculated
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Y	0.37	0.06			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Nb	0.0029	0.0008			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Nd	0.24	0.01			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Sm	0.31	0.02			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	V	1.1	0.2			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Rb	0.015	0.002			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Zr	0.09	0.01			Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Ce	0.07				Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Sr	0.067	0.003			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Lu	0.38	0.06			Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Ta	0.008	0.002			Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Hf	0.2				Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Th			0.0083	0.02	Solid-Melt	Experimental
+233	Peridotite:Basalt	Clinopyroxene	La			0.03	0.09	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Nd			0.11	0.27	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Er			0.34	0.56	Solid-Melt	Calculated
+233	Peridotite:Basalt	Clinopyroxene	Rb			0.29	3.36	Solid-Melt	Calculated
+227	Basalt	Clinopyroxene	Nd	0.178				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Yb	0.4				Solid-Melt	Experimental
+229	Garnet Pyroxenite:Basalt	Clinopyroxene	Be	0.024	0.03			Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Eu	0.32				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Dy	0.38				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Ti	0.34				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Sr	0.095				Solid-Melt	Experimental
+227	Basalt	Clinopyroxene	Y	0.412				Solid-Melt	Experimental
+230	Peridotite:Basalt	Clinopyroxene	Sm			0.218	0.793	Solid-Melt	Experimental
+230	Peridotite:Basalt	Clinopyroxene	Ho			0.443	1.345	Solid-Melt	Experimental

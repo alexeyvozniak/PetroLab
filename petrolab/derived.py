@@ -8,9 +8,14 @@ import pandas as pd
 
 from petrolab.analysis_identity import source_row_fingerprint
 from petrolab.db import _json_safe_record, _utcnow, connect, get_dataset, list_datasets, load_dataset_dataframe
+from petrolab.mineral_assignments import attach_mineral_assignments
 
 
 _SOURCE_FINGERPRINT_KEY = "__source_fingerprint__"
+_FORMULA_CONTEXT_COLUMNS = {
+    "Минерал", "Минерал исходного набора", "Минерал назначен вручную",
+    "Комментарий переотнесения", "Переотнесено",
+}
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,23 @@ def ensure_formula_storage() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_formula_results_dataset_method ON formula_results(dataset_id, method_id)"
         )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS analysis_formula_state (
+                analysis_id TEXT PRIMARY KEY,
+                dataset_id INTEGER NOT NULL,
+                active_method_id TEXT NOT NULL,
+                method_title TEXT NOT NULL DEFAULT '',
+                mineral_key TEXT NOT NULL DEFAULT '',
+                calculated_at TEXT NOT NULL,
+                FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            )
+            """
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_analysis_formula_state_dataset ON analysis_formula_state(dataset_id)"
+        )
         con.commit()
 
 
@@ -96,6 +118,15 @@ def _align_result_by_analysis_id(source: pd.DataFrame, result: pd.DataFrame) -> 
     aligned = aligned.set_index("_analysis_id", drop=False).loc[source_ids.tolist()].copy()
     aligned.index = source.index
     return aligned
+
+
+def _formula_source_fingerprint(record: dict) -> str:
+    """Ignore local interpretation labels when checking source-chemistry freshness."""
+    source_like = {
+        key: value for key, value in record.items()
+        if str(key) not in _FORMULA_CONTEXT_COLUMNS
+    }
+    return source_row_fingerprint(source_like)
 
 
 def _formula_row_current(row) -> bool:
@@ -164,7 +195,7 @@ def save_formula_results(
         payload = []
         for row_index, analysis_id in enumerate(analysis_ids):
             derived = {column: result_dataframe.iloc[row_index][column] for column in derived_columns}
-            derived[_SOURCE_FINGERPRINT_KEY] = source_row_fingerprint(source_dataframe.iloc[row_index].to_dict())
+            derived[_SOURCE_FINGERPRINT_KEY] = _formula_source_fingerprint(source_dataframe.iloc[row_index].to_dict())
             payload.append((
                 int(dataset_id), analysis_id, method_id, source_versions[analysis_id],
                 json.dumps(_json_safe_record(derived), ensure_ascii=False), now,
@@ -192,6 +223,84 @@ def save_formula_results(
         )
         con.commit()
 
+    return FormulaSaveResult(int(dataset_id), method_id, len(analysis_ids), derived_columns)
+
+
+def save_point_formula_results(
+    dataset_id: int,
+    mineral_key: str,
+    method_id: str,
+    method_title: str,
+    source_dataframe: pd.DataFrame,
+    result_dataframe: pd.DataFrame,
+) -> FormulaSaveResult:
+    """Save APFU for a selected mineral subset without changing the dataset default.
+
+    This is used when a point was reclassified after import. It preserves both the
+    original chemistry and the earlier calculation, while making the new mineral and
+    method the active formula context for exactly those immutable analysis IDs.
+    """
+    ensure_formula_storage()
+    result_dataframe = _align_result_by_analysis_id(source_dataframe, result_dataframe)
+    derived_columns = tuple(
+        str(column)
+        for column in result_dataframe.columns
+        if column not in source_dataframe.columns and not str(column).startswith("_")
+    )
+    if not derived_columns:
+        raise ValueError("Метод не создал новых расчётных колонок")
+    analysis_ids = source_dataframe["_analysis_id"].astype(str).tolist()
+    if not analysis_ids:
+        raise ValueError("Нет точек для сохранения")
+    marks = ",".join("?" for _ in analysis_ids)
+    now = _utcnow()
+    with connect() as con:
+        rows = con.execute(
+            f"SELECT analysis_id, updated_at FROM analysis_rows WHERE dataset_id=? AND analysis_id IN ({marks})",
+            [int(dataset_id), *analysis_ids],
+        ).fetchall()
+        versions = {str(row["analysis_id"]): str(row["updated_at"]) for row in rows}
+        missing = [analysis_id for analysis_id in analysis_ids if analysis_id not in versions]
+        if missing:
+            raise ValueError("Часть анализов уже отсутствует в базе; обновите страницу и пересчитайте")
+        payload = []
+        states = []
+        for row_index, analysis_id in enumerate(analysis_ids):
+            derived = {column: result_dataframe.iloc[row_index][column] for column in derived_columns}
+            derived[_SOURCE_FINGERPRINT_KEY] = _formula_source_fingerprint(source_dataframe.iloc[row_index].to_dict())
+            payload.append((
+                int(dataset_id), analysis_id, method_id, versions[analysis_id],
+                json.dumps(_json_safe_record(derived), ensure_ascii=False), now,
+            ))
+            states.append((analysis_id, int(dataset_id), method_id, method_title, mineral_key, now))
+        con.executemany(
+            """
+            INSERT INTO formula_results(
+                dataset_id, analysis_id, method_id, source_updated_at, derived_json, calculated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(analysis_id, method_id) DO UPDATE SET
+                dataset_id=excluded.dataset_id,
+                source_updated_at=excluded.source_updated_at,
+                derived_json=excluded.derived_json,
+                calculated_at=excluded.calculated_at
+            """,
+            payload,
+        )
+        con.executemany(
+            """
+            INSERT INTO analysis_formula_state(
+                analysis_id, dataset_id, active_method_id, method_title, mineral_key, calculated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(analysis_id) DO UPDATE SET
+                dataset_id=excluded.dataset_id,
+                active_method_id=excluded.active_method_id,
+                method_title=excluded.method_title,
+                mineral_key=excluded.mineral_key,
+                calculated_at=excluded.calculated_at
+            """,
+            states,
+        )
+        con.commit()
     return FormulaSaveResult(int(dataset_id), method_id, len(analysis_ids), derived_columns)
 
 
@@ -253,32 +362,70 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
     base = load_dataset_dataframe(int(dataset_id), include_meta=True)
     if base.empty:
         return base if include_meta else base.copy()
-    state = _active_state(int(dataset_id))
-    if state:
+    dataset = get_dataset(int(dataset_id))
+    default_state = _active_state(int(dataset_id))
+    analysis_ids = base["_analysis_id"].astype(str).tolist()
+    marks = ",".join("?" for _ in analysis_ids)
+    with connect() as con:
+        point_rows = con.execute(
+            f"SELECT * FROM analysis_formula_state WHERE analysis_id IN ({marks})",
+            analysis_ids,
+        ).fetchall()
+    point_states = {str(row["analysis_id"]): dict(row) for row in point_rows}
+    desired_states = {
+        analysis_id: point_states.get(analysis_id, default_state)
+        for analysis_id in analysis_ids
+    }
+    method_ids = sorted({
+        str(state["active_method_id"])
+        for state in desired_states.values() if state and str(state.get("active_method_id") or "")
+    })
+    current_payloads: dict[str, dict] = {}
+    all_columns: set[str] = set()
+    if method_ids:
+        method_marks = ",".join("?" for _ in method_ids)
         with connect() as con:
             rows = con.execute(
-                """
-                SELECT fr.analysis_id, fr.source_updated_at, fr.derived_json, a.updated_at, a.data_json
+                f"""
+                SELECT fr.analysis_id, fr.method_id, fr.source_updated_at, fr.derived_json,
+                       a.updated_at, a.data_json
                 FROM formula_results fr
                 JOIN analysis_rows a ON a.analysis_id=fr.analysis_id
-                WHERE fr.dataset_id=? AND fr.method_id=?
+                WHERE fr.dataset_id=? AND fr.method_id IN ({method_marks})
                 """,
-                (int(dataset_id), state["active_method_id"]),
+                [int(dataset_id), *method_ids],
             ).fetchall()
-        current_payloads: dict[str, dict] = {}
-        all_columns: set[str] = set()
         for row in rows:
+            analysis_id = str(row["analysis_id"])
+            wanted = desired_states.get(analysis_id)
+            if wanted is None or str(row["method_id"]) != str(wanted["active_method_id"]):
+                continue
             if not _formula_row_current(row):
                 continue
             payload = _public_derived_payload(row["derived_json"])
-            current_payloads[str(row["analysis_id"])] = payload
+            current_payloads[analysis_id] = payload
             all_columns.update(str(key) for key in payload)
-        if all_columns:
-            id_series = base["_analysis_id"].astype(str)
-            for column in sorted(all_columns):
-                base[column] = [current_payloads.get(analysis_id, {}).get(column) for analysis_id in id_series]
-        base.attrs["formula_method_id"] = str(state["active_method_id"])
-        base.attrs["formula_method_title"] = str(state["method_title"])
+    if all_columns:
+        for column in sorted(all_columns):
+            base[column] = [current_payloads.get(analysis_id, {}).get(column) for analysis_id in analysis_ids]
+
+    base = attach_mineral_assignments(base, default_mineral_key=str(dataset["mineral_key"]))
+    formula_mineral = {
+        analysis_id: str((desired_states.get(analysis_id) or {}).get("mineral_key") or "")
+        for analysis_id in analysis_ids
+    }
+    if all_columns and "Минерал" in base.columns:
+        mismatched = base["_analysis_id"].astype(str).map(formula_mineral).fillna("").ne(base["Минерал"].astype(str))
+        for column in all_columns:
+            # Pandas 2.3 no longer permits inserting a missing value into a
+            # non-nullable bool column. These formula values must become blank
+            # when their calculation module does not match the active mineral.
+            if pd.api.types.is_bool_dtype(base[column]):
+                base[column] = base[column].astype("object")
+            base.loc[mismatched, column] = None
+    if default_state:
+        base.attrs["formula_method_id"] = str(default_state["active_method_id"])
+        base.attrs["formula_method_title"] = str(default_state["method_title"])
     if include_meta:
         return base
     return base[[column for column in base.columns if column not in _INTERNAL_META]].copy()
@@ -299,7 +446,8 @@ def load_unified_with_derived(project_id: int | None = None, dataset_ids: list[i
             continue
         frame.insert(5 if len(frame.columns) >= 5 else len(frame.columns), "Проект", dataset["project_name"])
         frame.insert(6 if len(frame.columns) >= 6 else len(frame.columns), "Набор", dataset["name"])
-        frame.insert(7 if len(frame.columns) >= 7 else len(frame.columns), "Минерал", dataset["mineral_key"])
+        if "Минерал" not in frame.columns:
+            frame.insert(7 if len(frame.columns) >= 7 else len(frame.columns), "Минерал", dataset["mineral_key"])
         frame.insert(8 if len(frame.columns) >= 8 else len(frame.columns), "Источник", dataset["source_filename"])
         frame.insert(9 if len(frame.columns) >= 9 else len(frame.columns), "Лист", dataset["source_sheet"])
         frame.insert(10 if len(frame.columns) >= 10 else len(frame.columns), "Строка Excel", frame["_source_row"])

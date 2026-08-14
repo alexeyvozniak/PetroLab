@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 import hashlib
 import json
-
 import streamlit as st
-
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
@@ -18,6 +15,8 @@ from petrolab.ui.pages import (
     render_data_intake_page,
     render_database_browser_page,
     render_export_page,
+    render_equilibrium_page,
+    render_distribution_page,
     render_formulae_page,
     render_generations_page,
     render_guided_workflow_page,
@@ -36,11 +35,11 @@ from petrolab.ui.pages import (
     render_sources_page,
     render_statistics_page,
     render_ternary_page,
+    render_thermobarometry_page,
     render_updates_page,
 )
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import route_fresh_import_to_workflow
-
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
@@ -48,7 +47,6 @@ settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
 st.session_state.setdefault("loaded_recipe", None)
 st.session_state.setdefault("loaded_ternary_recipe", None)
-
 
 def _reconcile_plot_recipe_state() -> None:
     recipe = st.session_state.get("loaded_recipe")
@@ -80,7 +78,6 @@ def _reconcile_plot_recipe_state() -> None:
     st.session_state.plot_interactive_excluded_ids = list(cfg.get("interactive_excluded_ids", []))
     st.session_state[token_key] = token
 
-
 _reconcile_plot_recipe_state()
 route_fresh_import_to_workflow()
 
@@ -97,6 +94,9 @@ ROUTES = {
     "formulae": render_formulae_page,
     "plots": render_plots_page,
     "ternary": render_ternary_page,
+    "thermobarometry": render_thermobarometry_page,
+    "equilibrium": render_equilibrium_page,
+    "distribution": render_distribution_page,
     "science_plots": render_science_plots_page,
     "statistics": render_statistics_page,
     "generations": render_generations_page,

@@ -1,0 +1,203 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:42:15.445Z.
+>>>>>>>>>>
+tab delimited	kds
+contribution_id	rock_types	minerals	element	kd	kd_sigma	kd_low	kd_high	kd_definition	kd_types
+17	Carbonatite	Low Calcium Pyroxene	Nb	0.01				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Sr	0.04				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Nb	0.06				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Ba	0.006				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Y	0.19				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Zr	0.23				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Rb	0.28				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Ba	0.01				Solid-Melt	Experimental
+17	Carbonatite	Amphibole	Ta	0.13				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Rb	0.004				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Zr	0.29				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Sr	0.03				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Y	0.22				Solid-Melt	Experimental
+17	Carbonatite	Low Calcium Pyroxene	Ta	0.03				Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Na			0.41	0.83	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Ti			2	6.1	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Rb			0.22	0.58	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Y			0.15	0.348	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Zr			0.27	1.18	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Zr			0.14	0.81	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Nd	0.13				Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Eu			0.17	0.35	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Lu	0.16				Solid-Melt	Experimental
+99	Carbonatite	Garnet	K			0.04	0.15	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Ti			0.81	2.02	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Cs			0.033	0.27	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Nb			0.07	0.13	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	La			0.08	0.09	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Sm			0.16	0.28	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Ce			0.11	0.12	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Ba			0.068	0.14	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Pr			0.097	0.19	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Ti			0.5	1.7	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Ta			0.3	0.86	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Y			2.06	3.06	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Lu			17.7	30	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Rb			0.004	0.021	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Ta			0.07	0.095	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Ce			0.04	0.097	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Na			0.012	0.016	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Zr			1.6	3.98	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Sr			0.0017	0.019	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Ba			0.02	0.027	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Nb			0.012	0.023	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	V			1.68	2.93	Solid-Melt	Experimental
+99	Carbonatite	Garnet	Ce			0.017	0.03	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Sr			0.08	0.11	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Y			0.22	0.37	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Ho			0.35	0.48	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	K			1.2	2.3	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Sr			0.062	0.194	Solid-Melt	Experimental
+99	Carbonatite	Amphibole	Nb			0.11	0.33	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Tb			0.26	0.32	Solid-Melt	Experimental
+100	Carbonatite	Clinopyroxene	Hf			0.15	0.16	Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Ce	0.03				Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Mo	0.009				Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Pb	0.0055				Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Th	0.0093				Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Fe	0.21	0.05			Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Zn	0.18	0.08			Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Si	1.37	0.04			Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Mn	0.88	0.7			Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Mg	0.38	0.02			Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Nb	0.0059				Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	Ba	0.00057				Solid-Melt	Experimental
+175	Carbonatite	Clinopyroxene	U	0.0048				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	B	0.018				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Si	0.019				Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Ca	1.01	0.02			Solid-Melt	Experimental
+191	Carbonatite	Apatite	Be			0.001	0.028	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Ce			0.49	1.1	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Sr			0.652	2.4	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Gd			0.39	0.41	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Nb			0.004	0.006	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Th			0.12	0.2	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Lu			7.7	13	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Ta			7.7	9	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Pb	1.2				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Li			0.027	0.084	Solid-Melt	Experimental
+191	Carbonatite	Apatite	B			0.014	0.03	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Rb	0.011				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Y			0.37	0.42	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Sr	0.013				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Zr			0.008	0.011	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Y	6.4				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	La			0.09		Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Zr	198				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Pr			0.59	0.5	Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Cd	0.76	0.1			Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Be	0.008				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Cs			0.0003	0.009	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Sm			0.4	0.44	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Lu			0.25	0.7	Solid-Melt	Experimental
+187	Carbonatite	Wollastonite	Cr	0.05	0.03			Solid-Melt	Experimental
+191	Carbonatite	Apatite	La			0.31	0.37	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Li	0.009				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Ta			0.006	0.008	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Pb			0.15	0.21	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Gd			2.1	3.9	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	K	0.11				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Hf	140				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Y	4.3				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	U	37				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Cs	0.013				Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Ce			0.39	0.4	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Th			7	9	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Ba			0.025	0.051	Solid-Melt	Experimental
+191	Carbonatite	Apatite	Hf			0.004	0.02	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Ti			0.8	1.4	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Nb			1.6	1.8	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Ba	0.01				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Pr			0.6	1.5	Solid-Melt	Experimental
+191	Carbonatite	Apatite	U			0.001	0.08	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	Sm			1.5	2.5	Solid-Melt	Experimental
+195	Carbonatite	Baddeleyite	P	0.05				Solid-Melt	Experimental
+191	Carbonatite	Apatite	Rb			0.004	0.001	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Zr			0.0006	0.0031	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Si			0.986	10.6	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Mg			1.29	1.56	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Sr			0.07	0.206	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Ga	0.7				Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	K			0.0039	0.106	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Ba			0.0002	0.0063	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Yb			0.176	1.3	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Si			8.6	8.93	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Al			0.24	0.24	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Ca			0.0109	0.0112	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Li			0.126	0.127	Solid-Melt	Experimental
+236	Carbonatite	Apatite	Nd	4.8				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Tb	3.49				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Er	2.92				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Mg	0.05				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Ca	1				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Si	0.13				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Y			0.178	1.1	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Fe	4.87				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Zr			0.024	1.4	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Sr	0.442				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	La			0.041	0.066	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Gd	0.18				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Nd			0.116	0.39	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Tm	0.17				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Sm			0.14	0.43	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Yb	0.23				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Pb			0.17	1.6	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Lu	0.22				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Olivine	Ti			0.024	0.026	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Yb			0.03	0.05	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Pb			0.41	0.69	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Al			0.1	19	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Na			0.058	0.34	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Li			0.043	0.2	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Ti			0.182	0.88	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Ga			0.18	20	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Rb			0.0004	0.009	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Y	0.0057				Solid-Melt	Experimental
+234	Carbonatite	Olivine	Sm	0.0004				Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Cs			0.001	0.0053	Solid-Melt	Experimental
+234	Carbonatite	Olivine	Mg			4.04	4.1	Solid-Melt	Experimental
+236	Carbonatite	Apatite	Tm	3.08				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Pb	1.2				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Th	2.87				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Y	0.12				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	La	0.22				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Ce	0.23				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Tb	0.16				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Sr	0.82				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Ce	4.6				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Si	225				Solid-Calcite	Phenocryst-Matrix
+234	Carbonatite	Clinopyroxene	Ca			0.575	1.24	Solid-Melt	Experimental
+234	Carbonatite	Clinopyroxene	Nb			0.0037	0.02	Solid-Melt	Experimental
+236	Carbonatite	Dolomite	Nd	0.21				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Eu	0.18				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Dy	0.21				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Yb	2.88				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Er	0.16				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Lu	1.87				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Na	0.2				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Mg	10.5				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Ba	0.03				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Mn	0.12				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Ba	0.02				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Y	2.43				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Eu	3.93				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Pr	4.49				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Gd	2.96				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Ho	2.84				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Dy	2.57				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Mn	1.21				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Pr	0.22				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Ho	0.18				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Th	0.26				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Na	1.87				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	Fe	0.06				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Apatite	La	4.16				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Ca	0.54				Solid-Calcite	Phenocryst-Matrix
+236	Carbonatite	Dolomite	Pb	0.09				Solid-Calcite	Phenocryst-Matrix

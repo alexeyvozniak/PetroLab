@@ -5,8 +5,9 @@ import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
-from petrolab.derived import formula_status, save_formula_results
+from petrolab.derived import formula_status, save_formula_results, save_point_formula_results
 from petrolab.formula_workflow import recommended_method
+from petrolab.mineral_assignments import attach_mineral_assignments
 from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
 from petrolab.minerals.formulae import methods_for
 from petrolab.services.formula_service import calculate_formula_safe
@@ -92,13 +93,41 @@ def render_formulae_page() -> None:
     dataset_index = dataset_labels.index(requested_label) if requested_label in dataset_labels else 0
     chosen = mapping[st.selectbox("Набор данных", dataset_labels, index=dataset_index, key="formula_dataset")]
     dataset_id = int(chosen["id"])
-    methods = methods_for(chosen["mineral_key"])
+    raw_source = load_dataset_dataframe(dataset_id, include_meta=True)
+    if raw_source.empty:
+        st.info("В наборе нет аналитических строк.")
+        return
+    assigned_source = attach_mineral_assignments(
+        raw_source, default_mineral_key=str(chosen["mineral_key"])
+    )
+    mineral_choices = sorted(
+        value for value in assigned_source["Минерал"].dropna().astype(str).unique() if value
+    )
+    target_mineral = st.selectbox(
+        "Минерал для пересчёта",
+        mineral_choices,
+        index=mineral_choices.index(str(chosen["mineral_key"])) if str(chosen["mineral_key"]) in mineral_choices else 0,
+        help="После переотнесения точка рассчитывается по новому минералу. Исходная химия и прежний расчёт сохраняются.",
+    )
+    source = assigned_source.loc[
+        assigned_source["Минерал"].astype(str).eq(target_mineral)
+    ].copy()
+    point_specific = len(source) != len(raw_source) or target_mineral != str(chosen["mineral_key"])
+    if point_specific:
+        st.info(
+            f"Выбрано {len(source)} из {len(raw_source)} точек. APFU сохранится только для этой "
+            "минералогической группы; остальные строки набора не будут переопределены."
+        )
+    methods = methods_for(target_mineral)
     if not methods:
-        st.warning("Для этого минерала пока нет валидированного минералоспецифического пересчёта.")
+        st.warning(
+            "Для этого минералогического модуля пока нет валидированного минералоспецифического пересчёта. "
+            "Химия, назначение и QC остаются в базе; формулу не подставляем по аналогии."
+        )
         return
 
     method_map = {method.id: method for method in methods}
-    suggested = recommended_method(chosen["mineral_key"])
+    suggested = recommended_method(target_mineral)
     requested_method = st.session_state.pop("workflow_formula_method_id", None)
     default_method = requested_method if requested_method in method_map else (suggested.id if suggested else methods[0].id)
     method_id = st.selectbox(
@@ -118,12 +147,8 @@ def render_formulae_page() -> None:
         for reference in method.references:
             st.caption("• " + reference)
 
-    source = load_dataset_dataframe(dataset_id, include_meta=True)
-    if source.empty:
-        st.info("В наборе нет аналитических строк.")
-        return
     try:
-        result = calculate_formula_safe(source, chosen["mineral_key"], method.id)
+        result = calculate_formula_safe(source, target_mineral, method.id)
     except Exception as exc:
         st.error(f"Пересчёт остановлен: {exc}")
         return
@@ -165,9 +190,10 @@ def render_formulae_page() -> None:
 
     st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
     if st.button("Сохранить расчёт в рабочую базу", type="primary", key="save_formula_results", width="stretch"):
-        saved = save_formula_results(
+        saver = save_point_formula_results if point_specific else save_formula_results
+        saved = saver(
             dataset_id=dataset_id,
-            mineral_key=chosen["mineral_key"],
+            mineral_key=target_mineral,
             method_id=method.id,
             method_title=method.title_ru,
             source_dataframe=source,
