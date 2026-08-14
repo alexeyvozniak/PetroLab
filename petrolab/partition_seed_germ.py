@@ -14,14 +14,16 @@ _DATA_DIR = Path(__file__).parent / "data"
 GERM_SELECTIONS = {
     "Basanite": _DATA_DIR / "germ_kdd_basanite_2026-08-14.txt",
     "Phonolite": _DATA_DIR / "germ_kdd_phonolite_2026-08-14.txt",
+    "Carbonatite": _DATA_DIR / "germ_kdd_carbonatite_2026-08-14.txt",
 }
 GERM_BASANITE_NOTE = (
     "Официальная выборка GERM KdD: 323 строки из 4 вкладов для Basanite, "
     "скачана 2026-08-14. Исходные Kd, σ и интервалы сохранены без усреднения."
 )
 GERM_ALKALINE_NOTE = (
-    "Встроенная GERM-библиотека: Basanite (323 строки, 4 вклада) и "
-    "Phonolite (24 строки, 2 вклада), скачана 2026-08-14. "
+    "Встроенная GERM-библиотека: Basanite (323 строки, 4 вклада), "
+    "Phonolite (24 строки, 2 вклада) и Carbonatite (197 строк, 9 вкладов), "
+    "скачана 2026-08-14. "
     "Исходные Kd, σ и интервалы сохранены без усреднения."
 )
 GERM_BASANITE_FILE = GERM_SELECTIONS["Basanite"]
