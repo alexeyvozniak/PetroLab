@@ -1,0 +1,52 @@
+name: Alkaline recognition non-regression
+
+on:
+  push:
+    branches: ["feature/mineral-recognition-alkaline-extension"]
+  workflow_dispatch:
+
+jobs:
+  georoc-nonregression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check requests
+
+      - name: Build deterministic MIST-GEOROC holdout
+        run: |
+          python scripts/build_mist_georoc_validation.py \
+            --output validation/mineral_recognition/georoc_holdout.csv \
+            --per-family 400 \
+            --seed 20260814
+
+      - name: Compare base and alkaline-extended recognizers
+        run: |
+          python scripts/validate_alkaline_nonregression.py \
+            validation/mineral_recognition/georoc_holdout.csv \
+            --output-dir validation/mineral_recognition/alkaline_nonregression \
+            --minimum-rows 3000
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alkaline-recognition-nonregression
+          path: |
+            validation/mineral_recognition/georoc_holdout.manifest.json
+            validation/mineral_recognition/alkaline_nonregression
+          if-no-files-found: warn
