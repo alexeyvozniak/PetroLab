@@ -102,9 +102,6 @@ def oxygen_normalized_apfu(
     """
     allowed = set(allowed_oxides) if allowed_oxides else set(OXIDES)
 
-    # A duplicated scientific input such as FeO + FeO__2 is ambiguous. The import
-    # layer deliberately keeps both columns instead of merging them, and the formula
-    # engine must not silently choose the first one.
     formula_inputs = set(allowed) | set(HALOGENS)
     if "FeO" in allowed:
         formula_inputs.add("FeOt")
@@ -123,9 +120,6 @@ def oxygen_normalized_apfu(
             + ". Сначала выберите правильный исходный столбец."
         )
 
-    # Fe2O3t is total Fe expressed as Fe2O3, not measured ferric iron. Ignoring it
-    # would silently calculate an iron-poor formula; converting it requires an explicit
-    # reporting-basis conversion and, where needed, a Fe2+/Fe3+ allocation method.
     if "Fe2O3t" in df.columns:
         total_fe2o3 = pd.to_numeric(df["Fe2O3t"], errors="coerce")
         if total_fe2o3.notna().any():
@@ -138,9 +132,6 @@ def oxygen_normalized_apfu(
     cats: dict[str, pd.Series] = {}
     oxygen_moles = pd.Series(0.0, index=df.index, dtype=float)
 
-    # FeO and FeOt can coexist as columns in historical merged datasets while being
-    # mutually exclusive row by row. Preserve NaN so the correct source can be chosen
-    # for every analysis instead of selecting one column globally.
     feo_raw = (
         pd.to_numeric(df["FeO"], errors="coerce")
         if "FeO" in df.columns
@@ -165,9 +156,6 @@ def oxygen_normalized_apfu(
             f"(строки данных: {rows}). Нельзя выбрать источник Fe автоматически."
         )
 
-    # FeOt is total Fe expressed as FeO. If a row also contains a separately supplied
-    # Fe2O3 value but no FeO, deriving Fe2+/Fe3+ would require an explicit method; do
-    # not double-count or infer it implicitly. Zero is still an explicit supplied value.
     ambiguous_total_fe = feot_raw.notna() & feo_raw.isna() & fe3_raw.notna()
     if ambiguous_total_fe.any():
         rows = ", ".join(str(int(i) + 1) for i in df.index[ambiguous_total_fe][:10])
@@ -224,10 +212,14 @@ def _droop_split(apfu: pd.DataFrame, oxygen_basis: float, ideal_cations: float) 
     """
     work = apfu.copy()
     measured_fe3 = work.get("Fe3", pd.Series(0.0, index=work.index)).copy()
+    if measured_fe3.fillna(0.0).gt(1e-12).any():
+        raise ValueError(
+            "Метод Droop нельзя применять, если Fe3+ уже задан отдельно через Fe2O3. "
+            "Выберите метод без стехиометрической оценки Fe3+."
+        )
     measured_fe2 = work.get("Fe2", pd.Series(0.0, index=work.index)).copy()
-    total_fe = measured_fe2 + measured_fe3
+    total_fe = measured_fe2
 
-    # For the stoichiometric estimate, treat all measured Fe as Fe2 first.
     work["Fe2"] = total_fe
     work["Fe3"] = 0.0
     cation_cols = [c for c in work.columns if c not in HALOGENS]
@@ -242,8 +234,6 @@ def _droop_split(apfu: pd.DataFrame, oxygen_basis: float, ideal_cations: float) 
         work[c] = work[c] * scale
 
     total_fe_scaled = total_fe * scale
-    # Droop's F = 2X(1-T/S) is the final Fe3+ apfu after the T/S
-    # cation renormalisation; do not multiply F by T/S a second time.
     F_final = pd.concat([F, total_fe_scaled], axis=1).min(axis=1).clip(lower=0.0)
     work["Fe3"] = F_final
     work["Fe2"] = (total_fe_scaled - F_final).clip(lower=0.0)
@@ -355,8 +345,6 @@ def calc_mica(df: pd.DataFrame, method_id: str) -> CalculationResult:
 
 def calc_amphibole(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out = df.copy()
-    # Routine IMA-style 23 oxygen-equivalent recast. Species naming is deliberately
-    # not attempted when Fe3+/Fe2+ and OH/O2- are unknown.
     apfu, _, _ = oxygen_normalized_apfu(df, 23.0)
     out = _attach(out, apfu)
     out["Mg#_formula"] = _mg_number(apfu)
@@ -397,18 +385,28 @@ def calc_apatite(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out = df.copy()
     apfu, _, _ = oxygen_normalized_apfu(df, 25.0)
     out = _attach(out, apfu)
-    f = apfu.get("F", 0.0); cl = apfu.get("Cl", 0.0)
-    out["apfu_OH_est"] = 2.0 - f - cl
-    out["QC_Z_site"] = np.where(out["apfu_OH_est"] < 0, "проверить F/Cl и условия EPMA", "норма")
-    return CalculationResult(out, "Схема Ketcham (2015): 25 O-экв.; OH оценивается по заполнению Z-позиции, если редокс-форма S отдельно не задана.")
+    has_f = "F" in df.columns
+    has_cl = "Cl" in df.columns
+    if has_f and has_cl:
+        f = apfu.get("F", pd.Series(0.0, index=df.index))
+        cl = apfu.get("Cl", pd.Series(0.0, index=df.index))
+        out["apfu_OH_est"] = 2.0 - f - cl
+        out["QC_Z_site"] = np.where(out["apfu_OH_est"] < 0, "проверить F/Cl и условия EPMA", "норма")
+        out["OH_est_basis"] = "F и Cl измерены"
+    else:
+        out["apfu_OH_est"] = np.nan
+        out["QC_Z_site"] = "F/Cl измерены не полностью; X-анион не определён"
+        out["OH_est_basis"] = "F/Cl измерены не полностью"
+    return CalculationResult(
+        out,
+        "Схема Ketcham (2015): 25 O-экв.; OH оценивается по заполнению Z-позиции только при явно заданных F и Cl."
+    )
 
 
 def calc_perovskite(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out = df.copy()
     apfu, _, _ = oxygen_normalized_apfu(df, 3.0)
     out = _attach(out, apfu)
-    # Practical site sums for crustal titanate perovskites. Full IMA end-member
-    # decomposition requires explicit valence/speciation for some minor elements.
     A = sum((apfu.get(c, 0.0) for c in ("Ca", "Na", "Sr", "Ba", "La", "Ce", "Nd")), start=0.0)
     B = sum((apfu.get(c, 0.0) for c in ("Ti", "Nb", "Fe3", "Al", "Cr", "Zr")), start=0.0)
     out["A_site_sum_proxy"] = A
@@ -437,12 +435,9 @@ def calc_nepheline(df: pd.DataFrame, method_id: str) -> CalculationResult:
     delta_al_cc = a_trivalent - cavity_charge
     t_charge = 4.0 * (si + ti) + 3.0 * a_trivalent
     mean_t_charge = t_charge / t_sum.replace(0, np.nan)
-    # Henderson (2020) states explicitly that T > 16 corresponds to negative
-    # ΔT_charge and T < 16 to positive ΔT_charge. This form follows that sign convention.
     delta_t_charge = mean_t_charge * (16.0 - t_sum)
     ratio = delta_al_cc / delta_t_charge.replace(0, np.nan)
 
-    # Henderson (2020), Table 2: end members on the 32-O / 24-site basis.
     ne = 3.0 * na * 100.0 / 24.0
     ks = 3.0 * k * 100.0 / 24.0
     cane = 6.0 * ca * 100.0 / 24.0
@@ -464,8 +459,6 @@ def calc_nepheline(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out["KsM_mol%"] = ksm
 
     qc_t = t_sum.between(15.9, 16.1)
-    # Henderson initially adopts ±0.25 and ratio 1.0–1.2; we use those strict
-    # criteria rather than silently relaxing them.
     qc_delta = delta_al_cc.abs().le(0.25) & delta_t_charge.abs().le(0.25)
     near_zero = delta_al_cc.abs().lt(0.02) & delta_t_charge.abs().lt(0.02)
     qc_ratio = ratio.abs().between(1.0, 1.2) | near_zero
@@ -478,13 +471,34 @@ def calc_nepheline(df: pd.DataFrame, method_id: str) -> CalculationResult:
 
 def calc_carbonate(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out = df.copy()
-    # Carbon is normally not measured by EPMA. Normalize divalent/trivalent metal
-    # cations directly, which is the most transparent routine approach.
-    cats = {}
+    cats: dict[str, pd.Series] = {}
+    feo_raw = (
+        pd.to_numeric(df["FeO"], errors="coerce")
+        if "FeO" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    feot_raw = (
+        pd.to_numeric(df["FeOt"], errors="coerce")
+        if "FeOt" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    both_fe = feo_raw.notna() & feot_raw.notna()
+    if both_fe.any():
+        raise ValueError("Для карбоната нельзя одновременно использовать FeO и FeOt в одной строке.")
+
     for oxide, spec in OXIDES.items():
-        if oxide not in df.columns or spec.cation in {"Si", "Ti", "Al", "P", "S6"}:
+        if spec.cation in {"Si", "Ti", "Al", "P", "S6"}:
             continue
-        cats[spec.cation] = _num(df, oxide) / spec.molar_mass * spec.n_cation
+        if oxide == "FeO":
+            if "FeO" not in df.columns and "FeOt" not in df.columns:
+                continue
+            values = feo_raw.combine_first(feot_raw).fillna(0.0)
+        else:
+            if oxide not in df.columns:
+                continue
+            values = _num(df, oxide)
+        cats[spec.cation] = values / spec.molar_mass * spec.n_cation
+
     if not cats:
         return CalculationResult(out, "Не найдены катионные оксиды для пересчёта карбоната.")
     raw = pd.DataFrame(cats, index=df.index)
@@ -493,7 +507,7 @@ def calc_carbonate(df: pd.DataFrame, method_id: str) -> CalculationResult:
     factor = target / total.replace(0, np.nan)
     apfu = raw.mul(factor, axis=0)
     out = _attach(out, apfu)
-    for c in ("Ca", "Mg", "Fe2", "Mn", "Sr", "Ba"):
+    for c in ("Ca", "Mg", "Fe2", "Fe3", "Mn", "Sr", "Ba"):
         if c in apfu:
             out[f"X_{c}"] = apfu[c] / target
     return CalculationResult(out, f"Нормировка на {target:g} катион(а); CO2 обычно не измеряется EPMA и в сумму не включён.")
@@ -501,8 +515,6 @@ def calc_carbonate(df: pd.DataFrame, method_id: str) -> CalculationResult:
 
 def calc_titanite(df: pd.DataFrame, method_id: str) -> CalculationResult:
     out = df.copy()
-    # First obtain a 5-O composition, then rescale so tetrahedral + octahedral
-    # cations sum to 2, as in the MinPlot titanite routine.
     apfu, _, _ = oxygen_normalized_apfu(df, 5.0)
     site_cats = [c for c in ("Si", "Al", "Ti", "Fe3", "Mg", "Mn", "Cr") if c in apfu]
     s = apfu[site_cats].sum(axis=1) if site_cats else pd.Series(np.nan, index=df.index)
@@ -575,7 +587,7 @@ METHODS_BY_MINERAL: dict[str, tuple[FormulaMethod, ...]] = {
         FormulaMethod("ilm_3o_fe2", "3 O, весь Fe как Fe²⁺", "3 O", "Упрощённый режим.", ("Gündüz & Asan, 2023, Mineralogical Magazine 87, 1–9, doi:10.1180/mgm.2022.113",)),
     ),
     "apatite": (
-        FormulaMethod("ap_ketcham25", "Ketcham: 25 O-экв.", "25 O-экв.", "F и Cl учитываются отдельно; при неизвестной S-специации OH — оценка.", ("Ketcham, 2015, American Mineralogist 100, 1620–1623, doi:10.2138/am-2015-5171", "Walters, 2022"), ("Reconstructing volatile evolution in melts using apatite, American Mineralogist 110 (2025), 1361ff. — формулы по Ketcham (2015)",)),
+        FormulaMethod("ap_ketcham25", "Ketcham: 25 O-экв.", "25 O-экв.", "F и Cl учитываются отдельно; при неизвестной S-специации OH — оценка только при наличии обоих галогенов.", ("Ketcham, 2015, American Mineralogist 100, 1620–1623, doi:10.2138/am-2015-5171", "Walters, 2022"), ("Reconstructing volatile evolution in melts using apatite, American Mineralogist 110 (2025), 1361ff. — формулы по Ketcham (2015)",)),
     ),
     "perovskite": (
         FormulaMethod("pv_3o", "Перовскит: 3 O, IMA-supergroup", "3 O", "Для полного эндмемберного разложения нужны валентности ряда минорных компонентов.", ("Mitchell, Welch & Chakhmouradian, 2017, Mineralogical Magazine 81, 411–461", "Locock & Mitchell, 2018, Computers & Geosciences 113, 106–114, doi:10.1016/j.cageo.2018.01.012"), ("Lyalina et al., 2025, Zapiski RMO 154(2), 14–51, doi:10.31857/S0869605525020029 — перовскитовая группа Ловозера; используется схема Mitchell/Locock",)),
@@ -592,8 +604,8 @@ METHODS_BY_MINERAL: dict[str, tuple[FormulaMethod, ...]] = {
         ),
     ),
     "carbonate": (
-        FormulaMethod("carb_1cat", "Кальцитовая группа: 1 катион", "Σ катионов = 1", "Для CaCO3–MgCO3–FeCO3–MnCO3 состава; C обычно не измеряется EPMA.", ("Рутинная стехиометрическая нормировка карбонатов",)),
-        FormulaMethod("carb_2cat", "Доломитовая группа: 2 катиона", "Σ октаэдрических катионов = 2", "Для CaMg(CO3)2 и родственных составов.", ("Adami et al., 2025, European Journal of Mineralogy 37, 517–532",)),
+        FormulaMethod("carb_1cat", "Кальцитовая группа: 1 катион", "Σ катионов = 1", "Для CaCO3–MgCO3–FeCO3–MnCO3 состава; FeOt учитывается как FeO-equivalent total Fe при отсутствии FeO.", ("Рутинная стехиометрическая нормировка карбонатов",)),
+        FormulaMethod("carb_2cat", "Доломитовая группа: 2 катиона", "Σ октаэдрических катионов = 2", "Для CaMg(CO3)2 и родственных составов; FeOt учитывается как FeO-equivalent total Fe при отсутствии FeO.", ("Adami et al., 2025, European Journal of Mineralogy 37, 517–532",)),
     ),
     "titanite": (
         FormulaMethod("ttn_minplot", "Титанит: Σ(T+M)=2", "T + октаэдрические катионы = 2", "OH оценивается как (AlVI + Fe³⁺) – F; без Fe³⁺ измерение ограничивает точность.", ("Walters, 2022, Mineralogia 53, 51–66",)),

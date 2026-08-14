@@ -372,6 +372,21 @@ def _classify_olivine(dataframe: pd.DataFrame) -> pd.DataFrame:
 def _classify_apatite(dataframe: pd.DataFrame) -> pd.DataFrame:
     result = _empty_decisions(dataframe)
     for index, row in result.iterrows():
+        if str(row.get("OH_est_basis", "")) != "F и Cl измерены":
+            _set_decision(
+                result,
+                index,
+                ClassificationDecision(
+                    field="Apatite X-anion field unresolved",
+                    level="insufficient X-anion data",
+                    method="Pasero et al. (2010) apatite-supergroup anion dominance",
+                    note=(
+                        "F and Cl must both be measured before OH can be inferred from site balance "
+                        "and X-anion dominance assessed. Missing halogens are not treated as zero."
+                    ),
+                ),
+            )
+            continue
         candidates = {
             "F": row.get("apfu_F", np.nan),
             "Cl": row.get("apfu_Cl", np.nan),
