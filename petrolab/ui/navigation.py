@@ -7,11 +7,23 @@ from petrolab.ui.project_context import active_project_id, set_active_project
 
 
 NAV_SECTIONS = {
-    "Данные": [("home", "Главная"), ("intake", "Добавить данные"), ("database", "Вся база"), ("sources", "Импорт"), ("analyses", "База анализов"), ("formulae", "Расчёты")],
-    "Исследование": [("plots", "XY-диаграммы"), ("ternary", "Треугольные"), ("science_plots", "Научные диаграммы"), ("statistics", "Статистика")],
+    "Данные": [
+        ("home", "Главная"), ("intake", "Добавить данные"), ("sessions", "Сессии"),
+        ("mixed_minerals", "Разбор фаз"), ("database", "Вся база"), ("sources", "Импорт"),
+        ("analyses", "База анализов"), ("formulae", "Расчёты"),
+    ],
+    "Исследование": [
+        ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
+        ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
+        ("generations", "Поколения"),
+    ],
     "Материалы": [("rocks", "Породы"), ("images", "Изображения"), ("minerals", "Минералогические модули")],
     "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
-    "Система": [("projects", "Проекты"), ("settings", "Настройки"), ("help", "Справка"), ("updates", "Что нового"), ("change_log", "История правок данных")],
+    "Система": [
+        ("projects", "Проекты"), ("collaboration", "Совместная работа"),
+        ("settings", "Настройки"), ("help", "Справка"), ("updates", "Что нового"),
+        ("change_log", "История правок данных"),
+    ],
 }
 ROUTE_LABELS = {route: label for entries in NAV_SECTIONS.values() for route, label in entries}
 
