@@ -47,10 +47,10 @@ def _render_entry_cards() -> None:
                 st.rerun()
     with c3:
         with st.container(border=True):
-            st.markdown("### Полевые образцы")
-            st.caption("Создайте Sample заранее, даже если аналитики пока нет.")
-            if st.button("Открыть базу образцов", key="intake_samples", width="stretch"):
-                _go("database")
+            st.markdown("### Образцы и точки")
+            st.caption("Шлифы, зёрна, точки, кратеры и навески — с отдельными значениями каждого метода.")
+            if st.button("Открыть реестр", key="intake_measurements", width="stretch"):
+                _go("measurements")
 
 
 def _render_external_source(project_id: int) -> None:

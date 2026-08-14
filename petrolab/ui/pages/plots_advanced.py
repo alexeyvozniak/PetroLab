@@ -10,7 +10,7 @@ import streamlit as st
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_column_filters, apply_quick_filter, dataset_label
 from petrolab.db import (
-    list_datasets,
+    list_accessible_datasets,
     list_plot_recipes,
     list_style_profiles,
     save_plot_recipe,
@@ -94,7 +94,7 @@ def _stale_recipe_guard(project_id: int, recipe: dict) -> bool:
             continue
     if not wanted:
         return False
-    available = {int(item["id"]) for item in list_datasets(project_id)}
+    available = {int(item["id"]) for item in list_accessible_datasets(project_id)}
     if any(dataset_id in available for dataset_id in wanted):
         return False
     st.warning(
@@ -409,7 +409,7 @@ def render_advanced_xy_workspace(project_id: int) -> None:
     if _stale_recipe_guard(project_id, recipe):
         return
 
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("В активном проекте нет данных для графика.")
         return

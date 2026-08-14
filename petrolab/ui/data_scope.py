@@ -7,7 +7,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets, list_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
 from petrolab.minerals.registry import MINERALS
@@ -48,7 +48,7 @@ def render_analysis_scope(
                 return None
             project_id = int(project["id"])
 
-    datasets = list_datasets(project_id)
+    datasets = list_datasets(None) if scope == "Все проекты" else list_accessible_datasets(int(project_id))
     if not datasets:
         st.info("В выбранной области пока нет наборов анализов.")
         return None

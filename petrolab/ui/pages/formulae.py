@@ -6,11 +6,13 @@ import streamlit as st
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_datasets, load_dataset_dataframe
 from petrolab.derived import formula_status, save_formula_results
+from petrolab.formula_workflow import recommended_method
 from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
 from petrolab.minerals.formulae import methods_for
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project_id
+from petrolab.ui.navigation import navigate
 
 
 def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
@@ -78,7 +80,17 @@ def render_formulae_page() -> None:
         return
 
     mapping = {dataset_label(dataset): dataset for dataset in datasets}
-    chosen = mapping[st.selectbox("Набор данных", list(mapping), key="formula_dataset")]
+    dataset_labels = list(mapping)
+    requested_dataset = st.session_state.pop("workflow_formula_dataset_id", None)
+    if requested_dataset is not None:
+        st.session_state.pop("formula_dataset", None)
+        st.session_state.pop("formula_method", None)
+    requested_label = next(
+        (label for label, dataset in mapping.items() if int(dataset["id"]) == int(requested_dataset)),
+        None,
+    ) if requested_dataset is not None else None
+    dataset_index = dataset_labels.index(requested_label) if requested_label in dataset_labels else 0
+    chosen = mapping[st.selectbox("Набор данных", dataset_labels, index=dataset_index, key="formula_dataset")]
     dataset_id = int(chosen["id"])
     methods = methods_for(chosen["mineral_key"])
     if not methods:
@@ -86,12 +98,17 @@ def render_formulae_page() -> None:
         return
 
     method_map = {method.id: method for method in methods}
+    suggested = recommended_method(chosen["mineral_key"])
+    requested_method = st.session_state.pop("workflow_formula_method_id", None)
+    default_method = requested_method if requested_method in method_map else (suggested.id if suggested else methods[0].id)
     method_id = st.selectbox(
-        "Метод", list(method_map),
+        "Метод", list(method_map), index=list(method_map).index(default_method),
         format_func=lambda value: method_map[value].title_ru,
         key="formula_method",
     )
     method = method_map[method_id]
+    if suggested and method_id == suggested.id:
+        st.caption("Выбран рекомендуемый стартовый метод. Он не применяется автоматически: допущения остаются на вашем контроле.")
     with st.expander("Метод, допущения и источники", expanded=False):
         st.write(f"**Нормировка:** {method.normalization_ru}")
         st.write(f"**Допущения:** {method.assumptions_ru}")
@@ -157,4 +174,8 @@ def render_formulae_page() -> None:
             result_dataframe=result.data,
         )
         st.success(f"Сохранено {len(saved.derived_columns)} полей для {saved.row_count} анализов.")
+        st.session_state["workflow_plot_dataset_ids"] = [dataset_id]
+        st.session_state["workflow_plot_notice"] = "Расчёт сохранён. Выберите оси и постройте график."
+        st.session_state.pop("quick_plot_datasets", None)
+        navigate("plots")
         st.rerun()

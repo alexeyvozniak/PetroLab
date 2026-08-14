@@ -24,6 +24,8 @@ DATASET_EXTRA_COLUMNS = {
     "sync_enabled": "INTEGER NOT NULL DEFAULT 0",
 }
 
+LIBRARY_PROJECT_NAME = "Общая библиотека"
+
 META_COLUMNS = {
     "_analysis_id", "_dataset_id", "_project_id", "_row_index", "_source_row",
     "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel",
@@ -54,6 +56,20 @@ def ensure_storage() -> None:
             )
             """
         )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_dataset_links (
+                project_id INTEGER NOT NULL,
+                dataset_id INTEGER NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                added_at TEXT NOT NULL,
+                PRIMARY KEY(project_id, dataset_id),
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            )
+            """
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS idx_project_dataset_links_dataset ON project_dataset_links(dataset_id)")
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS datasets (
@@ -197,6 +213,24 @@ def create_project(name: str, description: str = "") -> int:
         return int(cur.lastrowid)
 
 
+def get_or_create_library_project() -> int:
+    """Return a durable home for data that are useful beyond one article project."""
+    with connect() as con:
+        row = con.execute("SELECT id FROM projects WHERE name=?", (LIBRARY_PROJECT_NAME,)).fetchone()
+        if row:
+            return int(row["id"])
+        cur = con.execute(
+            "INSERT INTO projects(name, description, created_at) VALUES (?, ?, ?)",
+            (
+                LIBRARY_PROJECT_NAME,
+                "Долговременные данные, которые можно подключать к рабочим проектам без копирования.",
+                _utcnow(),
+            ),
+        )
+        con.commit()
+        return int(cur.lastrowid)
+
+
 def list_datasets(project_id: int | None = None) -> list[dict]:
     with connect() as con:
         if project_id is None:
@@ -217,6 +251,60 @@ def list_datasets(project_id: int | None = None) -> list[dict]:
                 (project_id,),
             ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_accessible_datasets(project_id: int) -> list[dict]:
+    """Datasets owned by a project plus deliberately linked library/other-project data.
+
+    A link is a view permission for plotting and comparison, never a duplicate dataset
+    and never a transfer of ownership.
+    """
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT d.*, p.name AS project_name, 0 AS linked_to_project
+            FROM datasets d JOIN projects p ON p.id=d.project_id
+            WHERE d.project_id=?
+            UNION ALL
+            SELECT d.*, p.name AS project_name, 1 AS linked_to_project
+            FROM project_dataset_links l
+            JOIN datasets d ON d.id=l.dataset_id
+            JOIN projects p ON p.id=d.project_id
+            WHERE l.project_id=? AND d.project_id<>?
+            ORDER BY imported_at DESC
+            """,
+            (int(project_id), int(project_id), int(project_id)),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def link_dataset_to_project(project_id: int, dataset_id: int, note: str = "") -> None:
+    """Expose an existing dataset in another project without copying or mutating it."""
+    with connect() as con:
+        dataset = con.execute("SELECT project_id FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
+        project = con.execute("SELECT id FROM projects WHERE id=?", (int(project_id),)).fetchone()
+        if dataset is None or project is None:
+            raise ValueError("Проект или набор данных не найден")
+        if int(dataset["project_id"]) == int(project_id):
+            return
+        con.execute(
+            """
+            INSERT INTO project_dataset_links(project_id, dataset_id, note, added_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(project_id, dataset_id) DO UPDATE SET note=excluded.note
+            """,
+            (int(project_id), int(dataset_id), str(note).strip(), _utcnow()),
+        )
+        con.commit()
+
+
+def unlink_dataset_from_project(project_id: int, dataset_id: int) -> None:
+    with connect() as con:
+        con.execute(
+            "DELETE FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(project_id), int(dataset_id)),
+        )
+        con.commit()
 
 
 def get_dataset(dataset_id: int) -> dict:

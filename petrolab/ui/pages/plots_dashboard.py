@@ -5,7 +5,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
@@ -24,11 +24,17 @@ from petrolab.visualization_presets import FIGURE_PRESETS
 
 
 def _quick_workspace(project_id: int) -> None:
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("В активном проекте нет данных для графика.")
         return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
+    requested_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
+    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_ids]
+    default_labels = requested_labels or list(labels)
+    notice = st.session_state.pop("workflow_plot_notice", "")
+    if notice:
+        st.success(notice)
     settings = load_settings()
     preset_name = str(settings.get("default_figure_preset", "Lithos"))
     preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS["Lithos"])
@@ -37,13 +43,31 @@ def _quick_workspace(project_id: int) -> None:
     with left:
         st.markdown("### Данные")
         selected_labels = st.multiselect(
-            "Наборы", list(labels), default=list(labels), key="quick_plot_datasets"
+            "Наборы", list(labels), default=default_labels, key="quick_plot_datasets"
         )
         selected_ids = [labels[label] for label in selected_labels]
         if not selected_ids:
             st.info("Выберите хотя бы один набор.")
             return
         dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        if "QC решение" in dataframe.columns:
+            excluded = dataframe["QC решение"].astype(str).str.casefold().eq("исключить")
+            if excluded.any():
+                dataframe = dataframe.loc[~excluded].copy()
+                st.caption(f"Скрыто по ручному решению QC: {int(excluded.sum())}.")
+        if "QC уровень" in dataframe.columns:
+            review_count = int(dataframe["QC уровень"].astype(str).eq("Требует проверки").sum())
+            blocked_count = int(dataframe["QC уровень"].astype(str).eq("Исключить по умолчанию").sum())
+            auto = dataframe.get("QC решение", pd.Series("Авто", index=dataframe.index)).astype(str).str.casefold().eq("авто")
+            auto_blocked = dataframe["QC уровень"].astype(str).eq("Исключить по умолчанию") & auto
+            if auto_blocked.any():
+                dataframe = dataframe.loc[~auto_blocked].copy()
+            if review_count or blocked_count:
+                st.warning(
+                    f"QC в текущем отборе: требуют проверки — {review_count}; "
+                    f"исключены по автоматическому правилу — {int(auto_blocked.sum())}. "
+                    "Поставьте «Включить» в QC решении, если точка должна попасть на график вопреки предупреждению."
+                )
         minerals = sorted(dataframe["Минерал"].dropna().astype(str).unique())
         selected_minerals = st.multiselect(
             "Минералы",

@@ -10,6 +10,7 @@ from petrolab.sample_registry import (
     link_rock_record_to_sample,
     list_samples,
 )
+from petrolab.db import link_dataset_to_project, list_accessible_datasets, list_datasets
 from petrolab.unified_catalog import mineral_inventory, sample_overview, unlinked_rock_samples, whole_rock_inventory
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
@@ -78,6 +79,32 @@ def _link_legacy_rocks(project_id: int) -> None:
         if st.button("Связать", key="db_browser_link_rock"):
             link_rock_record_to_sample(rock_map[rock_label], sample_map[sample_label])
             st.success("Связь сохранена.")
+
+
+def _link_library_datasets(project_id: int) -> None:
+    """Let an article project reuse a library/other-project dataset by reference."""
+    owned = {int(item["id"]) for item in list_datasets(project_id)}
+    accessible = {int(item["id"]) for item in list_accessible_datasets(project_id)}
+    candidates = [item for item in list_datasets() if int(item["id"]) not in owned]
+    if not candidates:
+        return
+    with st.expander("Подключить данные из общей базы", expanded=False):
+        st.caption(
+            "Набор остаётся в исходном проекте или «Общей библиотеке». Здесь создаётся только ссылка для отбора и графиков — без копирования химии."
+        )
+        labels = {
+            f"{item['project_name']} · {item['name']} · {int(item['row_count'])} строк": int(item["id"])
+            for item in candidates
+        }
+        selected = st.multiselect("Наборы для текущего проекта", list(labels), key="db_browser_library_links")
+        note = st.text_input("Зачем подключён набор · необязательно", key="db_browser_library_note")
+        if st.button("Подключить выбранные наборы", disabled=not selected, key="db_browser_link_library"):
+            for label in selected:
+                link_dataset_to_project(project_id, labels[label], note)
+            st.success(f"Подключено наборов: {len(selected)}. Они доступны в экране графиков.")
+            st.rerun()
+        if accessible - owned:
+            st.caption(f"Уже подключено внешних наборов: {len(accessible - owned)}.")
             st.rerun()
 
 
@@ -129,3 +156,4 @@ def render_database_browser_page() -> None:
         _batch_field_samples(project_id)
         _duplicate_guard(project_id)
         _link_legacy_rocks(project_id)
+        _link_library_datasets(project_id)

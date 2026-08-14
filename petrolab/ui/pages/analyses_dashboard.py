@@ -22,7 +22,7 @@ from petrolab.ui.editability import common_editable_source_columns
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
 
-_BASIC = ["Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
+_BASIC = ["Sample", "Grain", "Point", "Generation", "QC уровень", "QC решение", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
 _SAVE_FLASH_KEY = "analysis_save_flash"
 _DRAFT_EDITOR_KEY = "unified_editor_dashboard"
 
@@ -113,7 +113,7 @@ def render_analyses_dashboard_page() -> None:
         wanted = _view_columns(shown, derived, mode)
         internals = [column for column in shown.columns if str(column).startswith("_")]
         base_editor = shown[internals + [column for column in wanted if column not in internals]].copy()
-        editable = common_editable_source_columns(datasets, selected_ids)
+        editable = common_editable_source_columns(datasets, selected_ids) | {"QC решение"}
         protected = (set(shown.columns) - set(editable)) | PROTECTED_ANALYSIS_COLUMNS | set(derived) | META_COLUMNS
         disabled = [column for column in base_editor.columns if column in protected or str(column).startswith("_")]
 
@@ -197,6 +197,7 @@ def render_analyses_dashboard_page() -> None:
             for error in result.errors:
                 st.error(error)
         st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
+        st.caption("«QC уровень» и причины рассчитываются из данных и не скрывают анализы. В «QC решение» можно вручную оставить Авто, Включить или Исключить для графиков; это поле хранится только в PetroLab.")
     with point_tab:
         if len(shown) > 3000:
             st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск в toolbar, чтобы сузить выборку.")

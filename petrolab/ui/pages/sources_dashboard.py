@@ -7,9 +7,10 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.column_schema import CANONICAL_ROLES
-from petrolab.db import list_datasets
+from petrolab.db import get_or_create_library_project, list_datasets
 from petrolab.io_utils import sha256_file
 from petrolab.minerals.registry import MINERALS
+from petrolab.formula_workflow import recommended_method
 from petrolab.services.import_service import (
     ImportSchemaPreview,
     import_linked_sheets,
@@ -24,6 +25,7 @@ from petrolab.services.import_service import (
 )
 from petrolab.sources import source_status
 from petrolab.ui.layout import render_badges, render_hint, render_page_header
+from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 
 
@@ -43,6 +45,59 @@ FE_OPTIONS = {
         "Fe₂O₃ = всё Fe, выраженное как Fe₂O₃ total": "Fe2O3t",
     },
 }
+
+
+def _continue_after_import(dataset_ids: list[int], target_project_id: int) -> None:
+    """Persist the next-step prompt across Streamlit's import rerun."""
+    st.session_state["workflow_recent_dataset_ids"] = [int(value) for value in dataset_ids]
+    st.session_state["workflow_recent_import_target"] = int(target_project_id)
+    st.rerun()
+
+
+def _import_target(active_project_id: int, key: str) -> int:
+    target = st.segmented_control(
+        "Куда сохранить набор",
+        ["Текущий проект", "Общая библиотека"],
+        default="Текущий проект",
+        key=key,
+    )
+    if target == "Общая библиотека":
+        st.caption("Набор будет долгосрочно храниться в общей базе. Позже его можно подключить к любой статье без копирования.")
+        return get_or_create_library_project()
+    return int(active_project_id)
+
+
+def _render_import_continue(project_id: int) -> None:
+    dataset_ids = [int(value) for value in st.session_state.get("workflow_recent_dataset_ids", [])]
+    target_project_id = int(st.session_state.get("workflow_recent_import_target", project_id))
+    if dataset_ids and target_project_id != int(project_id):
+        st.success(f"Наборов сохранено в Общую библиотеку: {len(dataset_ids)}. Подключите их к проекту в «Вся база». ")
+        st.session_state.pop("workflow_recent_dataset_ids", None)
+        st.session_state.pop("workflow_recent_import_target", None)
+        return
+    datasets = {int(item["id"]): item for item in list_datasets(project_id)}
+    dataset_ids = [value for value in dataset_ids if value in datasets]
+    if not dataset_ids:
+        return
+    st.success(f"Импортировано наборов: {len(dataset_ids)}.")
+    st.caption("Следующий шаг можно сделать сейчас или вернуться к нему позже — исходные данные уже сохранены.")
+    if len(dataset_ids) == 1:
+        dataset = datasets[dataset_ids[0]]
+        if recommended_method(str(dataset["mineral_key"])):
+            if st.button("Проверить формулу и APFU", type="primary", key="import_to_formula", width="stretch"):
+                st.session_state["workflow_formula_dataset_id"] = int(dataset["id"])
+                st.session_state.pop("formula_dataset", None)
+                st.session_state.pop("formula_method", None)
+                suggested = recommended_method(str(dataset["mineral_key"]))
+                if suggested:
+                    st.session_state["workflow_formula_method_id"] = suggested.id
+                navigate("formulae")
+                st.rerun()
+    if st.button("Построить график", key="import_to_plot", width="stretch"):
+        st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in dataset_ids]
+        st.session_state.pop("quick_plot_datasets", None)
+        navigate("plots")
+        st.rerun()
 
 
 def _sheet_settings(
@@ -108,6 +163,32 @@ def _schema_mapping(
             if preview.measurement_notes:
                 for note in preview.measurement_notes:
                     st.caption("• " + note)
+            quality = st.columns(3)
+            quality[0].metric("Строк", preview.row_count)
+            quality[1].metric("Пустых ячеек", preview.empty_cells)
+            quality[2].metric("<DL / <LOD", preview.detection_limit_cells)
+            if preview.import_sections:
+                st.caption("В этом EDS-протоколе найдены самостоятельные таблицы; порядок оксидов прочитан отдельно для каждой.")
+                st.dataframe(
+                    pd.DataFrame(preview.import_sections, columns=["Блок", "Анализов"]),
+                    width="stretch", hide_index=True,
+                )
+            if preview.quality_counts:
+                st.caption("Автоматический QC сохраняет все строки. Отмеченные точки не удаляются и будут заметны при построении графика.")
+                st.dataframe(
+                    pd.DataFrame(preview.quality_counts, columns=["QC уровень", "Строк"]),
+                    width="stretch", hide_index=True,
+                )
+            chemical_rows = [
+                {"В файле": source, "Будет храниться как": target, "Единица": unit, "Тип": "оксид"}
+                for source, target, unit in preview.recognized_oxides
+            ] + [
+                {"В файле": source, "Будет храниться как": target, "Единица": unit, "Тип": "trace element"}
+                for source, target, unit in preview.recognized_traces
+            ]
+            if chemical_rows:
+                st.caption("Распознанная химия и единицы")
+                st.dataframe(pd.DataFrame(chemical_rows), width="stretch", hide_index=True, height=min(280, 42 + 35 * len(chemical_rows)))
             if preview.duplicate_canonical_columns:
                 st.error(
                     "Конфликтующие колонки после нормализации: "
@@ -184,6 +265,8 @@ def _render_linked_import(project_id: int) -> None:
         format_func=lambda key: MINERALS[key].name_ru, key="linked_mineral"
     )
     dataset_name = st.text_input("Название набора", value=source_path.stem, key="linked_dataset_name")
+    target_project_id = _import_target(project_id, "linked_import_target")
+    st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
     headers, minerals = _sheet_settings(selected, default_header, default_mineral, "linked")
     semantic, measurement, ready = _schema_mapping(
         selected,
@@ -207,13 +290,12 @@ def _render_linked_import(project_id: int) -> None:
     if st.button("Связать и импортировать", type="primary", key="link_local", disabled=not selected or not ready):
         try:
             result = import_linked_sheets(
-                project_id=project_id, path=source_path, sheet_names=selected,
+                project_id=target_project_id, path=source_path, sheet_names=selected,
                 mineral_key=default_mineral, dataset_name=dataset_name, header_row=default_header,
                 semantic_maps=semantic, measurement_maps=measurement,
                 header_rows=headers, mineral_keys=minerals,
             )
-            st.success(f"Импортировано наборов: {result.count}.")
-            st.rerun()
+            _continue_after_import(list(result.dataset_ids), target_project_id)
         except Exception as exc:
             st.error(f"Не удалось импортировать источник: {exc}")
 
@@ -238,6 +320,8 @@ def _render_uploaded_import(project_id: int) -> None:
         format_func=lambda key: MINERALS[key].name_ru, key="upload_mineral"
     )
     dataset_name = st.text_input("Название набора", value=Path(uploaded.name).stem, key="upload_dataset_name")
+    target_project_id = _import_target(project_id, "upload_import_target")
+    st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
     headers, minerals = _sheet_settings(selected, default_header, default_mineral, "upload")
     semantic, measurement, ready = _schema_mapping(
         selected,
@@ -259,13 +343,12 @@ def _render_uploaded_import(project_id: int) -> None:
     if st.button("Импортировать рабочую копию", type="primary", key="upload_import", disabled=not selected or not ready):
         try:
             result = import_uploaded_sheets(
-                project_id=project_id, file_bytes=data, filename=uploaded.name,
+                project_id=target_project_id, file_bytes=data, filename=uploaded.name,
                 sheet_names=selected, mineral_key=default_mineral, dataset_name=dataset_name,
                 header_row=default_header, semantic_maps=semantic, measurement_maps=measurement,
                 header_rows=headers, mineral_keys=minerals,
             )
-            st.success(f"Импортировано наборов: {result.count}.")
-            st.rerun()
+            _continue_after_import(list(result.dataset_ids), target_project_id)
         except Exception as exc:
             st.error(f"Не удалось импортировать рабочую копию: {exc}")
 
@@ -329,6 +412,7 @@ def render_sources_dashboard_page() -> None:
     if project is None:
         st.info("Сначала создайте проект.")
         return
+    _render_import_continue(int(project["id"]))
     render_badges([
         ("1 · Файл", "accent"), ("2 · Листы", "neutral"),
         ("3 · Сопоставление", "neutral"), ("4 · Проверка", "neutral"),
