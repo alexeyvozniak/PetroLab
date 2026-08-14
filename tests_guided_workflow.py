@@ -11,11 +11,14 @@ import pandas as pd
 
 import petrolab.db as db
 from petrolab.analytical_sessions import attach_datasets, create_session
+from petrolab.phase_linkage import linked_phase_suggestions
 from petrolab.phase_suggestions import materialize_confirmed_phases, mineral_key_for_phase
 from petrolab.repositories.image_repository import create_image_record, list_image_records
 from petrolab.sample_registry import create_sample
 from petrolab.services.image_relink_service import relink_image_asset
+from petrolab.slides import ensure_slide_schema
 from petrolab.storage import ensure_storage
+from petrolab.ui.pages.sources_dashboard import _import_mineral_keys, _import_mineral_label
 from petrolab.workflow_screening import OUTLIER_COLUMN, attach_chemical_outlier_screen
 
 
@@ -82,12 +85,34 @@ class Workspace:
         )
         return self
 
+    def add_shared_slide_marker(self, *analysis_ids: str) -> None:
+        ensure_slide_schema()
+        with db.connect() as con:
+            image_id = int(con.execute(
+                """INSERT INTO slide_images(project_id,title,original_filename,preview_path,pixel_width,pixel_height)
+                   VALUES (?, 'CI slide', 'ci.png', 'ci-preview.webp', 1000, 1000)""",
+                (self.project_id,),
+            ).lastrowid)
+            marker_id = int(con.execute(
+                "INSERT INTO slide_markers(project_id,slide_image_id,label,x_norm,y_norm) VALUES (?, ?, 'same spot', .5, .5)",
+                (self.project_id, image_id),
+            ).lastrowid)
+            con.executemany(
+                "INSERT INTO slide_marker_analysis_links(marker_id,analysis_id) VALUES (?, ?)",
+                [(marker_id, str(analysis_id)) for analysis_id in analysis_ids],
+            )
+            con.commit()
+
     def __exit__(self, exc_type, exc, tb):
         gc.collect()
         self.stack.close()
 
 
 class GuidedWorkflowTests(unittest.TestCase):
+    def test_import_starts_in_safe_mixed_mode(self):
+        self.assertEqual(_import_mineral_keys()[0], "generic")
+        self.assertIn("определить автоматически", _import_mineral_label("generic"))
+
     def test_outlier_screen_is_conservative_and_non_destructive(self):
         frame = pd.DataFrame([
             {"Suggested Mineral": "clinopyroxene", "SiO2": 51.0, "MgO": 15.0, "CaO": 21.0},
@@ -130,9 +155,14 @@ class GuidedWorkflowTests(unittest.TestCase):
                     int(row["session_id"])
                     for row in con.execute("SELECT session_id FROM analytical_session_datasets WHERE dataset_id=?", (child_id,)).fetchall()
                 }
+                phase_note = con.execute(
+                    """SELECT value FROM analysis_annotations
+                       WHERE analysis_id='a1' AND namespace='phase' AND key='confirmed_phase'"""
+                ).fetchone()
                 total = int(con.execute("SELECT COUNT(*) FROM analysis_rows").fetchone()[0])
             self.assertEqual(child["mineral_key"], "mica")
             self.assertIn("trioctahedral mica", child["name"])
+            self.assertEqual(str(phase_note["value"]), "trioctahedral mica")
             self.assertEqual(int(child["row_count"]), 1)
             self.assertIn("Неразобранные / mixed", source["name"])
             self.assertEqual(int(source["row_count"]), 1)
@@ -149,6 +179,13 @@ class GuidedWorkflowTests(unittest.TestCase):
             relinked = list_image_records(project_id=workspace.project_id)
             asset = next(item for item in relinked if int(item["id"]) == workspace.asset_id)
             self.assertEqual(asset["analysis_ids"], ["a1", "a2"])
+
+            # A trace-only row sharing an explicit physical marker can inherit the confirmed phase.
+            workspace.add_shared_slide_marker("a1", "a2")
+            linked = linked_phase_suggestions(workspace.project_id, ["a2"])
+            self.assertEqual(linked["a2"].phase_label, "trioctahedral mica")
+            self.assertFalse(linked["a2"].conflict)
+            self.assertEqual(linked["a2"].evidence_analysis_ids, ("a1",))
 
             # Resolve the last mixed point into the same phase on a later review pass.
             repeated = materialize_confirmed_phases(10, {"a2": "trioctahedral mica"})
