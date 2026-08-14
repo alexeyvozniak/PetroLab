@@ -14,6 +14,7 @@ from petrolab.db import add_dataset, create_project, ensure_storage, load_datase
 from petrolab.thermobarometry import (
     QC_INSUFFICIENT_INPUT,
     QC_PASS,
+    QC_WARNING,
     calculate_putirka_2008_cpx_only_t32d,
     list_runs,
     save_run,
@@ -32,6 +33,9 @@ ensure_storage()
 source = _cpx()
 calculated = calculate_putirka_2008_cpx_only_t32d(source, pressure_kbar=5.0, applicability_confirmed=True)
 assert calculated.loc[0, "Thermobarometry status"] == QC_PASS
+advisory = calculate_putirka_2008_cpx_only_t32d(source, pressure_kbar=5.0, applicability_confirmed=False)
+assert advisory.loc[0, "Thermobarometry status"] == QC_WARNING
+assert math.isfinite(float(advisory.loc[0, "T (°C)"]))
 assert abs(float(calculated.loc[0, "T (K)"]) - 1462.890265) < 1e-5
 assert abs(float(calculated.loc[0, "T (°C)"]) - 1189.740265) < 1e-5
 
