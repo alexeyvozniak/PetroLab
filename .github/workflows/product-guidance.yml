@@ -1,0 +1,94 @@
+name: Product guidance verification
+
+on:
+  push:
+    branches:
+      - main
+      - feature/product-guidance-polish
+    paths:
+      - "petrolab/operation_journal.py"
+      - "petrolab/phase_reassignment.py"
+      - "petrolab/project_health.py"
+      - "petrolab/smart_start.py"
+      - "petrolab/edit_undo.py"
+      - "petrolab/ui/batch_actions.py"
+      - "petrolab/ui/workflow_routing.py"
+      - "petrolab/ui/navigation.py"
+      - "petrolab/ui/pages/add_data.py"
+      - "petrolab/ui/pages/attention.py"
+      - "petrolab/ui/pages/batch_edit.py"
+      - "petrolab/ui/pages/change_log.py"
+      - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/__init__.py"
+      - "app.py"
+      - "tests_product_guidance.py"
+      - "tests_product_ui_viewports.py"
+      - ".github/workflows/product-guidance.yml"
+  pull_request:
+    paths:
+      - "petrolab/operation_journal.py"
+      - "petrolab/phase_reassignment.py"
+      - "petrolab/project_health.py"
+      - "petrolab/smart_start.py"
+      - "petrolab/edit_undo.py"
+      - "petrolab/ui/batch_actions.py"
+      - "petrolab/ui/workflow_routing.py"
+      - "petrolab/ui/navigation.py"
+      - "petrolab/ui/pages/add_data.py"
+      - "petrolab/ui/pages/attention.py"
+      - "petrolab/ui/pages/batch_edit.py"
+      - "petrolab/ui/pages/change_log.py"
+      - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/__init__.py"
+      - "app.py"
+      - "tests_product_guidance.py"
+      - "tests_product_ui_viewports.py"
+      - ".github/workflows/product-guidance.yml"
+
+jobs:
+  product-guidance-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PETROLAB_PRODUCT_VIEWPORT_ARTIFACTS: product_viewport_artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt selenium
+      - name: Compile product guidance sources
+        run: >-
+          python -m py_compile
+          app.py
+          petrolab/operation_journal.py
+          petrolab/phase_reassignment.py
+          petrolab/project_health.py
+          petrolab/smart_start.py
+          petrolab/edit_undo.py
+          petrolab/ui/batch_actions.py
+          petrolab/ui/workflow_routing.py
+          petrolab/ui/navigation.py
+          petrolab/ui/pages/add_data.py
+          petrolab/ui/pages/attention.py
+          petrolab/ui/pages/batch_edit.py
+          petrolab/ui/pages/change_log.py
+          petrolab/ui/pages/home_dashboard.py
+          tests_product_guidance.py
+          tests_product_ui_viewports.py
+      - name: Run product guidance regressions
+        run: python tests_product_guidance.py
+      - name: Run guided workflow regressions
+        run: python tests_guided_workflow.py
+      - name: Run architecture regressions
+        run: python tests_architecture.py
+      - name: Run product guidance browser viewport checks
+        run: python tests_product_ui_viewports.py
+      - name: Upload product screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-guidance-screenshots
+          path: product_viewport_artifacts
+          if-no-files-found: ignore
