@@ -165,8 +165,10 @@ def main() -> None:
         assert len(figure_bytes(fig, "png", 150)) > 1000
         mono_tas = build_tas_figure(
             pd.DataFrame({
-                "SiO2": [45.0, 50.0], "Na2O": [2.0, 3.0], "K2O": [1.0, 2.0],
-                "Massif": ["A", "B"], "Rock": ["a", "b"],
+                "SiO2": [45.0, 50.0], "TiO2": [1.5, 1.0], "Al2O3": [15.0, 16.0],
+                "FeOt": [11.0, 9.0], "MnO": [0.2, 0.2], "MgO": [10.0, 7.0],
+                "CaO": [10.0, 8.0], "Na2O": [2.0, 3.0], "K2O": [1.0, 2.0],
+                "P2O5": [0.4, 0.3], "Massif": ["A", "B"], "Rock": ["a", "b"],
             }),
             group_column="Massif",
             label_column=None,

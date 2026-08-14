@@ -8,15 +8,19 @@
 
 PetroLab не подставляет произвольный pseudocount. В CLR строки с пропуском, нулём или отрицательным выбранным компонентом исключаются и это количество показывается пользователю. Detection-limit-aware replacement должен выполняться только отдельной процедурой, где известна семантика цензурирования.
 
+CLR/ILR дополнительно защищён от смешивания несопоставимых шкал. Один log-ratio анализ может использовать только одну распознанную compositional domain: oxides в wt.%, trace-element concentrations в µg/g либо apfu. PetroLab блокирует смеси вроде `SiO2 wt.% + La µg/g`, а также Mg#, Cr#, scores и колонки с неизвестной единицей. В UI тип композиции выбирается явно, поэтому пользователь не получает ошибочный mixed-unit default.
+
 Для анализа связей добавлена Aitchison log-ratio variation matrix `var[ln(x_i/x_j)]`. Обычные Pearson/Spearman/Kendall остаются доступны в Euclidean exploratory mode.
 
 Основной источник: J. Aitchison (1986), *The Statistical Analysis of Compositional Data*, DOI `10.1007/978-94-009-4109-0`.
 
 ## 2. TAS
 
-TAS теперь по умолчанию строится по доступным безводным major oxides, перенормированным к 100 wt.%. LOI/H2O/CO2 и другие volatile fields не входят в сумму. Iron semantics учитываются без двойного счёта: явный FeOt или Fe2O3t имеет приоритет над одновременно присутствующими split FeO+Fe2O3 при вычислении analytical major total.
+TAS по умолчанию строится по безводным major oxides, перенормированным к 100 wt.%. LOI/H2O/CO2 и другие volatile fields не входят в сумму. Iron semantics учитываются без двойного счёта: явный FeOt или Fe2O3t имеет приоритет над одновременно присутствующими split FeO+Fe2O3 при вычислении analytical major total.
 
-Исходная whole-rock chemistry не переписывается: нормировка существует только в plotting/classification dataframe и сохраняет `TAS_original_major_total` и `TAS_normalization_factor`.
+Неполная таблица больше не может быть искусственно растянута до 100%. Для volatile-free TAS normalization требуются SiO2, Al2O3, MgO, CaO, Na2O, K2O и одна валидная форма железа; исходный major total должен находиться в QC-интервале 70–105 wt.%. Если gate не пройден, нормированные TAS coordinates остаются пустыми и сохраняется человекочитаемый `TAS_normalization_QC`. Это QC-ограничение, а не граница классификации пород.
+
+Исходная whole-rock chemistry не переписывается: нормировка существует только в plotting/classification dataframe и сохраняет `TAS_original_major_total`, `TAS_normalization_factor`, `TAS_major_suite_complete` и `TAS_normalization_QC`.
 
 Границы диаграммы не изменены: Le Bas et al. (1986) / IUGS TAS.
 
@@ -60,11 +64,11 @@ Regression benchmark проверяет высокоспецифичные canon
 
 ## 7. Regression gate
 
-`tests_scientific_hardening.py` включён отдельным шагом Windows GitHub Actions и в compile gate.
+`tests_scientific_hardening.py` включён отдельным шагом Windows GitHub Actions и в compile gate. Дополнительно тестируются запрет mixed-unit CLR и отказ TAS нормировать неполную major suite.
 
 ## Осознанно не изменено
 
-По решению пользователя в этом PR не меняются:
+По решению пользователя в этих научных правках не меняются:
 
 - pairing logic Rhodes / olivine-liquid screening;
 - handling/assumptions whole-rock Mg# и Fe3+/ΣFe в Rhodes workflow.

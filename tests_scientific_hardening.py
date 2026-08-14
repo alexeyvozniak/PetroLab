@@ -18,9 +18,6 @@ from petrolab.statistics import clr_transform, logratio_variation_matrix, prepar
 from petrolab.tas import prepare_tas_dataframe, tas_major_total
 
 
-# Independent molar masses used only for benchmark construction. These are intentionally
-# not imported from petrolab.minerals.formulae, so a broken production molar-mass table
-# cannot make both the calculation and the expected benchmark wrong in the same direction.
 MW = {
     "SiO2": 60.083,
     "MgO": 40.304,
@@ -43,97 +40,80 @@ def _close(value: float, expected: float, tol: float = 2e-3) -> None:
 
 
 def test_formula_benchmarks() -> None:
-    # Mg2SiO4 forsterite: one SiO2 + two MgO.
     forsterite = pd.DataFrame([_wt_from_oxide_moles({"SiO2": 1.0, "MgO": 2.0})])
     ol = calculate_formula(forsterite, "olivine", "ol_4o_fe2").data.iloc[0]
-    _close(ol["apfu_Si"], 1.0)
-    _close(ol["apfu_Mg"], 2.0)
-    _close(ol["Fo"], 100.0)
+    _close(ol["apfu_Si"], 1.0); _close(ol["apfu_Mg"], 2.0); _close(ol["Fo"], 100.0)
 
-    # CaMgSi2O6 diopside: two SiO2 + one MgO + one CaO.
     diopside = pd.DataFrame([_wt_from_oxide_moles({"SiO2": 2.0, "MgO": 1.0, "CaO": 1.0})])
     cpx = calculate_formula(diopside, "clinopyroxene", "px_6o_fe2").data.iloc[0]
-    _close(cpx["apfu_Si"], 2.0)
-    _close(cpx["apfu_Mg"], 1.0)
-    _close(cpx["apfu_Ca"], 1.0)
-    _close(cpx["Wo"], 50.0)
-    _close(cpx["En"], 50.0)
+    _close(cpx["apfu_Si"], 2.0); _close(cpx["apfu_Mg"], 1.0); _close(cpx["apfu_Ca"], 1.0)
+    _close(cpx["Wo"], 50.0); _close(cpx["En"], 50.0)
 
-    # Mg3Al2Si3O12 pyrope: 3 SiO2 + 3 MgO + 1 Al2O3.
     pyrope = pd.DataFrame([_wt_from_oxide_moles({"SiO2": 3.0, "MgO": 3.0, "Al2O3": 1.0})])
     grt = calculate_formula(pyrope, "garnet", "grt_12o_fe2").data.iloc[0]
-    _close(grt["apfu_Si"], 3.0)
-    _close(grt["apfu_Mg"], 3.0)
-    _close(grt["apfu_Al"], 2.0)
-    _close(grt["Prp"], 100.0)
+    _close(grt["apfu_Si"], 3.0); _close(grt["apfu_Mg"], 3.0); _close(grt["apfu_Al"], 2.0); _close(grt["Prp"], 100.0)
 
-    # NaAlSi3O8 albite: 3 SiO2 + 0.5 Al2O3 + 0.5 Na2O.
     albite = pd.DataFrame([_wt_from_oxide_moles({"SiO2": 3.0, "Al2O3": 0.5, "Na2O": 0.5})])
     fsp = calculate_formula(albite, "feldspar", "fsp_8o").data.iloc[0]
-    _close(fsp["apfu_Si"], 3.0)
-    _close(fsp["apfu_Al"], 1.0)
-    _close(fsp["apfu_Na"], 1.0)
-    _close(fsp["Ab"], 100.0)
+    _close(fsp["apfu_Si"], 3.0); _close(fsp["apfu_Al"], 1.0); _close(fsp["apfu_Na"], 1.0); _close(fsp["Ab"], 100.0)
 
-    # KMg3AlSi3O10(OH)2 on the 11 O-equivalent EPMA basis:
-    # 3 SiO2 + 3 MgO + 0.5 Al2O3 + 0.5 K2O supply 11 oxide oxygens.
-    phlogopite = pd.DataFrame([
-        _wt_from_oxide_moles({"SiO2": 3.0, "MgO": 3.0, "Al2O3": 0.5, "K2O": 0.5})
-    ])
+    phlogopite = pd.DataFrame([_wt_from_oxide_moles({"SiO2": 3.0, "MgO": 3.0, "Al2O3": 0.5, "K2O": 0.5})])
     mica = calculate_formula(phlogopite, "mica", "mica_rieder_11o").data.iloc[0]
-    _close(mica["apfu_Si"], 3.0)
-    _close(mica["apfu_Al"], 1.0)
-    _close(mica["apfu_Mg"], 3.0)
-    _close(mica["apfu_K"], 1.0)
+    _close(mica["apfu_Si"], 3.0); _close(mica["apfu_Al"], 1.0); _close(mica["apfu_Mg"], 3.0); _close(mica["apfu_K"], 1.0)
 
 
 def test_coda_contracts() -> None:
     data = pd.DataFrame(
         {
-            "A": [1.0, 10.0, 2.0],
-            "B": [2.0, 20.0, 4.0],
-            "C": [4.0, 40.0, 8.0],
+            "SiO2": [1.0, 10.0, 2.0],
+            "MgO": [2.0, 20.0, 4.0],
+            "CaO": [4.0, 40.0, 8.0],
         }
     )
-    clr, excluded = clr_transform(data, ["A", "B", "C"])
+    columns = ["SiO2", "MgO", "CaO"]
+    clr, excluded = clr_transform(data, columns)
     assert excluded == 0
-    # Closure/scale invariance: multiplying the entire composition does not move it in CLR space.
     assert np.allclose(clr.iloc[0].to_numpy(), clr.iloc[1].to_numpy(), atol=1e-12)
     assert np.allclose(clr.iloc[0].to_numpy(), clr.iloc[2].to_numpy(), atol=1e-12)
     assert np.allclose(clr.sum(axis=1).to_numpy(), 0.0, atol=1e-12)
 
-    variation = logratio_variation_matrix(data, ["A", "B", "C"])
+    variation = logratio_variation_matrix(data, columns)
     assert np.nanmax(np.abs(variation.to_numpy(dtype=float))) < 1e-20
 
-    with_zero = pd.concat([data, pd.DataFrame([{"A": 0.0, "B": 2.0, "C": 4.0}])], ignore_index=True)
-    prepared = prepare_matrix(with_zero, ["A", "B", "C"], transform="clr", scaler="none")
-    assert prepared.excluded_rows == 1
-    assert prepared.transform_name == "clr"
-    assert len(prepared.index) == 3
+    with_zero = pd.concat([data, pd.DataFrame([{"SiO2": 0.0, "MgO": 2.0, "CaO": 4.0}])], ignore_index=True)
+    prepared = prepare_matrix(with_zero, columns, transform="clr", scaler="none")
+    assert prepared.excluded_rows == 1 and prepared.transform_name == "clr" and len(prepared.index) == 3
+
+    trace = pd.DataFrame({"La [µg/g]": [10.0, 20.0], "Ce [µg/g]": [20.0, 40.0]})
+    trace_clr, _ = clr_transform(trace, ["La [µg/g]", "Ce [µg/g]"])
+    assert np.allclose(trace_clr.iloc[0], trace_clr.iloc[1])
+
+    mixed = pd.DataFrame({"SiO2": [50.0, 51.0], "La [µg/g]": [10.0, 11.0]})
+    try:
+        clr_transform(mixed, ["SiO2", "La [µg/g]"])
+    except ValueError as exc:
+        assert "Нельзя смешивать" in str(exc)
+    else:
+        raise AssertionError("CLR must reject mixed wt.% and µg/g domains")
+
+    derived = pd.DataFrame({"SiO2": [50.0, 51.0], "Mg#": [0.7, 0.8]})
+    try:
+        clr_transform(derived, ["SiO2", "Mg#"])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("CLR must reject derived ratios mixed with compositional components")
 
 
 def test_tas_volatile_free_normalization_and_iron_semantics() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Rock": "TAS-test",
-                "SiO2": 45.0,
-                "TiO2": 1.0,
-                "Al2O3": 15.0,
-                "FeOt": 10.0,
-                # Split Fe is deliberately present too: it must not be double-counted when FeOt exists.
-                "FeO": 7.0,
-                "Fe2O3": 3.0,
-                "MnO": 0.2,
-                "MgO": 8.0,
-                "CaO": 10.0,
-                "Na2O": 3.0,
-                "K2O": 2.0,
-                "P2O5": 0.8,
-                "LOI": 10.0,
-            }
-        ]
-    )
+    frame = pd.DataFrame([
+        {
+            "Rock": "TAS-test", "SiO2": 45.0, "TiO2": 1.0, "Al2O3": 15.0,
+            "FeOt": 10.0, "FeO": 7.0, "Fe2O3": 3.0, "MnO": 0.2,
+            "MgO": 8.0, "CaO": 10.0, "Na2O": 3.0, "K2O": 2.0,
+            "P2O5": 0.8, "LOI": 10.0,
+        }
+    ])
     expected_total = 45.0 + 1.0 + 15.0 + 10.0 + 0.2 + 8.0 + 10.0 + 3.0 + 2.0 + 0.8
     _close(tas_major_total(frame).iloc[0], expected_total, 1e-9)
     prepared = prepare_tas_dataframe(frame, normalize_volatile_free=True).iloc[0]
@@ -141,7 +121,14 @@ def test_tas_volatile_free_normalization_and_iron_semantics() -> None:
     _close(prepared["TAS_SiO2"], 45.0 * factor, 1e-9)
     _close(prepared["TAS_Total_alkalis"], 5.0 * factor, 1e-9)
     _close(prepared["TAS_original_major_total"], expected_total, 1e-9)
-    assert prepared["TAS_normalized_volatile_free"]
+    assert prepared["TAS_major_suite_complete"] and prepared["TAS_normalized_volatile_free"]
+    assert prepared["TAS_normalization_QC"] == "OK"
+
+    incomplete = pd.DataFrame([{"SiO2": 50.0, "Na2O": 4.0, "K2O": 3.0}])
+    blocked = prepare_tas_dataframe(incomplete, normalize_volatile_free=True).iloc[0]
+    assert not blocked["TAS_major_suite_complete"]
+    assert pd.isna(blocked["TAS_SiO2"])
+    assert "missing:" in blocked["TAS_normalization_QC"]
 
 
 def test_reference_normalization_constants_are_locked() -> None:
@@ -175,36 +162,22 @@ def test_phase_suggestion_ruleset_is_versioned_and_conservative() -> None:
         mineral, confidence, reason = suggest_phase(row)
         assert mineral == expected, (row, mineral, confidence, reason)
         assert confidence in {"high", "medium"}
-
     attached = attach_phase_suggestions(pd.DataFrame([canonical_cases[0][0]]))
     assert attached[SUGGESTION_RULESET_COLUMN].iloc[0] == PHASE_SUGGESTION_RULESET_VERSION
 
 
 def test_future_thermobarometry_requires_full_scientific_contract() -> None:
     valid = ThermobarometerMethod(
-        method_id="example_v1",
-        title="Example calibration",
-        equation_version="Eq. 1, published form",
-        source_citation="Author et al. (2026), Journal",
-        source_doi="10.1234/example.2026.1",
-        required_components=("SiO2", "MgO"),
-        calibration_range="900–1200 °C; stated calibration composition range",
-        uncertainty="±30 °C, 1σ as reported by calibration",
-        equilibrium_test="Explicit mineral-pair equilibrium criterion",
+        method_id="example_v1", title="Example calibration", equation_version="Eq. 1, published form",
+        source_citation="Author et al. (2026), Journal", source_doi="10.1234/example.2026.1",
+        required_components=("SiO2", "MgO"), calibration_range="900–1200 °C; stated calibration composition range",
+        uncertainty="±30 °C, 1σ as reported by calibration", equilibrium_test="Explicit mineral-pair equilibrium criterion",
         assumptions="No extrapolation outside calibration range.",
     )
     validate_thermobarometer_registry((valid,))
-
     incomplete = ThermobarometerMethod(
-        method_id="bad",
-        title="Bad",
-        equation_version="Eq. 1",
-        source_citation="Some paper",
-        source_doi="",
-        required_components=("SiO2",),
-        calibration_range="",
-        uncertainty="",
-        equilibrium_test="",
+        method_id="bad", title="Bad", equation_version="Eq. 1", source_citation="Some paper", source_doi="",
+        required_components=("SiO2",), calibration_range="", uncertainty="", equilibrium_test="",
     )
     try:
         incomplete.validate()
