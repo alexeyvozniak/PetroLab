@@ -10,6 +10,7 @@ from petrolab.partition_seed_models import seed_initial_alkaline_models
 from petrolab.partition_seed_germ import GERM_CORE_NOTE, seed_germ_core_models
 from petrolab.partition_import import import_partition_table, read_partition_upload
 from petrolab.partitioning import assess_model_context, list_partition_models
+from petrolab.partition_visuals import kd_table, onuma_figure, ree_d_figure, spider_figure
 
 _META={"_analysis_id","_dataset_id","_project_id","_row_index","_source_row"}
 def render_distribution_page() -> None:
@@ -78,7 +79,20 @@ def render_distribution_page() -> None:
                         "Kd low": raw.get("low", np.nan),
                         "Kd high": raw.get("high", np.nan),
                     })
-                st.dataframe(pd.DataFrame(element_rows), width="stretch", hide_index=True)
+                element_table = kd_table(chosen["values"], metadata)
+                st.dataframe(element_table.rename(columns={"Element": "Элемент", "Kd": "Kd", "low": "Kd low", "high": "Kd high"}), width="stretch", hide_index=True)
+                graph_tab, ree_tab, onuma_tab, spider_tab = st.tabs(["Обзор", "REE-D", "Onuma", "Kd-spider"])
+                with graph_tab:
+                    st.caption("Все графики показывают опубликованные коэффициенты выбранной модели; интервал и σ не усредняются.")
+                    st.plotly_chart(spider_figure(element_table, chosen["name"]), width="stretch")
+                with ree_tab:
+                    st.plotly_chart(ree_d_figure(element_table, chosen["name"]), width="stretch")
+                    st.caption("REE-D: логарифмическая шкала; σ показана, когда она опубликована.")
+                with onuma_tab:
+                    st.plotly_chart(onuma_figure(element_table, chosen["name"]), width="stretch")
+                    st.caption("Onuma использует радиусы Shannon для CN VIII; это визуализация тренда, а не подгонка lattice-strain модели.")
+                with spider_tab:
+                    st.plotly_chart(spider_figure(element_table, chosen["name"]), width="stretch")
                 chosen_context = assess_model_context(chosen, context_value)
                 if chosen_context["status"] == "предупреждение":
                     st.warning(chosen_context["message"] + " Расчёт и просмотр доступны; это допущение будет записано в истории расчёта.")
