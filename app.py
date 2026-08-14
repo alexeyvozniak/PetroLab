@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 import hashlib
 import json
-
 import streamlit as st
-
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
@@ -44,14 +41,12 @@ from petrolab.ui.pages import (
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import route_fresh_import_to_workflow
 
-
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
 st.session_state.setdefault("loaded_recipe", None)
 st.session_state.setdefault("loaded_ternary_recipe", None)
-
 
 def _reconcile_plot_recipe_state() -> None:
     recipe = st.session_state.get("loaded_recipe")
@@ -82,7 +77,6 @@ def _reconcile_plot_recipe_state() -> None:
         cfg = {}
     st.session_state.plot_interactive_excluded_ids = list(cfg.get("interactive_excluded_ids", []))
     st.session_state[token_key] = token
-
 
 _reconcile_plot_recipe_state()
 route_fresh_import_to_workflow()
