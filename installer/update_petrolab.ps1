@@ -98,14 +98,17 @@ try {
     Require-File (Join-Path $Runtime "python.exe") "Embedded Python runtime"
     Require-File (Join-Path $Current "app.py") "Current PetroLab app"
 
+    $appPath = Join-Path $Current "app.py"
     $running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.CommandLine -and $_.CommandLine.Contains((Join-Path $Current "app.py"), [System.StringComparison]::OrdinalIgnoreCase)
+        $_.CommandLine -and ($_.CommandLine.IndexOf($appPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
     }
     if ($running) {
         Write-Host ""
         Write-Host "  PetroLab is currently running." -ForegroundColor Yellow
         Write-Host "  Close the PetroLab browser/server and run the updater again."
-        Read-Host "  Press Enter to close"
+        if (-not $NoLaunch) {
+            Read-Host "  Press Enter to close"
+        }
         exit 2
     }
 
@@ -126,7 +129,7 @@ try {
         Write-Host "  PetroLab is already up to date." -ForegroundColor Green
         if (-not $NoLaunch) {
             $answer = Read-Host "  Start PetroLab now? [Y/N]"
-            if ($answer -match "^[YyДд]") {
+            if ($answer -match "^[Yy]") {
                 Start-Process "wscript.exe" -ArgumentList ('"' + (Join-Path $Root "launch_petrolab.vbs") + '"')
             }
         }
@@ -209,7 +212,7 @@ try {
 
     if (-not $NoLaunch) {
         $answer = Read-Host "  Start PetroLab now? [Y/N]"
-        if ($answer -match "^[YyДд]") {
+        if ($answer -match "^[Yy]") {
             Start-Process "wscript.exe" -ArgumentList ('"' + (Join-Path $Root "launch_petrolab.vbs") + '"')
         }
     }
@@ -235,10 +238,12 @@ catch {
         Write-Host "  The previous PetroLab installation remains available." -ForegroundColor Yellow
     }
     catch {
-        Write-Host "  Automatic rollback also failed. Run 'Диагностика PetroLab'." -ForegroundColor Red
+        Write-Host "  Automatic rollback also failed. Run PetroLab Diagnostics." -ForegroundColor Red
     }
 
-    Read-Host "  Press Enter to close"
+    if (-not $NoLaunch) {
+        Read-Host "  Press Enter to close"
+    }
     exit 1
 }
 finally {
