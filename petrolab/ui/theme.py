@@ -10,7 +10,7 @@ CSS = r"""
     --petro-surface: #ffffff;
     --petro-surface-soft: #eef3f1;
     --petro-text: #1f2927;
-    --petro-text-muted: #697572;
+    --petro-text-muted: #596663;
     --petro-border: #dce4e1;
     --petro-border-strong: #c9d5d1;
     --petro-accent: #486d65;
@@ -108,6 +108,9 @@ h3 {
 .petrolab-section-title {
     font-weight: 650;
     font-size: 1.03rem;
+    line-height: 1.3;
+    letter-spacing: -.015em;
+    margin: 0;
 }
 .petrolab-section-note {
     color: var(--petro-text-muted);
@@ -315,6 +318,7 @@ textarea:focus-visible,
     h2 { font-size: 1.25rem; }
     .petrolab-workspace { padding: .65rem; border-radius: var(--petro-radius-md); }
     .petrolab-card { padding: .8rem .85rem; }
+    .stButton > button, .stDownloadButton > button { min-height: 2.65rem; }
 }
 </style>
 """
