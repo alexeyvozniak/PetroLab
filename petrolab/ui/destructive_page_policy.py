@@ -30,7 +30,7 @@ def _render_pending(name: str, text: str) -> None:
 
 
 def render_plot_confirmations() -> None:
-    """Render pending confirmations for XY actions independently of the legacy page renderer."""
+    """Render pending confirmations for explicit XY destructive actions."""
     _render_pending(
         "plot_recipe",
         "Удаление рецепта нельзя отменить. Нажмите «Удалить рецепт» ещё раз для подтверждения или отмените действие.",
@@ -48,54 +48,11 @@ def render_plot_confirmations() -> None:
 
 
 def install() -> None:
-    """Install two-click guards for destructive legacy actions once per process."""
-    from petrolab.ui.pages import plots, rocks
+    """Install the remaining two-click guards for rock actions only."""
+    from petrolab.ui.pages import rocks
 
-    if getattr(plots, "_petrolab_destructive_policy_installed", False):
+    if getattr(rocks, "_petrolab_destructive_policy_installed", False):
         return
-
-    original_delete_recipe = plots.delete_plot_recipe
-    original_delete_profile = plots.delete_style_profile
-    original_clear_group = plots.clear_work_group
-    original_plot_render = plots.render_plots_page
-
-    def delete_recipe(recipe_id: int) -> None:
-        def action() -> None:
-            original_delete_recipe(int(recipe_id))
-            st.session_state.loaded_recipe = None
-            st.session_state.plot_interactive_excluded_ids = []
-            st.session_state.pop("recipe_select", None)
-
-        _arm_or_execute("plot_recipe", int(recipe_id), action)
-
-    def delete_profile(profile_id: int) -> None:
-        def action() -> None:
-            original_delete_profile(int(profile_id))
-            st.session_state.pop("style_profile_select", None)
-            for key in list(st.session_state):
-                if str(key).startswith("style_editor_"):
-                    st.session_state.pop(key, None)
-
-        _arm_or_execute("style_profile", int(profile_id), action)
-
-    def clear_group(analysis_ids) -> int:
-        ids = tuple(sorted(str(value) for value in analysis_ids))
-        result: dict[str, int] = {"value": 0}
-
-        def action() -> None:
-            result["value"] = int(original_clear_group(ids))
-
-        _arm_or_execute("work_group", ids, action)
-        return result["value"]
-
-    def render_plots() -> None:
-        render_plot_confirmations()
-        original_plot_render()
-
-    plots.delete_plot_recipe = delete_recipe
-    plots.delete_style_profile = delete_profile
-    plots.clear_work_group = clear_group
-    plots.render_plots_page = render_plots
 
     original_delete_rock_image = rocks.delete_rock_image
     original_set_mineral_links = rocks.set_mineral_links
@@ -142,4 +99,4 @@ def install() -> None:
     rocks.delete_rock_image = delete_rock_image
     rocks.set_mineral_links = set_mineral_links
     rocks._render_links_and_images = render_links_and_images
-    plots._petrolab_destructive_policy_installed = True
+    rocks._petrolab_destructive_policy_installed = True
