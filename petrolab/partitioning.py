@@ -21,3 +21,14 @@ def list_partition_models(mineral:str|None=None,counter_phase:str|None=None)->li
     for row in rows:
         d=dict(row); d["values"]=json.loads(d.pop("values_json")); d["source"]=json.loads(d.pop("source_json")); d["applicability"]=json.loads(d.pop("applicability_json")); out.append(d)
     return out
+
+RECONSTRUCTION_MODES={"recommended","proxy","exploratory"}
+def reconstruction_qc(mode:str, *, has_measured_melt:bool, equilibrium_confirmed:bool, source_kind:str)->dict:
+    """Never blocks a reconstruction; makes the strength of its assumptions explicit."""
+    if mode not in RECONSTRUCTION_MODES: raise ValueError("Неизвестный режим реконструкции")
+    warnings=[]
+    if not has_measured_melt: warnings.append("Нет измеренного glass/melt inclusion; использован proxy расплава")
+    if not equilibrium_confirmed: warnings.append("Равновесие пары не подтверждено")
+    if source_kind in {"whole_rock","matrix"}: warnings.append(f"{source_kind} не идентичен расплаву и хранится как явное допущение")
+    status="PASS" if mode=="recommended" and not warnings else ("WARNING" if mode!="exploratory" else "EXPLORATORY")
+    return {"status":status,"warnings":warnings,"mode":mode}
