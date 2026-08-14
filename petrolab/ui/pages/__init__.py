@@ -26,6 +26,7 @@ from .sources_dashboard import render_sources_dashboard_page as render_sources_p
 from .statistics import render_statistics_page
 from .ternary import render_ternary_page
 from .thermobarometry import render_thermobarometry_page
+from .equilibrium import render_equilibrium_page
 from .updates import render_updates_page
 
 __all__ = [
