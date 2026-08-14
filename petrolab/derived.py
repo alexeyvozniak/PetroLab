@@ -417,6 +417,11 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
     if all_columns and "Минерал" in base.columns:
         mismatched = base["_analysis_id"].astype(str).map(formula_mineral).fillna("").ne(base["Минерал"].astype(str))
         for column in all_columns:
+            # Pandas 2.3 no longer permits inserting a missing value into a
+            # non-nullable bool column. These formula values must become blank
+            # when their calculation module does not match the active mineral.
+            if pd.api.types.is_bool_dtype(base[column]):
+                base[column] = base[column].astype("object")
             base.loc[mismatched, column] = None
     if default_state:
         base.attrs["formula_method_id"] = str(default_state["active_method_id"])
