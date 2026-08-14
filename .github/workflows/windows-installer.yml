@@ -77,11 +77,8 @@ jobs:
 
           $env:PETROLAB_DATA_DIR = Join-Path $env:TEMP "petrolab-installer-smoke-data"
           if (Test-Path $env:PETROLAB_DATA_DIR) { Remove-Item $env:PETROLAB_DATA_DIR -Recurse -Force }
-          Push-Location $current
-          & $runtimePython -c "import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('PetroLab', petrolab.__version__, 'installer smoke OK')"
-          $smokeExit = $LASTEXITCODE
-          Pop-Location
-          if ($smokeExit -ne 0) { throw "PetroLab installer payload smoke failed." }
+          & $runtimePython -c "import sys; sys.path.insert(0, r'$current'); import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('PetroLab', petrolab.__version__, 'installer smoke OK')"
+          if ($LASTEXITCODE -ne 0) { throw "PetroLab installer payload smoke failed." }
 
           $versionLine = Select-String -Path petrolab\__init__.py -Pattern '^__version__\s*=\s*"([^"]+)"'
           if (-not $versionLine.Matches.Count) { throw "Could not determine PetroLab version." }
