@@ -80,7 +80,25 @@ def _reconcile_plot_recipe_state() -> None:
     st.session_state[token_key] = token
 
 
+def _route_fresh_import_to_workflow() -> None:
+    """Open the guided next step once for each newly imported batch."""
+    recent = tuple(int(value) for value in st.session_state.get("workflow_recent_dataset_ids", []) if value is not None)
+    if not recent:
+        return
+    token = ",".join(str(value) for value in recent)
+    if str(st.session_state.get("_workflow_import_redirect_token", "")) == token:
+        return
+    # Only intercept the automatic rerun from the import page. A later manual visit to
+    # "Новые анализы" stays exactly where the user put it.
+    if str(st.session_state.get("nav_route", "home")) != "sources":
+        return
+    st.session_state["_workflow_import_redirect_token"] = token
+    st.session_state["workflow_focus_dataset_id"] = int(recent[0])
+    st.session_state["nav_route"] = "workflow"
+
+
 _reconcile_plot_recipe_state()
+_route_fresh_import_to_workflow()
 
 ROUTES = {
     "home": render_home_page,
