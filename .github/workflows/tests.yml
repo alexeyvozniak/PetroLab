@@ -8,6 +8,7 @@ on:
       - "feature/**"
       - "fix/**"
       - "audit/**"
+      - "integration/**"
   pull_request:
     branches: ["main"]
 
@@ -46,7 +47,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_group_styles.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_group_styles.py tests_analytical_sessions.py tests_generations.py tests_mixed_minerals.py tests_density_clustering.py tests_collaboration.py tests_project_archive_scope.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -72,6 +73,10 @@ jobs:
         shell: cmd
         run: python tests_project_archive.py
 
+      - name: Run project archive child-entity scoping regressions
+        shell: cmd
+        run: python tests_project_archive_scope.py
+
       - name: Run group envelope scientific regressions
         shell: cmd
         run: python tests_group_envelopes.py
@@ -87,6 +92,26 @@ jobs:
       - name: Run source registry and data-health regressions
         shell: cmd
         run: python tests_source_registry.py
+
+      - name: Run analytical session regressions
+        shell: cmd
+        run: python tests_analytical_sessions.py
+
+      - name: Run Generation interpretation regressions
+        shell: cmd
+        run: python tests_generations.py
+
+      - name: Run mixed-mineral review/materialization regressions
+        shell: cmd
+        run: python tests_mixed_minerals.py
+
+      - name: Run density clustering regressions
+        shell: cmd
+        run: python tests_density_clustering.py
+
+      - name: Run collaboration merge regressions
+        shell: cmd
+        run: python tests_collaboration.py
 
       - name: Run interactive/publication group style consistency tests
         shell: cmd
