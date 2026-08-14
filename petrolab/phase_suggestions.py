@@ -215,6 +215,17 @@ def _existing_phase_dataset(con, source, child_name: str) -> int | None:
     return int(row["id"]) if row else None
 
 
+def _record_confirmed_phases(con, assignments: Mapping[str, str]) -> None:
+    """Persist exact human-confirmed phase labels independently of the formula module."""
+    con.executemany(
+        """INSERT INTO analysis_annotations(analysis_id, namespace, key, value, source, updated_at)
+           VALUES (?, 'phase', 'confirmed_phase', ?, 'manual', CURRENT_TIMESTAMP)
+           ON CONFLICT(analysis_id, namespace, key) DO UPDATE SET
+               value=excluded.value, source=excluded.source, updated_at=CURRENT_TIMESTAMP""",
+        [(str(analysis_id), str(phase)) for analysis_id, phase in assignments.items()],
+    )
+
+
 def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[str, str]) -> dict[str, int]:
     """Move confirmed analyses from one mixed dataset into reusable child phase datasets.
 
@@ -222,7 +233,8 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
     keys. Analysis IDs, source rows, point-image links and provenance remain intact. Child datasets
     inherit project/source/session membership. Unassigned analyses remain in the original dataset,
     which is labelled as unresolved/mixed. Repeated review reuses an existing phase child from the
-    same source snapshot instead of creating duplicate datasets.
+    same source snapshot instead of creating duplicate datasets. Exact confirmed labels are stored
+    per analysis so method-linked LA/EPMA rows can reuse the interpretation without conflating data.
     """
     clean = {
         str(analysis_id).strip(): str(phase).strip()
@@ -231,6 +243,12 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
     }
     if not clean:
         return {}
+
+    # `analysis_annotations` is a project-independent annotation table keyed by immutable analysis_id.
+    # Initialise it lazily here so mixed splitting works even if the Sessions page was never opened.
+    from petrolab.analytical_sessions import ensure_session_schema
+    ensure_session_schema()
+
     now = _utcnow()
     with connect() as con:
         source = con.execute("SELECT * FROM datasets WHERE id=?", (int(source_dataset_id),)).fetchone()
@@ -287,6 +305,7 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
             )
             con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(moved), int(child_id)))
 
+        _record_confirmed_phases(con, clean)
         remaining = con.execute(
             "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
             (int(source_dataset_id),),
