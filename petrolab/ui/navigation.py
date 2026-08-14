@@ -5,9 +5,12 @@ import streamlit as st
 from petrolab.db import list_datasets, list_projects
 from petrolab.ui.project_context import active_project_id, set_active_project
 
-
 NAV_SECTIONS = {
-    "Данные": [("home", "Главная"), ("intake", "Добавить данные"), ("database", "Вся база"), ("sources", "Импорт"), ("analyses", "База анализов"), ("formulae", "Расчёты")],
+    "Данные": [
+        ("home", "Главная"), ("intake", "Добавить данные"), ("database", "Вся база"),
+        ("sources", "Импорт"), ("analyses", "База анализов"), ("generations", "Поколения"),
+        ("formulae", "Расчёты"),
+    ],
     "Исследование": [("plots", "XY-диаграммы"), ("ternary", "Треугольные"), ("science_plots", "Научные диаграммы"), ("statistics", "Статистика")],
     "Материалы": [("rocks", "Породы"), ("images", "Изображения"), ("minerals", "Минералогические модули")],
     "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
@@ -24,7 +27,6 @@ def navigate(route: str) -> None:
 def render_sidebar(version: str) -> str:
     st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
-
     projects = list_projects()
     st.markdown('<div class="petrolab-nav-section">Проект</div>', unsafe_allow_html=True)
     if projects:
@@ -34,11 +36,7 @@ def render_sidebar(version: str) -> str:
         active_id = current_id if current_id in by_id else ids[0]
         if st.session_state.get("sidebar_project") != active_id:
             st.session_state["sidebar_project"] = active_id
-        selected = st.selectbox(
-            "Проект", ids,
-            format_func=lambda value: str(by_id[int(value)]["name"]),
-            key="sidebar_project", label_visibility="collapsed",
-        )
+        selected = st.selectbox("Проект", ids, format_func=lambda value: str(by_id[int(value)]["name"]), key="sidebar_project", label_visibility="collapsed")
         set_active_project(int(selected))
         datasets = list_datasets(int(selected))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
@@ -47,7 +45,6 @@ def render_sidebar(version: str) -> str:
     else:
         st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
-
     current = str(st.session_state.get("nav_route", "home"))
     if current not in ROUTE_LABELS:
         current = "home"
