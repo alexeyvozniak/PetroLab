@@ -7,7 +7,7 @@ from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.layout import render_hint, render_page_header
 from petrolab.partition_seed_models import seed_initial_alkaline_models
-from petrolab.partition_seed_germ import GERM_ALKALINE_NOTE, seed_germ_alkaline_models
+from petrolab.partition_seed_germ import GERM_CORE_NOTE, seed_germ_core_models
 from petrolab.partition_import import import_partition_table, read_partition_upload
 from petrolab.partitioning import assess_model_context, list_partition_models
 
@@ -21,9 +21,9 @@ def render_distribution_page() -> None:
         if st.button("Добавить проверенные basanite-модели"):
             made=seed_initial_alkaline_models()
             st.success("Добавлено моделей: "+str(len(made)) if made else "Эти модели уже есть в библиотеке.")
-        st.caption(GERM_ALKALINE_NOTE)
-        if st.button("Добавить экспериментальную библиотеку GERM: щелочные и родственные породы"):
-            made=seed_germ_alkaline_models()
+        st.caption(GERM_CORE_NOTE)
+        if st.button("Добавить встроенную библиотеку GERM: основные типы пород"):
+            made=seed_germ_core_models()
             st.success("Добавлено моделей GERM: "+str(len(made)) if made else "Эти выборки GERM уже есть в библиотеке.")
     with st.expander("Смотреть литературные коэффициенты D", expanded=False):
         models = list_partition_models()
