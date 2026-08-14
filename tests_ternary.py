@@ -17,7 +17,12 @@ from petrolab.ternary_data import (
     ternary_to_cartesian,
 )
 from petrolab.ternary_plotting import build_interactive_ternary, build_publication_ternary
-from petrolab.ternary_presets import available_ternary_presets
+from petrolab.ternary_presets import (
+    MORIMOTO_QJ_APPLICABLE,
+    TERNARY_PRESETS,
+    apply_preset_projection,
+    available_ternary_presets,
+)
 
 
 def near(actual: float, expected: float, tolerance: float = 1e-9) -> None:
@@ -84,6 +89,29 @@ preset_ids = {preset.preset_id for preset in available_ternary_presets({"Wo", "E
 assert "pyroxene_wo_en_fs" not in preset_ids
 preset_ids = {preset.preset_id for preset in available_ternary_presets({"Ab", "An", "Or"})}
 assert preset_ids == {"feldspar_ab_an_or"}
+
+# Morimoto Wo-En-Fs is a Quad-pyroxene projection, not a generic projection of every
+# pyroxene. Q-J chemistry gates the rows before coordinates are exposed.
+px_preset = TERNARY_PRESETS["pyroxene_wo_en_fs"]
+px_rows = pd.DataFrame([
+    {"apfu_Ca": 0.4, "apfu_Mg": 0.8, "apfu_Fe2": 0.7, "Q": 1.9, "J": 0.1},
+    {"apfu_Ca": 0.3, "apfu_Mg": 0.5, "apfu_Fe2": 0.4, "Q": 1.2, "J": 0.8},
+])
+px_projected, px_components = apply_preset_projection(px_rows, px_preset)
+assert px_components == ("Morimoto En", "Morimoto Fs", "Morimoto Wo")
+assert bool(px_projected.loc[0, MORIMOTO_QJ_APPLICABLE])
+assert not bool(px_projected.loc[1, MORIMOTO_QJ_APPLICABLE])
+assert px_projected.loc[0, list(px_components)].notna().all()
+assert px_projected.loc[1, list(px_components)].isna().all()
+near(px_projected.loc[0, "Morimoto En"] + px_projected.loc[0, "Morimoto Fs"] + px_projected.loc[0, "Morimoto Wo"], 100.0)
+
+# An entirely absent optional Mn/Fe3 column is an explicit reduced analytical panel and
+# remains usable; a blank inside a supplied optional column is row-level unknown chemistry.
+px_with_mn_hole = px_rows.iloc[[0]].copy()
+px_with_mn_hole["apfu_Mn"] = None
+px_hole_projected, _ = apply_preset_projection(px_with_mn_hole, px_preset)
+assert not bool(px_hole_projected.loc[0, MORIMOTO_QJ_APPLICABLE])
+assert px_hole_projected.loc[0, list(px_components)].isna().all()
 
 # Plotly customdata must keep immutable analysis IDs as the first element.
 plot_frame = prepared.valid.copy()
