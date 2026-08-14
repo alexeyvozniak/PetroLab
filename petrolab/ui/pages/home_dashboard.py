@@ -3,29 +3,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_datasets, list_projects
+from petrolab.db import list_datasets
 from petrolab.derived import formula_status
 from petrolab.minerals.registry import labels as mineral_labels
 from petrolab.repositories.image_repository import list_image_records
 from petrolab.services.rock_service import rock_summary
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
-
-
-def _project() -> dict | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    by_id = {int(row["id"]): row for row in projects}
-    ids = list(by_id)
-    try:
-        project_id = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        project_id = ids[0]
-    if project_id not in by_id:
-        project_id = ids[0]
-    st.session_state["active_project_id"] = project_id
-    return by_id[project_id]
+from petrolab.ui.project_context import active_project
 
 
 def _go(route: str) -> None:
@@ -39,7 +24,7 @@ def _action(column, label: str, route: str, primary: bool = False) -> None:
 
 
 def render_home_dashboard_page() -> None:
-    project = _project()
+    project = active_project()
     if project is None:
         render_page_header("ПетроЛаб", "Локальное научное рабочее пространство.", eyebrow="Научный дашборд")
         st.info("Создайте первый проект, затем импортируйте Excel или CSV.")
