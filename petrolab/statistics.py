@@ -9,6 +9,8 @@ from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
+from petrolab.column_schema import describe_header
+
 
 @dataclass(frozen=True)
 class PreparedMatrix:
@@ -34,6 +36,13 @@ class ClusterResult:
     method: str
 
 
+CODA_DOMAIN_LABELS = {
+    "oxide_wt": "major/mineral oxides, wt.%",
+    "trace_ug_g": "element concentrations, µg/g",
+    "apfu": "structural-formula apfu",
+}
+
+
 def _numeric_frame(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return dataframe[columns].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
 
@@ -49,14 +58,57 @@ def numeric_feature_candidates(dataframe: pd.DataFrame, *, exclude_meta: bool = 
     return result
 
 
-def _positive_complete_rows(numeric: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Return rows suitable for log-ratio analysis without inventing replacement values.
+def compositional_feature_domain(column: str) -> str | None:
+    """Return a conservative CoDA domain for one numeric column.
 
-    PetroLab deliberately does not add arbitrary pseudocounts. Rows containing a missing,
-    zero or negative selected component are excluded from CLR/ILR analysis. Detection-limit
-    aware replacement belongs in an explicit preprocessing workflow where the censoring
-    information is available.
+    CLR ratios are only meaningful when every selected component belongs to the same
+    compositional system and is expressed on the same scale. Derived ratios, scores and
+    unknown-unit columns are therefore intentionally not admitted automatically.
     """
+    name = str(column)
+    if name.startswith("apfu_"):
+        return "apfu"
+    descriptor = describe_header(name)
+    if descriptor.quantity_kind == "oxide" and descriptor.canonical_unit == "wt%":
+        return "oxide_wt"
+    if descriptor.quantity_kind in {"trace_element", "element_concentration"} and descriptor.canonical_unit == "µg/g":
+        return "trace_ug_g"
+    return None
+
+
+def compositional_feature_candidates(dataframe: pd.DataFrame, domain: str | None = None) -> list[str]:
+    candidates = numeric_feature_candidates(dataframe)
+    return [
+        column for column in candidates
+        if compositional_feature_domain(column) is not None
+        and (domain is None or compositional_feature_domain(column) == domain)
+    ]
+
+
+def validate_compositional_columns(columns: list[str]) -> str:
+    if len(columns) < 2:
+        raise ValueError("Для log-ratio анализа нужны минимум два компонента.")
+    domains = {column: compositional_feature_domain(column) for column in columns}
+    unsupported = [column for column, domain in domains.items() if domain is None]
+    if unsupported:
+        raise ValueError(
+            "CLR/ILR принимает только компоненты одной композиционной системы с известной шкалой. "
+            "Нельзя включать производные показатели или колонки с неизвестной единицей: "
+            + ", ".join(unsupported[:12])
+        )
+    unique = {domain for domain in domains.values() if domain is not None}
+    if len(unique) != 1:
+        labels = [CODA_DOMAIN_LABELS.get(domain, str(domain)) for domain in sorted(unique)]
+        raise ValueError(
+            "Нельзя смешивать в одном CLR/ILR разные композиционные шкалы (например wt.% оксидов, "
+            "µg/g trace elements и apfu). Выберите один тип компонентов. Сейчас выбраны: "
+            + "; ".join(labels)
+        )
+    return str(next(iter(unique)))
+
+
+def _positive_complete_rows(numeric: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Return rows suitable for log-ratio analysis without inventing replacement values."""
     valid = numeric.notna().all(axis=1) & numeric.gt(0).all(axis=1)
     clean = numeric.loc[valid].copy()
     return clean, int((~valid).sum())
@@ -64,6 +116,7 @@ def _positive_complete_rows(numeric: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 def clr_transform(dataframe: pd.DataFrame, columns: list[str]) -> tuple[pd.DataFrame, int]:
     """Centered log-ratio transform following Aitchison compositional geometry."""
+    validate_compositional_columns(columns)
     numeric = _numeric_frame(dataframe, columns)
     clean, excluded = _positive_complete_rows(numeric)
     if clean.empty:
@@ -98,9 +151,8 @@ def ilr_transform(dataframe: pd.DataFrame, columns: list[str]) -> tuple[pd.DataF
 
 
 def logratio_variation_matrix(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Aitchison variation matrix: var[ln(x_i/x_j)] for positive complete pairs."""
-    if len(columns) < 2:
-        raise ValueError("Для variation matrix нужны минимум две переменные.")
+    """Aitchison variation matrix: var[ln(x_i/x_j)] for one coherent domain."""
+    validate_compositional_columns(columns)
     numeric = _numeric_frame(dataframe, columns)
     result = pd.DataFrame(np.nan, index=columns, columns=columns, dtype=float)
     for left in columns:
@@ -137,17 +189,11 @@ def prepare_matrix(
         )
         if len(transformed) < 1:
             raise ValueError("После log-ratio преобразования не осталось строк.")
-        # Additional component-wise scaling changes Aitchison geometry; keep the transformed
-        # coordinates in their natural geometry and make that contract explicit.
         if scaler not in {"none", ""}:
             raise ValueError("Для CLR/ILR используйте масштабирование «none»: дополнительный scaler меняет log-ratio геометрию.")
         return PreparedMatrix(
-            transformed.to_numpy(dtype=float),
-            transformed.index,
-            tuple(map(str, transformed.columns)),
-            "none",
-            transform,
-            excluded,
+            transformed.to_numpy(dtype=float), transformed.index,
+            tuple(map(str, transformed.columns)), "none", transform, excluded,
         )
 
     numeric = _numeric_frame(dataframe, columns)
@@ -182,13 +228,8 @@ def run_pca(prepared: PreparedMatrix, n_components: int = 2) -> PCAResult:
 
 
 def run_clustering(
-    prepared: PreparedMatrix,
-    *,
-    method: str = "kmeans",
-    n_clusters: int = 3,
-    random_state: int = 42,
-    eps: float = 0.8,
-    min_samples: int = 5,
+    prepared: PreparedMatrix, *, method: str = "kmeans", n_clusters: int = 3,
+    random_state: int = 42, eps: float = 0.8, min_samples: int = 5,
     min_cluster_size: int = 5,
 ) -> ClusterResult:
     sample_count = len(prepared.index)
@@ -197,10 +238,7 @@ def run_clustering(
     method = str(method).lower()
     centers = None
     if method == "dbscan":
-        labels = DBSCAN(
-            eps=float(max(eps, 1e-6)),
-            min_samples=int(max(2, min(min_samples, sample_count))),
-        ).fit_predict(prepared.matrix)
+        labels = DBSCAN(eps=float(max(eps, 1e-6)), min_samples=int(max(2, min(min_samples, sample_count)))).fit_predict(prepared.matrix)
         method_name = "DBSCAN"
     elif method == "hdbscan":
         labels = HDBSCAN(
