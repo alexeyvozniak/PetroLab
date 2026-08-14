@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from petrolab.analytical_sessions import TECHNIQUES, list_sessions
+from petrolab.analytical_sessions import TECHNIQUES, list_sessions, session_datasets
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import formula_status
 from petrolab.formula_workflow import recommended_method
@@ -38,9 +38,9 @@ def _session_summary(project_id: int) -> None:
         recent = sessions[0]
         technique = TECHNIQUES.get(str(recent.get("technique")), str(recent.get("technique") or ""))
         render_badges([
-            (f"Sample · {recent.get('sample_name', '')}", "accent"),
+            (f"последний Sample · {recent.get('sample_name', '')}", "accent"),
             (technique, "neutral"),
-            (f"Сессий в проекте · {len(sessions)}", "neutral"),
+            (f"сессий в проекте · {len(sessions)}", "neutral"),
         ])
         st.caption("EPMA/EDS и LA-ICP-MS не сливаются в одно измерение: они остаются отдельными сессиями того же Sample и могут быть связаны через зерно, точку/кратер и шлиф.")
     if st.button("Открыть Samples и сессии", key="workflow_sessions", width="stretch"):
@@ -72,6 +72,7 @@ def _dataset_selector(project_id: int) -> tuple[dict | None, list[dict]]:
     render_badges([
         (f"{dataset.get('source_filename') or 'источник'}", "neutral"),
         (f"{int(dataset.get('row_count') or 0)} анализов", "accent"),
+        ("в активном проекте", "success"),
         ("mixed / требует разбора" if _is_mixed(dataset) else f"модуль · {dataset.get('mineral_key')}", "warning" if _is_mixed(dataset) else "success"),
     ])
     c1, c2 = st.columns(2)
@@ -81,6 +82,37 @@ def _dataset_selector(project_id: int) -> tuple[dict | None, list[dict]]:
         st.session_state["workflow_edit_dataset_ids"] = [int(selected_id)]
         _jump("analyses")
     return dataset, datasets
+
+
+def _dataset_session_context(project_id: int, dataset: dict) -> None:
+    sessions = list_sessions(project_id)
+    linked = []
+    for session in sessions:
+        try:
+            ids = {int(item["id"]) for item in session_datasets(int(session["id"]))}
+        except (KeyError, ValueError):
+            continue
+        if int(dataset["id"]) in ids:
+            linked.append(session)
+
+    if not linked:
+        st.warning(
+            "Этот набор ещё не привязан к canonical Sample / аналитической сессии. PetroLab не угадывает Sample автоматически: один Excel может содержать несколько образцов."
+        )
+        if st.button("Привязать набор к Sample и сессии", key="workflow_attach_session", width="stretch"):
+            _jump("sessions")
+        return
+
+    badges = []
+    for session in linked[:3]:
+        technique = TECHNIQUES.get(str(session.get("technique")), str(session.get("technique") or ""))
+        badges.extend([
+            (f"Sample · {session.get('sample_name', '')}", "accent"),
+            (technique, "success"),
+        ])
+    render_badges(badges)
+    if len(linked) > 3:
+        st.caption(f"И ещё сессий: {len(linked) - 3}.")
 
 
 def _phase_step(dataset: dict) -> None:
@@ -183,6 +215,7 @@ def render_guided_workflow_page() -> None:
     dataset, _ = _dataset_selector(project_id)
     if dataset is None:
         return
+    _dataset_session_context(project_id, dataset)
     _phase_step(dataset)
     _formula_step(dataset)
     _context_step(project_id, dataset)
