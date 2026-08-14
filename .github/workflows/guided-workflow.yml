@@ -9,8 +9,10 @@ on:
       - "petrolab/workflow_screening.py"
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
+      - "petrolab/services/image_relink_service.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
+      - "petrolab/ui/pages/images_dashboard.py"
       - "petrolab/ui/pages/home_dashboard.py"
       - "petrolab/ui/navigation.py"
       - "petrolab/ui/pages/__init__.py"
@@ -23,8 +25,10 @@ on:
       - "petrolab/workflow_screening.py"
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
+      - "petrolab/services/image_relink_service.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
+      - "petrolab/ui/pages/images_dashboard.py"
       - "petrolab/ui/pages/home_dashboard.py"
       - "petrolab/ui/navigation.py"
       - "petrolab/ui/pages/__init__.py"
@@ -53,8 +57,10 @@ jobs:
           petrolab/workflow_screening.py
           petrolab/phase_suggestions.py
           petrolab/repositories/image_repository.py
+          petrolab/services/image_relink_service.py
           petrolab/ui/pages/guided_workflow.py
           petrolab/ui/pages/mixed_minerals.py
+          petrolab/ui/pages/images_dashboard.py
           petrolab/ui/pages/home_dashboard.py
           petrolab/ui/navigation.py
           tests_guided_ui_viewports.py
