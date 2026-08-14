@@ -9,6 +9,7 @@ from unittest.mock import patch
 import petrolab.db as db
 from petrolab.analytical_sessions import attach_datasets, create_session, list_sessions, sample_history, set_annotations
 from petrolab.sample_registry import create_sample, find_sample_matches
+from petrolab.storage import ensure_storage
 
 
 class Workspace:
@@ -22,7 +23,7 @@ class Workspace:
         self.stack.enter_context(patch.object(db, "DB_PATH", data / "petrolab.sqlite3"))
         self.stack.enter_context(patch.object(db, "ASSETS_DIR", data / "assets"))
         self.stack.enter_context(patch.object(db, "BACKUPS_DIR", data / "backups"))
-        db.ensure_storage()
+        ensure_storage()
         with db.connect() as con:
             con.execute("INSERT INTO projects(name, description, created_at) VALUES ('Demo', '', '2026-08-14')")
             self.project_id = int(con.execute("SELECT id FROM projects WHERE name='Demo'").fetchone()["id"])
