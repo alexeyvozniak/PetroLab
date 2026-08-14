@@ -6,12 +6,18 @@ import streamlit as st
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.layout import render_hint, render_page_header
+from petrolab.partition_seed_models import seed_initial_alkaline_models
 
 _META={"_analysis_id","_dataset_id","_project_id","_row_index","_source_row"}
 def render_distribution_page() -> None:
     render_page_header("Распределение элементов", "Первый безопасный режим: наблюдаемые отношения двух конкретных анализов. Это не литературный равновесный D и не Kd обмена.", eyebrow="Исследование")
     project_id=active_project_id()
     if project_id is None: st.info("Сначала выберите проект."); return
+    with st.expander("Библиотека D: щелочные системы", expanded=False):
+        st.caption("Добавляет две экспериментальные модели LaTourrette et al. (1995): Phl–basanite melt и Amp–basanite melt. Они не заменяют ваши собственные D и не применяются автоматически.")
+        if st.button("Добавить проверенные basanite-модели"):
+            made=seed_initial_alkaline_models()
+            st.success("Добавлено моделей: "+str(len(made)) if made else "Эти модели уже есть в библиотеке.")
     datasets=list_accessible_datasets(project_id)
     if not datasets: st.info("В проекте пока нет анализов."); return
     labels={f"{d['name']} · {d['mineral_key']}":d for d in datasets}
