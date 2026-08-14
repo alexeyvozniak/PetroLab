@@ -27,6 +27,26 @@ _AW_F = 18.998403163
 _AW_CL = 35.45
 
 
+_OXFORD_EDS_COMPOUND_NAMES = {
+    "NA": "Na2O", "MG": "MgO", "AL": "Al2O3", "SI": "SiO2", "K": "K2O",
+    "CA": "CaO", "TI": "TiO2", "V": "V2O5", "CR": "Cr2O3", "MN": "MnO",
+    "FE": "FeOt", "FEO": "FeOt", "ZR": "ZrO2", "SR": "SrO", "Y": "Y2O3",
+    "NB": "Nb2O5", "LA": "La2O3", "CE": "Ce2O3", "ND": "Nd2O3",
+    "TA": "Ta2O5", "U": "UO2", "BA": "BaO", "CO": "CoO", "ZN": "ZnO",
+    "P": "P2O5", "S": "SO3",
+}
+_OXFORD_EDS_DIRECT_NAMES = {
+    "F", "CL", "H2O", "SIO2", "TIO2", "AL2O3", "CR2O3", "V2O5", "MNO",
+    "FEO", "ZRO2", "SRO", "Y2O3", "NB2O5", "LA2O3", "CE2O3", "ND2O3",
+    "TA2O5", "UO2", "BAO", "COO", "ZNO", "P2O5", "SO3", "NA2O", "K2O",
+}
+_LA_PPM_HEADER_RE = re.compile(
+    r"^(?P<element>[A-Z][a-z]?)(?P<mass>\d+)_ppm_(?P<field>mean|2sd|lod(?:_.+)?)$",
+    flags=re.IGNORECASE,
+)
+_BELOW_LOD_RE = re.compile(r"^\s*(?:below\s*lod|bdl|<\s*lod)\s*$", flags=re.IGNORECASE)
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -586,6 +606,182 @@ def _import_eds_multiblock_report(
     return combined, combined_map, source_rows
 
 
+
+def _report_text(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _oxford_compound_name(header: object) -> str | None:
+    text = _report_text(header)
+    if not text or text.casefold() in {"spectrum", "in stats.", "total"}:
+        return None
+    token = re.sub(r"[^A-Za-z0-9]", "", text).upper()
+    if token in _OXFORD_EDS_COMPOUND_NAMES:
+        return _OXFORD_EDS_COMPOUND_NAMES[token]
+    if token in _OXFORD_EDS_DIRECT_NAMES:
+        return "FeOt" if token == "FEO" else text
+    return text
+
+
+def _oxford_report_sample(raw: pd.DataFrame, before_row: int) -> str:
+    for row_index in range(max(0, before_row)):
+        for value in raw.iloc[row_index].tolist():
+            text = _report_text(value)
+            if text.casefold().startswith("sample:"):
+                return text.split(":", 1)[1].strip()
+    return ""
+
+
+def _import_oxford_eds_report(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, dict], list[int]] | None:
+    """Flatten AZtec/INCA element/compound/atomic blocks to compound wt%."""
+    for header_index in range(len(raw)):
+        values = [_report_text(value) for value in raw.iloc[header_index].tolist()]
+        starts = [index for index, value in enumerate(values) if value.casefold() == "spectrum"]
+        if len(starts) < 2 or "in stats." not in {value.casefold() for value in values}:
+            continue
+        compound_start = next((
+            start for start in starts
+            if header_index >= 2
+            and "compound" in _report_text(raw.iat[header_index - 2, start]).casefold()
+        ), None)
+        if compound_start is None:
+            continue
+        block_end = next((start for start in starts if start > compound_start), raw.shape[1])
+        block_headers = values[compound_start:block_end]
+        records: list[dict[str, object]] = []
+        source_rows: list[int] = []
+        for row_index in range(header_index + 1, len(raw)):
+            point = _report_text(raw.iat[row_index, compound_start])
+            in_stats = _report_text(raw.iat[row_index, compound_start + 1])
+            if not point or in_stats.casefold() not in {"yes", "no"}:
+                continue
+            record: dict[str, object] = {
+                "Sample": _oxford_report_sample(raw, header_index),
+                "Point": point,
+                "Method": "SEM-EDS",
+                "EDS source selection": in_stats,
+                "QC source status": (
+                    "accepted by source" if in_stats.casefold() == "yes"
+                    else "review: excluded from source statistics"
+                ),
+                "Import representation": "Oxford EDS compound wt%",
+            }
+            for offset, header in enumerate(block_headers[2:], start=2):
+                name = _oxford_compound_name(header)
+                if not name:
+                    continue
+                if name in COMMON_OXIDES or name in {"CoO", "FeOt"}:
+                    name = f"{name} wt%"
+                record[name] = raw.iat[row_index, compound_start + offset]
+            records.append(record)
+            source_rows.append(row_index + 1)
+        if not records:
+            continue
+        frame, mapping = normalize_columns_with_map(pd.DataFrame(records))
+        mapping["__schema__"] = {
+            "adapter": "oxford_eds",
+            "adapter_note": (
+                "Использован только блок All results in compound%; "
+                "element wt%, atomic% и сводные строки исключены."
+            ),
+        }
+        return add_qc_columns(frame), mapping, source_rows
+    return None
+
+
+def _is_reference_material(label: str) -> bool:
+    return bool(re.search(r"(?:^|\b)(?:nist|gsc|gsd|bcr|bhvo|bir|macs)", label, re.IGNORECASE))
+
+
+def _import_la_icp_ms_raw_data(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, dict], list[int]] | None:
+    """Import isotope_ppm_mean/2SD/LOD exports while retaining uncertainty and LOD."""
+    if raw.empty:
+        return None
+    headers = [_report_text(value) for value in raw.iloc[0].tolist()]
+    fields: dict[str, dict[str, int]] = {}
+    for column_index, header in enumerate(headers):
+        match = _LA_PPM_HEADER_RE.match(header)
+        if not match:
+            continue
+        element = match.group("element").capitalize()
+        kind = {"mean": "value", "2sd": "error"}.get(match.group("field").casefold(), "lod")
+        fields.setdefault(element, {})[kind] = column_index
+    if len(fields) < 3:
+        return None
+
+    records: list[dict[str, object]] = []
+    source_rows: list[int] = []
+    sample = ""
+    data_columns = [column for positions in fields.values() for column in positions.values()]
+    for row_index in range(1, len(raw)):
+        point = _report_text(raw.iat[row_index, 0])
+        has_data = any(_report_text(raw.iat[row_index, column]) for column in data_columns)
+        if not point:
+            continue
+        if not has_data:
+            sample = point
+            continue
+        below_lod = 0
+        high_relative_error = 0
+        record: dict[str, object] = {
+            "Sample": sample,
+            "Point": point,
+            "Method": "LA-ICP-MS",
+            "Import representation": "LA-ICP-MS ppm mean + 2SD + LOD",
+            "Record kind": "reference material" if _is_reference_material(sample) else "analysis",
+        }
+        for element, positions in fields.items():
+            if "value" not in positions:
+                continue
+            value = raw.iat[row_index, positions["value"]]
+            error = raw.iat[row_index, positions["error"]] if "error" in positions else pd.NA
+            lod = raw.iat[row_index, positions["lod"]] if "lod" in positions else pd.NA
+            if isinstance(value, str) and _BELOW_LOD_RE.match(value):
+                below_lod += 1
+                value = f"<{_report_text(lod)}" if _report_text(lod) else "<LOD"
+            record[f"{element} ppm"] = value
+            if "error" in positions:
+                record[f"{element} 2SD [µg/g]"] = error
+            if "lod" in positions:
+                record[f"{element} LOD [µg/g]"] = lod
+            numeric_value = pd.to_numeric(pd.Series([value]), errors="coerce").iat[0]
+            numeric_error = pd.to_numeric(pd.Series([error]), errors="coerce").iat[0]
+            if pd.notna(numeric_value) and numeric_value > 0 and pd.notna(numeric_error) and numeric_error >= numeric_value:
+                high_relative_error += 1
+        notices = []
+        if below_lod:
+            notices.append(f"{below_lod} <LOD")
+        if high_relative_error:
+            notices.append(f"{high_relative_error} analytes with 2SD ≥ value")
+        record["QC source status"] = "; ".join(notices) if notices else "no automatic warnings"
+        records.append(record)
+        source_rows.append(row_index + 1)
+    if not records:
+        return None
+    frame, mapping = normalize_columns_with_map(pd.DataFrame(records))
+    for element, positions in fields.items():
+        for kind, source_index in positions.items():
+            if kind == "value":
+                continue
+            label = f"{element} {'2SD' if kind == 'error' else 'LOD'}"
+            column = next((name for name in mapping if str(name).startswith(label)), "")
+            if column:
+                mapping[column].update({
+                    "original": headers[source_index],
+                    "quantity_kind": "uncertainty" if kind == "error" else "detection_limit",
+                    "source_unit": "ppm",
+                    "canonical_unit": "µg/g",
+                    "to_canonical_factor": 1.0,
+                    "to_source_factor": 1.0,
+                })
+    mapping["__schema__"] = {
+        "adapter": "la_icp_ms_raw",
+        "adapter_note": "BelowLOD преобразуется в <LOD конкретного аналита; 2SD и LOD сохраняются отдельными колонками.",
+    }
+    return add_qc_columns(frame), mapping, source_rows
+
 def read_tabular_with_map(
     file_bytes: bytes,
     filename: str,
@@ -596,6 +792,10 @@ def read_tabular_with_map(
     source = io.BytesIO(file_bytes)
     header = max(0, int(header_row) - 1)
     if suffix in {".xlsx", ".xlsm", ".xls"}:
+        raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name or 0, header=None, dtype=object)
+        adapted = _import_oxford_eds_report(raw) or _import_la_icp_ms_raw_data(raw)
+        if adapted is not None:
+            return adapted
         eds = _import_eds_multiblock_report(file_bytes, sheet_name)
         if eds is not None:
             df, mapping, source_rows = eds
