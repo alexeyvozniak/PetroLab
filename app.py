@@ -20,6 +20,7 @@ from petrolab.ui.pages import (
     render_export_page,
     render_formulae_page,
     render_generations_page,
+    render_guided_workflow_page,
     render_help_page,
     render_home_page,
     render_images_page,
@@ -38,6 +39,7 @@ from petrolab.ui.pages import (
     render_updates_page,
 )
 from petrolab.ui.theme import apply_theme
+from petrolab.ui.workflow_routing import route_fresh_import_to_workflow
 
 
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
@@ -80,9 +82,11 @@ def _reconcile_plot_recipe_state() -> None:
 
 
 _reconcile_plot_recipe_state()
+route_fresh_import_to_workflow()
 
 ROUTES = {
     "home": render_home_page,
+    "workflow": render_guided_workflow_page,
     "intake": render_data_intake_page,
     "sessions": render_analytical_sessions_page,
     "mixed_minerals": render_mixed_minerals_page,

@@ -18,6 +18,9 @@ SUGGESTED_MINERAL_COLUMN = "Suggested Mineral"
 SUGGESTION_CONFIDENCE_COLUMN = "Mineral suggestion confidence"
 SUGGESTION_REASON_COLUMN = "Mineral suggestion reason"
 SUGGESTION_RULESET_COLUMN = "Mineral suggestion ruleset"
+_MIXED_SUFFIX = " · Неразобранные / mixed"
+_RESOLVED_SUFFIX = " · Исходный mixed (разобрано)"
+_TEMP_ROW_BASE = -1_000_000_000
 
 # `suggest_phase()` predates Mineral Recognition v1 and is retained as a broad-family compatibility
 # API. Dataframe suggestions use the richer conservative chemical targets.
@@ -32,6 +35,93 @@ _LEGACY_BROAD_TARGETS = {
     "K-feldspar": "feldspar",
     "plagioclase": "feldspar",
 }
+
+# Recognition labels are richer than the mineral-specific formula modules. Keep both:
+# the exact phase label is used in the child dataset name, while `mineral_key` selects the
+# safest available formula/QC module. Unknown or volatile/structure-dependent phases stay
+# `generic` rather than being forced through an invalid structural formula.
+_EXACT_STORAGE_KEYS = {
+    "trioctahedral mica": "mica",
+    "dioctahedral mica": "mica",
+    "Li-mica": "mica",
+    "calcic amphibole": "amphibole",
+    "Ti-rich calcic amphibole": "amphibole",
+    "sodic amphibole": "amphibole",
+    "sodic-calcic amphibole": "amphibole",
+    "K-feldspar": "feldspar",
+    "plagioclase": "feldspar",
+    "nepheline": "nepheline",
+    "kalsilite": "feldspathoid",
+    "leucite": "feldspathoid",
+    "sodalite-group": "feldspathoid",
+    "analcime": "feldspathoid",
+    "olivine": "olivine",
+    "monticellite": "olivine",
+    "clinopyroxene": "clinopyroxene",
+    "Na-Ca clinopyroxene": "clinopyroxene",
+    "Na-clinopyroxene": "clinopyroxene",
+    "orthopyroxene": "orthopyroxene",
+    "low-Ca pyroxene": "orthopyroxene",
+    "garnet": "garnet",
+    "Ti-rich garnet": "garnet",
+    "Ca-carbonate": "carbonate",
+    "Ca-Mg carbonate": "carbonate",
+    "Ca-Fe-Mg carbonate": "carbonate",
+    "Mg-carbonate": "carbonate",
+    "Fe-carbonate": "carbonate",
+    "Mn-carbonate": "carbonate",
+    "Sr-carbonate": "carbonate",
+    "Sr-rich Ca carbonate": "carbonate",
+    "Ba-rich Ca carbonate": "carbonate",
+    "Cr-spinel": "spinel",
+    "spinel-group oxide": "spinel",
+    "Fe-Ti oxide": "fe_ti_oxide",
+    "Fe-oxide": "spinel",
+    "perovskite": "perovskite",
+    "REE-Na titanate (loparite-type)": "perovskite",
+    "apatite": "apatite",
+    "titanite": "titanite",
+    "zircon": "zircon",
+}
+
+
+def mineral_key_for_phase(phase_label: str) -> str:
+    """Return the safest existing mineral module for a recognition/edited phase label."""
+    clean = str(phase_label).strip()
+    if clean in _EXACT_STORAGE_KEYS:
+        return _EXACT_STORAGE_KEYS[clean]
+    lowered = clean.casefold()
+    if "mica" in lowered or "слюд" in lowered:
+        return "mica"
+    if "amphibol" in lowered or "амфиб" in lowered:
+        return "amphibole"
+    if "clinopyrox" in lowered or "клинопирокс" in lowered:
+        return "clinopyroxene"
+    if "orthopyrox" in lowered or "ортопирокс" in lowered:
+        return "orthopyroxene"
+    if "feldspar" in lowered or "полев" in lowered:
+        return "feldspar"
+    if "feldspath" in lowered or "nephe" in lowered or "sodal" in lowered or "leuc" in lowered:
+        return "feldspathoid"
+    if "garnet" in lowered or "гранат" in lowered:
+        return "garnet"
+    if "carbonate" in lowered or "карбонат" in lowered:
+        return "carbonate"
+    if "spinel" in lowered or "шпинел" in lowered or "chromite" in lowered:
+        return "spinel"
+    if "ilmen" in lowered or "fe-ti oxide" in lowered:
+        return "fe_ti_oxide"
+    if "perovsk" in lowered or "loparite" in lowered:
+        return "perovskite"
+    if "apatite" in lowered or "апатит" in lowered:
+        return "apatite"
+    if "titanite" in lowered or "титанит" in lowered:
+        return "titanite"
+    if "zircon" in lowered or "циркон" in lowered:
+        return "zircon"
+    if "oliv" in lowered or "олив" in lowered:
+        return "olivine"
+    return "generic"
 
 
 def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, list[str]]]:
@@ -54,20 +144,157 @@ def attach_phase_suggestions(dataframe: pd.DataFrame) -> pd.DataFrame:
     return recognize_dataframe_extended(dataframe)
 
 
-def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[str, str]) -> dict[str, int]:
-    """Move confirmed analyses from one mixed dataset into child mineral datasets.
+def _copy_dataset_context(con, source_dataset_id: int, child_dataset_id: int) -> None:
+    """Copy project/source/session memberships so split children stay visible everywhere."""
+    has_links = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_dataset_links'"
+    ).fetchone()
+    if has_links:
+        rows = con.execute(
+            "SELECT project_id, note, purpose FROM project_dataset_links WHERE dataset_id=?",
+            (int(source_dataset_id),),
+        ).fetchall()
+        con.executemany(
+            """INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (int(row["project_id"]), int(child_dataset_id), str(row["note"]), _utcnow(), str(row["purpose"]))
+                for row in rows
+            ],
+        )
 
-    Analysis IDs, data_json, source row, image links and provenance remain intact. No rows are
-    duplicated. Unassigned analyses stay in the source dataset. Suggestions never reach this
-    function unless the user explicitly confirms an assignment.
+    has_sessions = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='analytical_session_datasets'"
+    ).fetchone()
+    if has_sessions:
+        sessions = con.execute(
+            "SELECT session_id FROM analytical_session_datasets WHERE dataset_id=?",
+            (int(source_dataset_id),),
+        ).fetchall()
+        con.executemany(
+            "INSERT OR IGNORE INTO analytical_session_datasets(session_id, dataset_id) VALUES (?, ?)",
+            [(int(row["session_id"]), int(child_dataset_id)) for row in sessions],
+        )
+
+    has_studies = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_studies'"
+    ).fetchone()
+    if has_studies:
+        studies = con.execute(
+            "SELECT study_id, source_table, source_note FROM dataset_studies WHERE dataset_id=?",
+            (int(source_dataset_id),),
+        ).fetchall()
+        con.executemany(
+            """INSERT OR REPLACE INTO dataset_studies(dataset_id, study_id, source_table, source_note)
+               VALUES (?, ?, ?, ?)""",
+            [
+                (int(child_dataset_id), row["study_id"], row["source_table"], row["source_note"])
+                for row in studies
+            ],
+        )
+
+
+def _root_dataset_name(name: str) -> str:
+    clean = str(name)
+    for suffix in (_MIXED_SUFFIX, _RESOLVED_SUFFIX):
+        if clean.endswith(suffix):
+            return clean[: -len(suffix)]
+    return clean
+
+
+def _existing_phase_dataset(con, source, child_name: str) -> int | None:
+    """Find a previously created phase child from the same immutable source snapshot."""
+    row = con.execute(
+        """SELECT id FROM datasets
+           WHERE id<>? AND project_id=? AND name=? AND source_filename=? AND source_sheet=? AND source_sha256=?
+           ORDER BY id LIMIT 1""",
+        (
+            int(source["id"]), int(source["project_id"]), child_name,
+            str(source["source_filename"]), str(source["source_sheet"]), str(source["source_sha256"]),
+        ),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _record_confirmed_phases(con, assignments: Mapping[str, str]) -> None:
+    """Persist exact human-confirmed phase labels independently of the formula module."""
+    con.executemany(
+        """INSERT INTO analysis_annotations(analysis_id, namespace, key, value, source, updated_at)
+           VALUES (?, 'phase', 'confirmed_phase', ?, 'manual', CURRENT_TIMESTAMP)
+           ON CONFLICT(analysis_id, namespace, key) DO UPDATE SET
+               value=excluded.value, source=excluded.source, updated_at=CURRENT_TIMESTAMP""",
+        [(str(analysis_id), str(phase)) for analysis_id, phase in assignments.items()],
+    )
+
+
+def _temporary_row_start(con, dataset_id: int, count: int) -> int:
+    row = con.execute(
+        "SELECT MIN(row_index) AS min_index FROM analysis_rows WHERE dataset_id=?",
+        (int(dataset_id),),
+    ).fetchone()
+    current_min = int(row["min_index"]) if row and row["min_index"] is not None else 0
+    return min(_TEMP_ROW_BASE, current_min - int(count) - 10)
+
+
+def _reindex_dataset_rows(con, dataset_id: int) -> int:
+    """Normalize row_index without violating the unique(dataset_id,row_index) constraint."""
+    rows = con.execute(
+        "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
+        (int(dataset_id),),
+    ).fetchall()
+    if not rows:
+        con.execute("UPDATE datasets SET row_count=0 WHERE id=?", (int(dataset_id),))
+        return 0
+    temp_start = _temporary_row_start(con, int(dataset_id), len(rows))
+    con.executemany(
+        "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+        [(temp_start - index, row["analysis_id"]) for index, row in enumerate(rows)],
+    )
+    con.executemany(
+        "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+        [(index, row["analysis_id"]) for index, row in enumerate(rows)],
+    )
+    con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(rows), int(dataset_id)))
+    return len(rows)
+
+
+def _move_rows_to_dataset(con, source_dataset_id: int, target_dataset_id: int, analysis_ids: list[str]) -> None:
+    """Append selected rows to an existing child using collision-free temporary indices."""
+    if not analysis_ids:
+        return
+    temp_start = _temporary_row_start(con, int(target_dataset_id), len(analysis_ids))
+    for offset, analysis_id in enumerate(analysis_ids):
+        con.execute(
+            """UPDATE analysis_rows SET dataset_id=?, row_index=?
+               WHERE dataset_id=? AND analysis_id=?""",
+            (int(target_dataset_id), temp_start - offset, int(source_dataset_id), str(analysis_id)),
+        )
+    _reindex_dataset_rows(con, int(target_dataset_id))
+
+
+def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[str, str]) -> dict[str, int]:
+    """Move confirmed analyses from one mixed dataset into reusable child phase datasets.
+
+    `assignments` values are human-readable phase labels, not necessarily PetroLab formula-module
+    keys. Analysis IDs, source rows, point-image links and provenance remain intact. Child datasets
+    inherit project/source/session membership. Unassigned analyses remain in the original dataset,
+    which is labelled as unresolved/mixed. Repeated review reuses an existing phase child from the
+    same source snapshot instead of creating duplicate datasets. Exact confirmed labels are stored
+    per analysis so method-linked LA/EPMA rows can reuse the interpretation without conflating data.
     """
     clean = {
-        str(analysis_id).strip(): str(mineral).strip()
-        for analysis_id, mineral in assignments.items()
-        if str(analysis_id).strip() and str(mineral).strip()
+        str(analysis_id).strip(): str(phase).strip()
+        for analysis_id, phase in assignments.items()
+        if str(analysis_id).strip() and str(phase).strip()
     }
     if not clean:
         return {}
+
+    # `analysis_annotations` is a project-independent annotation table keyed by immutable analysis_id.
+    # Initialise it lazily here so mixed splitting works even if the Sessions page was never opened.
+    from petrolab.analytical_sessions import ensure_session_schema
+    ensure_session_schema()
+
     now = _utcnow()
     with connect() as con:
         source = con.execute("SELECT * FROM datasets WHERE id=?", (int(source_dataset_id),)).fetchone()
@@ -87,58 +314,36 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
             str(row[1]) for row in con.execute("PRAGMA table_info(datasets)").fetchall()
             if str(row[1]) != "id"
         ]
+        root_name = _root_dataset_name(str(source["name"]))
         created: dict[str, int] = {}
-        for mineral in sorted(set(clean.values())):
-            values = {column: source[column] for column in columns}
-            values["name"] = f"{source['name']} · {mineral}"
-            values["mineral_key"] = mineral
-            values["row_count"] = 0
-            values["imported_at"] = now
-            placeholders = ",".join("?" for _ in columns)
-            cur = con.execute(
-                f"INSERT INTO datasets({','.join(columns)}) VALUES ({placeholders})",
-                [values[column] for column in columns],
-            )
-            child_id = int(cur.lastrowid)
-            created[mineral] = child_id
-            has_studies = con.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_studies'"
-            ).fetchone()
-            study = con.execute(
-                "SELECT study_id, source_table, source_note FROM dataset_studies WHERE dataset_id=?",
-                (int(source_dataset_id),),
-            ).fetchone() if has_studies else None
-            if study:
-                con.execute(
-                    "INSERT OR REPLACE INTO dataset_studies(dataset_id, study_id, source_table, source_note) VALUES (?, ?, ?, ?)",
-                    (child_id, study["study_id"], study["source_table"], study["source_note"]),
+        for phase_label in sorted(set(clean.values()), key=str.casefold):
+            child_name = f"{root_name} · {phase_label}"
+            child_id = _existing_phase_dataset(con, source, child_name)
+            if child_id is None:
+                values = {column: source[column] for column in columns}
+                values["name"] = child_name
+                values["mineral_key"] = mineral_key_for_phase(phase_label)
+                values["row_count"] = 0
+                values["imported_at"] = now
+                placeholders = ",".join("?" for _ in columns)
+                cur = con.execute(
+                    f"INSERT INTO datasets({','.join(columns)}) VALUES ({placeholders})",
+                    [values[column] for column in columns],
                 )
+                child_id = int(cur.lastrowid)
+                _copy_dataset_context(con, int(source_dataset_id), child_id)
+            created[phase_label] = int(child_id)
 
-        for mineral, child_id in created.items():
-            ids = [analysis_id for analysis_id, assigned in clean.items() if assigned == mineral]
-            marks = ",".join("?" for _ in ids)
-            con.execute(
-                f"UPDATE analysis_rows SET dataset_id=? WHERE dataset_id=? AND analysis_id IN ({marks})",
-                [child_id, int(source_dataset_id), *ids],
-            )
-            moved = con.execute(
-                "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
-                (child_id,),
-            ).fetchall()
-            con.executemany(
-                "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
-                [(index, row["analysis_id"]) for index, row in enumerate(moved)],
-            )
-            con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(moved), child_id))
+        for phase_label, child_id in created.items():
+            ids = [analysis_id for analysis_id, assigned in clean.items() if assigned == phase_label]
+            _move_rows_to_dataset(con, int(source_dataset_id), int(child_id), ids)
 
-        remaining = con.execute(
-            "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
-            (int(source_dataset_id),),
-        ).fetchall()
-        con.executemany(
-            "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
-            [(index, row["analysis_id"]) for index, row in enumerate(remaining)],
+        _record_confirmed_phases(con, clean)
+        remaining_count = _reindex_dataset_rows(con, int(source_dataset_id))
+        source_name = f"{root_name}{_MIXED_SUFFIX}" if remaining_count else f"{root_name}{_RESOLVED_SUFFIX}"
+        con.execute(
+            "UPDATE datasets SET name=? WHERE id=?",
+            (source_name, int(source_dataset_id)),
         )
-        con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(remaining), int(source_dataset_id)))
         con.commit()
     return created

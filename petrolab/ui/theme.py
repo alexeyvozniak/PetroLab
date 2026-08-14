@@ -260,11 +260,16 @@ h3 {
     background: rgba(72,109,101,.08);
     border-color: transparent;
 }
-[data-testid="stSidebar"] .stButton > button[kind="primary"] {
-    background: var(--petro-accent-soft);
-    color: var(--petro-accent-hover);
-    border-color: #c9dcd6;
+[data-testid="stSidebar"] .stButton > button[kind="primary"],
+[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {
+    background: var(--petro-accent-soft) !important;
+    color: var(--petro-accent-hover) !important;
+    border-color: #c9dcd6 !important;
     font-weight: 650;
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] p,
+[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] p {
+    color: var(--petro-accent-hover) !important;
 }
 
 [data-testid="stExpander"] {
@@ -316,6 +321,20 @@ textarea:focus-visible,
     .block-container { padding-left: .7rem; padding-right: .7rem; padding-top: .75rem; }
     h1, .petrolab-page-title { font-size: 1.7rem; }
     h2 { font-size: 1.25rem; }
+    .petrolab-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: .15rem;
+        margin: 1.25rem 0 .65rem;
+    }
+    .petrolab-section-title,
+    .petrolab-section-note {
+        width: 100%;
+        max-width: none;
+    }
+    .petrolab-section-title { font-size: 1.12rem; }
+    .petrolab-section-note { font-size: .78rem; line-height: 1.4; }
     .petrolab-workspace { padding: .65rem; border-radius: var(--petro-radius-md); }
     .petrolab-card { padding: .8rem .85rem; }
     .stButton > button, .stDownloadButton > button { min-height: 2.65rem; }

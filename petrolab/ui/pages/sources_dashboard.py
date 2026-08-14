@@ -52,6 +52,17 @@ FE_OPTIONS = {
 }
 
 
+def _import_mineral_keys() -> list[str]:
+    """Put the scientifically safe mixed/unknown mode first only in the import workflow."""
+    return ["generic", *[key for key in MINERALS if key != "generic"]]
+
+
+def _import_mineral_label(key: str) -> str:
+    if key == "generic":
+        return "Смешанный / определить автоматически"
+    return MINERALS[key].name_ru
+
+
 def _continue_after_import(dataset_ids: list[int], project_id: int) -> None:
     """Attach fresh global data to this project and persist the next-step prompt."""
     for dataset_id in dataset_ids:
@@ -84,7 +95,12 @@ def _render_import_continue(project_id: int) -> None:
     st.caption("Следующий шаг можно сделать сейчас или вернуться к нему позже — исходные данные уже сохранены.")
     if len(dataset_ids) == 1:
         dataset = datasets[dataset_ids[0]]
-        if recommended_method(str(dataset["mineral_key"])):
+        if str(dataset["mineral_key"]) == "generic":
+            if st.button("Разобрать фазы и выбросы", type="primary", key="import_to_phases", width="stretch"):
+                st.session_state["workflow_mixed_dataset_id"] = int(dataset["id"])
+                navigate("mixed_minerals")
+                st.rerun()
+        elif recommended_method(str(dataset["mineral_key"])):
             if st.button("Проверить формулу и APFU", type="primary", key="import_to_formula", width="stretch"):
                 st.session_state["workflow_formula_dataset_id"] = int(dataset["id"])
                 st.session_state.pop("formula_dataset", None)
@@ -94,7 +110,13 @@ def _render_import_continue(project_id: int) -> None:
                     st.session_state["workflow_formula_method_id"] = suggested.id
                 navigate("formulae")
                 st.rerun()
-    if st.button("Построить график", key="import_to_plot", width="stretch"):
+    c1, c2 = st.columns(2)
+    if c1.button("Открыть рабочий процесс", key="import_to_workflow", width="stretch"):
+        if dataset_ids:
+            st.session_state["workflow_focus_dataset_id"] = int(dataset_ids[0])
+        navigate("workflow")
+        st.rerun()
+    if c2.button("Построить график", key="import_to_plot", width="stretch"):
         st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in dataset_ids]
         st.session_state.pop("quick_plot_datasets", None)
         navigate("plots")
@@ -109,6 +131,7 @@ def _sheet_settings(
 ) -> tuple[dict[str, int], dict[str, str]]:
     header_rows: dict[str, int] = {}
     mineral_keys: dict[str, str] = {}
+    mineral_keys_ordered = _import_mineral_keys()
     if len(selected) > 1:
         render_hint("У каждого выбранного листа можно задать собственный минерал и строку заголовков.")
     for index, sheet in enumerate(selected):
@@ -120,9 +143,9 @@ def _sheet_settings(
                 key=f"{prefix}_header_{index}",
             ))
             mineral_keys[sheet] = c2.selectbox(
-                "Минерал", list(MINERALS),
-                index=list(MINERALS).index(default_mineral),
-                format_func=lambda key: MINERALS[key].name_ru,
+                "Минерал / режим", mineral_keys_ordered,
+                index=mineral_keys_ordered.index(default_mineral),
+                format_func=_import_mineral_label,
                 key=f"{prefix}_mineral_{index}",
             )
     return header_rows, mineral_keys
@@ -290,9 +313,11 @@ def _render_linked_import(project_id: int) -> None:
         st.info("XLS/CSV: файл можно импортировать и перечитывать, но обратная запись в источник отключена.")
 
     selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="linked_sheets")
+    mineral_options = _import_mineral_keys()
     default_mineral = st.selectbox(
-        "Минерал по умолчанию", list(MINERALS),
-        format_func=lambda key: MINERALS[key].name_ru, key="linked_mineral"
+        "Что находится в файле", mineral_options, index=0,
+        format_func=_import_mineral_label, key="linked_mineral",
+        help="Если в одном листе несколько фаз или минерал пока неизвестен, оставьте первый вариант — после импорта PetroLab откроет разбор фаз и выбросов.",
     )
     dataset_name = st.text_input("Название набора", value=source_path.stem, key="linked_dataset_name")
     target_project_id = _import_target(project_id, "linked_import_target")
@@ -341,9 +366,11 @@ def _render_uploaded_import(project_id: int) -> None:
         st.error(f"Не удалось открыть загруженный файл: {exc}")
         return
     selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="upload_sheets")
+    mineral_options = _import_mineral_keys()
     default_mineral = st.selectbox(
-        "Минерал по умолчанию", list(MINERALS),
-        format_func=lambda key: MINERALS[key].name_ru, key="upload_mineral"
+        "Что находится в файле", mineral_options, index=0,
+        format_func=_import_mineral_label, key="upload_mineral",
+        help="Если в одном листе несколько фаз или минерал пока неизвестен, оставьте первый вариант — после импорта PetroLab откроет разбор фаз и выбросов.",
     )
     dataset_name = st.text_input("Название набора", value=Path(uploaded.name).stem, key="upload_dataset_name")
     target_project_id = _import_target(project_id, "upload_import_target")
@@ -427,7 +454,7 @@ def render_sources_dashboard_page() -> None:
     context = str(project["name"]) if project else "Проект не выбран"
     render_page_header(
         "Новые анализы",
-        "Добавить файл → проверить листы → назначить сущности → preview и QC → сохранить → открыть график.",
+        "Добавить файл → проверить листы → назначить сущности → preview и QC → сохранить → PetroLab предложит следующий научный шаг.",
         eyebrow="Данные",
         context=context,
     )

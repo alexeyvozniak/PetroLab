@@ -75,7 +75,7 @@ def create_image_record(
 
 
 def replace_image_analysis_links(asset_id: int, analysis_ids: Iterable[str]) -> None:
-    """Replace point links for one existing image in a single SQLite transaction."""
+    """Replace point links while allowing a split dataset to keep its original image context."""
     ensure_image_link_schema()
     unique_ids = tuple(dict.fromkeys(str(value) for value in analysis_ids if value))
     if not unique_ids:
@@ -83,12 +83,11 @@ def replace_image_analysis_links(asset_id: int, analysis_ids: Iterable[str]) -> 
     legacy_analysis_id = unique_ids[0] if len(unique_ids) == 1 else None
     with connect() as con:
         asset = con.execute(
-            "SELECT dataset_id FROM image_assets WHERE id=?",
+            "SELECT dataset_id, project_id FROM image_assets WHERE id=?",
             (int(asset_id),),
         ).fetchone()
         if asset is None:
             raise KeyError(f"Изображение {asset_id} не найдено")
-        dataset_id = int(asset["dataset_id"])
         marks = ",".join("?" for _ in unique_ids)
         rows = con.execute(
             f"SELECT analysis_id, dataset_id FROM analysis_rows WHERE analysis_id IN ({marks})",
@@ -98,9 +97,18 @@ def replace_image_analysis_links(asset_id: int, analysis_ids: Iterable[str]) -> 
         missing = [analysis_id for analysis_id in unique_ids if analysis_id not in found]
         if missing:
             raise ValueError("Не найдены аналитические точки: " + ", ".join(value[:8] for value in missing))
-        wrong = [analysis_id for analysis_id in unique_ids if found[analysis_id] != dataset_id]
-        if wrong:
-            raise ValueError("Нельзя связать изображение с точкой из другого набора")
+
+        dataset_ids = sorted(set(found.values()))
+        visible = {
+            int(row["dataset_id"])
+            for row in con.execute(
+                f"SELECT dataset_id FROM project_dataset_links WHERE project_id=? AND dataset_id IN ({','.join('?' for _ in dataset_ids)})",
+                [int(asset["project_id"]), *dataset_ids],
+            ).fetchall()
+        }
+        if any(dataset_id not in visible for dataset_id in dataset_ids):
+            raise ValueError("Нельзя связать изображение с точкой вне рабочего проекта изображения")
+
         con.execute("DELETE FROM image_analysis_links WHERE asset_id=?", (int(asset_id),))
         con.executemany(
             "INSERT INTO image_analysis_links(asset_id, analysis_id) VALUES (?, ?)",
@@ -145,8 +153,18 @@ def list_image_records(
         clauses.append("i.project_id=?")
         params.append(int(project_id))
     if dataset_id is not None:
-        clauses.append("i.dataset_id=?")
-        params.append(int(dataset_id))
+        # A point-linked image follows the analysis_id even after a mixed dataset is split.
+        # Dataset-wide/field-wide images remain attached to their original raw dataset.
+        clauses.append(
+            """(
+                i.dataset_id=? OR EXISTS (
+                    SELECT 1 FROM image_analysis_links l
+                    JOIN analysis_rows ar ON ar.analysis_id=l.analysis_id
+                    WHERE l.asset_id=i.id AND ar.dataset_id=?
+                )
+            )"""
+        )
+        params.extend([int(dataset_id), int(dataset_id)])
     if analysis_id is not None:
         clauses.append(
             "EXISTS (SELECT 1 FROM image_analysis_links l WHERE l.asset_id=i.id AND l.analysis_id=?)"
