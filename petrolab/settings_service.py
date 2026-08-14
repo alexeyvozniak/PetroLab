@@ -15,6 +15,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ui_density": "comfortable",
     "show_help_hints": True,
     "show_release_notes_on_home": True,
+    "check_updates_automatically": True,
     "default_outlier_method": "MAD",
     "default_ree_reference": "CI-хондрит · McDonough & Sun (1995)",
 }

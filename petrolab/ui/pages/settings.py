@@ -30,6 +30,10 @@ def render_settings_page() -> None:
         )
         show_help = st.checkbox("Показывать поясняющие подсказки", value=bool(settings.get("show_help_hints", True)))
         show_updates = st.checkbox("Показывать «Что нового» на главной", value=bool(settings.get("show_release_notes_on_home", True)))
+        check_updates = st.checkbox(
+            "Проверять наличие новой версии", value=bool(settings.get("check_updates_automatically", True)),
+            help="Раз в несколько часов ПетроЛаб запрашивает у GitHub только номер публичной версии. Данные проектов, Excel и изображения не передаются.",
+        )
         render_hint("Компактный режим уменьшает отступы, но не размер текста и элементов управления.")
 
     with figures_tab:
@@ -79,6 +83,7 @@ def render_settings_page() -> None:
             "ui_density": density_labels.get(density_label or "Комфортная", "comfortable"),
             "show_help_hints": show_help,
             "show_release_notes_on_home": show_updates,
+            "check_updates_automatically": check_updates,
             "default_ree_reference": ree_ref,
             "default_outlier_method": outlier,
         })
