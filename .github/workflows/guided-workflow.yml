@@ -7,6 +7,7 @@ on:
       - feature/guided-analysis-workflow
     paths:
       - "petrolab/workflow_screening.py"
+      - "petrolab/phase_linkage.py"
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
@@ -24,6 +25,7 @@ on:
   pull_request:
     paths:
       - "petrolab/workflow_screening.py"
+      - "petrolab/phase_linkage.py"
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
@@ -57,6 +59,7 @@ jobs:
           python -m py_compile
           app.py
           petrolab/workflow_screening.py
+          petrolab/phase_linkage.py
           petrolab/phase_suggestions.py
           petrolab/repositories/image_repository.py
           petrolab/services/image_relink_service.py
