@@ -37,8 +37,10 @@ for page_name in ["home_dashboard.py", "sources_dashboard.py", "analyses_dashboa
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
-# Import UI is a normal dashboard renderer, not a runtime monkeypatch.
+# First legacy/dashboard split is collapsed: import and home have one authoritative renderer.
 assert not (UI / "import_page_policy.py").exists()
+assert not (PAGES / "home.py").exists()
+assert not (PAGES / "sources.py").exists()
 assert "install_import_page_policy" not in APP
 sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
 for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
