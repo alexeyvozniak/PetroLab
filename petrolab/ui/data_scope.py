@@ -53,10 +53,15 @@ def render_analysis_scope(
         return None
 
     labels = {dataset_label(dataset): int(dataset["id"]) for dataset in datasets}
+    preferred_ids = {
+        int(value) for value in st.session_state.get("preferred_analysis_dataset_ids", [])
+        if str(value).isdigit()
+    }
+    preferred_labels = [label for label, dataset_id in labels.items() if dataset_id in preferred_ids]
     selected_labels = st.multiselect(
         "Наборы данных",
         list(labels),
-        default=list(labels),
+        default=preferred_labels or list(labels),
         key=f"{key_prefix}_datasets",
     )
     dataset_ids = tuple(labels[label] for label in selected_labels)
