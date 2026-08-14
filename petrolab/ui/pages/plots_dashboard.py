@@ -6,7 +6,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
-from petrolab.db import list_datasets, list_projects
+from petrolab.db import list_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
@@ -14,22 +14,8 @@ from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.settings_service import load_settings
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages import plots as legacy
+from petrolab.ui.project_context import active_project_id
 from petrolab.visualization_presets import FIGURE_PRESETS
-
-
-def _project_id() -> int | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    ids = [int(item["id"]) for item in projects]
-    try:
-        value = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        value = ids[0]
-    if value not in ids:
-        value = ids[0]
-    st.session_state["active_project_id"] = value
-    return value
 
 
 def _quick_workspace(project_id: int) -> None:
@@ -131,7 +117,7 @@ def render_plots_dashboard_page() -> None:
         "Сначала выберите данные и оси — график остаётся главным объектом. Расширенные фильтры и журнальное оформление доступны отдельно.",
         eyebrow="Исследование",
     )
-    project_id = _project_id()
+    project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте проект."); return
     quick, advanced = st.tabs(["Быстрое построение", "Расширенный редактор"])
