@@ -54,15 +54,16 @@ class MixedMineralTests(unittest.TestCase):
             {"TiO2": 55.0, "CaO": 40.0, "SiO2": 1.0},
         ])
         out = attach_phase_suggestions(frame)
-        self.assertEqual(out.loc[0, "Suggested Mineral"], "mica")
+        self.assertEqual(out.loc[0, "Suggested Mineral"], "trioctahedral mica")
         self.assertEqual(out.loc[1, "Suggested Mineral"], "apatite")
         self.assertEqual(out.loc[2, "Suggested Mineral"], "perovskite")
         self.assertTrue((out["Mineral suggestion confidence"] == "high").all())
+        self.assertTrue(out["Mineral suggestion ruleset"].astype(str).str.len().gt(0).all())
 
     def test_materialization_moves_rows_without_duplicate_analysis_ids(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)):
-            created = materialize_confirmed_phases(10, {"a1": "mica", "a2": "apatite"})
-            self.assertEqual(set(created), {"mica", "apatite"})
+            created = materialize_confirmed_phases(10, {"a1": "trioctahedral mica", "a2": "apatite"})
+            self.assertEqual(set(created), {"trioctahedral mica", "apatite"})
             with db.connect() as con:
                 rows = con.execute("SELECT analysis_id,dataset_id FROM analysis_rows ORDER BY analysis_id").fetchall()
                 total = con.execute("SELECT COUNT(*) FROM analysis_rows").fetchone()[0]

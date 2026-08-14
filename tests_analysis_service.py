@@ -1,11 +1,38 @@
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import openpyxl
 import pandas as pd
+
+
+@contextmanager
+def _temporary_directory(prefix: str):
+    """Bounded Windows-safe cleanup for tests that create a temporary SQLite database.
+
+    All application connections are context-managed. A short retry only accommodates delayed
+    release by Windows/Python finalizers; a persistent database handle still fails the test.
+    """
+    temp = tempfile.TemporaryDirectory(prefix=prefix)
+    try:
+        yield temp.name
+    finally:
+        last_error: PermissionError | None = None
+        for attempt in range(5):
+            gc.collect()
+            try:
+                temp.cleanup()
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(0.1 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
 
 
 def _write_workbook(path: Path, sheets: dict[str, pd.DataFrame]) -> None:
@@ -26,7 +53,7 @@ def _change(row: pd.Series, column: str, new_value) -> dict:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_analysis_service_") as tmp:
+    with _temporary_directory(prefix="petrolab_analysis_service_") as tmp:
         base = Path(tmp)
         os.environ["PETROLAB_DATA_DIR"] = str(base / "data")
 
