@@ -38,5 +38,5 @@ __all__ = [
     "render_minerals_page", "render_mixed_minerals_page", "render_plots_page",
     "render_projects_page", "render_rocks_page", "render_science_plots_page",
     "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
-    "render_ternary_page", "render_thermobarometry_page", "render_equilibrium_page", "render_updates_page",
+    "render_ternary_page", "render_thermobarometry_page", "render_equilibrium_page", "render_distribution_page", "render_updates_page",
 ]
