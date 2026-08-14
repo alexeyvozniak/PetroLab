@@ -8,6 +8,7 @@ import streamlit as st
 
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
+from petrolab.services.image_relink_service import relink_image_asset
 from petrolab.services.image_service import (
     ImageAssignment,
     ImagePayload,
@@ -18,7 +19,6 @@ from petrolab.services.image_service import (
     create_assigned_image_batch,
     delete_image_asset,
     list_dataset_images,
-    relink_image_asset,
 )
 from petrolab.ui.components import render_asset_gallery
 from petrolab.ui.image_components import (
@@ -247,8 +247,18 @@ def render_images_dashboard_page() -> None:
     if not datasets:
         st.info("Сначала импортируйте хотя бы один набор анализов.")
         return
+
     mapping = {dataset_label(item): item for item in datasets}
-    dataset = mapping[st.selectbox("Набор данных", list(mapping), key="img_dataset")]
+    labels = list(mapping)
+    requested = st.session_state.pop("workflow_image_dataset_id", None)
+    default_index = 0
+    if requested is not None:
+        for index, label in enumerate(labels):
+            if int(mapping[label]["id"]) == int(requested):
+                default_index = index
+                break
+    selected_label = st.selectbox("Набор данных", labels, index=default_index, key="img_dataset")
+    dataset = mapping[selected_label]
     dataframe = load_dataset_dataframe(int(dataset["id"]), include_meta=True)
     wizard_tab, gallery_tab = st.tabs(["Добавить изображения", "Галерея"])
     with wizard_tab:
