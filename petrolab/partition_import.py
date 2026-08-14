@@ -109,7 +109,9 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
         if column in df.columns:
             grouping.append(column)
 
-    existing_names = {model["name"] for model in list_partition_models()}\n    created: list[int] = []\n    for keys, group in df.groupby(grouping, dropna=False):
+    existing_names = {model["name"] for model in list_partition_models()}
+    created: list[int] = []
+    for keys, group in df.groupby(grouping, dropna=False):
         key_map = dict(zip(grouping, keys if isinstance(keys, tuple) else (keys,)))
         rock = str(key_map["rock_type"]).strip()
         mineral = str(key_map["mineral"]).strip()
@@ -156,7 +158,11 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
         if kind:
             source["kd_types"] = kind
 
-        descriptor = " · ".join(item for item in (definition, kind) if item)\n        model_name = f"{reference} — {mineral}/{rock}" + (f" [{descriptor}]" if descriptor else "")\n        if model_name in existing_names:\n            continue\n        created.append(
+        descriptor = " · ".join(item for item in (definition, kind) if item)
+        model_name = f"{reference} — {mineral}/{rock}" + (f" [{descriptor}]" if descriptor else "")
+        if model_name in existing_names:
+            continue
+        created.append(
             create_partition_model(
                 model_name,
                 mineral,
@@ -171,7 +177,12 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
                     "import": "raw literature table; review before default use",
                 },
             )
-        )\n        existing_names.add(model_name)\n    return created\n\n\ndef read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
+        )
+        existing_names.add(model_name)
+    return created
+
+
+def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
     """Read the user-facing CSV/TSV/XLSX variants of a partition table."""
     suffix = Path(filename).suffix.casefold()
     if suffix in {".xlsx", ".xls"}:
