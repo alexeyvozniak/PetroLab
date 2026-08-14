@@ -6,7 +6,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from petrolab.analytical_sessions import ensure_session_schema
 from petrolab.collaboration_merge import apply_collaboration_merge, plan_collaboration_merge
+from petrolab.generations import ensure_generation_storage
 from petrolab.sample_registry import list_samples
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
@@ -23,6 +25,9 @@ def render_collaboration_page() -> None:
         st.info("Сначала выберите целевой проект.")
         return
     project_id = int(project_id)
+    ensure_session_schema()
+    ensure_generation_storage()
+
     uploaded = st.file_uploader("Проект коллеги (.petrolab)", type=["petrolab"], key="collab_archive")
     if uploaded is None:
         st.caption("Попросите коллегу экспортировать переносимый проект PetroLab. Для объединения достаточно самого .petrolab-файла.")
@@ -63,9 +68,7 @@ def render_collaboration_page() -> None:
             suggested = item.suggested_target_ids[0] if len(item.suggested_target_ids) == 1 else -1
             index = options.index(suggested) if suggested in options else 0
             choice = st.selectbox(
-                f"{item.name}",
-                options,
-                index=index,
+                f"{item.name}", options, index=index,
                 format_func=lambda value: "Создать новый Sample" if value == -1 else f"Использовать: {target_by_id[int(value)]['name']}",
                 key=f"collab_sample_{plan.archive_sha256}_{item.source_sample_id}",
                 help="PetroLab никогда не объединяет Sample только из-за похожего названия.",
