@@ -253,7 +253,12 @@ def _add_quality_status(df: pd.DataFrame) -> None:
     """
     levels: list[str] = []
     reasons: list[str] = []
-    totals = pd.to_numeric(df.get("Total", df.get("Σ corrected")), errors="coerce")
+    total_source = (
+        df["Total"] if "Total" in df.columns
+        else df["Σ corrected"] if "Σ corrected" in df.columns
+        else pd.Series(float("nan"), index=df.index, dtype=float)
+    )
+    totals = pd.to_numeric(total_source, errors="coerce")
     for index in df.index:
         row_reasons: list[str] = []
         level = "ОК"
