@@ -7,23 +7,24 @@ from petrolab.db import (
     delete_plot_recipe as _delete_plot_recipe,
     delete_style_profile as _delete_style_profile,
 )
+from petrolab.ui.destructive_actions import confirm_then, pending_key, render_pending
 
 
-def _pending_key(name: str) -> str:
-    return f"_pending_destructive_{name}"
-
-
-def _confirm_then(name: str, target, action) -> bool:
-    """Require the same destructive action twice, with a rerun between clicks."""
-    key = _pending_key(name)
-    target_value = tuple(target) if isinstance(target, (list, tuple, set)) else target
-    if st.session_state.get(key) != target_value:
-        st.session_state[key] = target_value
-        st.rerun()
-        return False
-    st.session_state.pop(key, None)
-    action()
-    return True
+def render_plot_confirmations() -> None:
+    render_pending(
+        "plot_recipe",
+        "Удаление рецепта нельзя отменить. Нажмите «Удалить рецепт» ещё раз для подтверждения или отмените действие.",
+    )
+    render_pending(
+        "style_profile",
+        "Удаление профиля стилей нельзя отменить. Нажмите «Удалить выбранный профиль» ещё раз или отмените действие.",
+    )
+    pending_group = st.session_state.get(pending_key("work_group"))
+    if pending_group is not None:
+        render_pending(
+            "work_group",
+            f"Рабочая группа будет снята с {len(pending_group)} точек. Нажмите кнопку очистки ещё раз или отмените действие.",
+        )
 
 
 def delete_plot_recipe(recipe_id: int) -> None:
@@ -35,7 +36,7 @@ def delete_plot_recipe(recipe_id: int) -> None:
         st.session_state.plot_interactive_excluded_ids = []
         st.session_state.pop("recipe_select", None)
 
-    _confirm_then("plot_recipe", recipe_id, action)
+    confirm_then("plot_recipe", recipe_id, action)
 
 
 def delete_style_profile(profile_id: int) -> None:
@@ -48,7 +49,7 @@ def delete_style_profile(profile_id: int) -> None:
             if str(key).startswith("style_editor_"):
                 st.session_state.pop(key, None)
 
-    _confirm_then("style_profile", profile_id, action)
+    confirm_then("style_profile", profile_id, action)
 
 
 def clear_work_group(analysis_ids) -> int:
@@ -58,5 +59,5 @@ def clear_work_group(analysis_ids) -> int:
     def action() -> None:
         result["value"] = int(_clear_work_group(ids))
 
-    confirmed = _confirm_then("work_group", ids, action)
+    confirmed = confirm_then("work_group", ids, action)
     return result["value"] if confirmed else 0
