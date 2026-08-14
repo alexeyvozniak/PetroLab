@@ -5,6 +5,7 @@ import streamlit as st
 
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.formula_workflow import recommended_method
+from petrolab.phase_linkage import linked_phase_suggestions
 from petrolab.phase_suggestions import (
     SUGGESTED_MINERAL_COLUMN,
     SUGGESTION_CONFIDENCE_COLUMN,
@@ -25,6 +26,9 @@ from petrolab.workflow_screening import (
 _MAJOR_PHASE_COLUMNS = {
     "SiO2", "TiO2", "Al2O3", "FeO", "FeOt", "Fe2O3", "MgO", "CaO", "Na2O", "K2O", "P2O5",
 }
+_LINKED_PHASE_COLUMN = "Фаза по физической связи"
+_LINK_REASON_COLUMN = "Основание физической связи"
+_LINK_CONFLICT_COLUMN = "Конфликт физической связи"
 
 
 def _jump(route: str) -> None:
@@ -42,7 +46,7 @@ def _review_status(row: pd.Series) -> str:
     if confidence == "medium":
         return "Вероятно"
     if "competing candidate" in reason:
-        return "Конкурирующие фазы"
+        return "Вероятный микс / конкурирующие фазы"
     return "Не определено"
 
 
@@ -58,6 +62,20 @@ def _summary_table(review: pd.DataFrame) -> pd.DataFrame:
         .agg(Точек=("Фаза", "size"), High=("High", "sum"), Medium=("Medium", "sum"), Проверить=("Проверить", "sum"), Выбросы=("Выбросы", "sum"))
         .reset_index()
         .sort_values(["Точек", "Фаза"], ascending=[False, True])
+    )
+
+
+def _linked_summary_table(review: pd.DataFrame) -> pd.DataFrame:
+    table = review.copy()
+    label = table[_LINKED_PHASE_COLUMN].fillna("").astype(str).str.strip()
+    conflict = table[_LINK_CONFLICT_COLUMN].fillna(False).astype(bool)
+    table["Результат"] = label.where(label.ne(""), "Нет подтверждённой связанной фазы")
+    table.loc[conflict, "Результат"] = "Конфликт связанных фаз"
+    return (
+        table.groupby("Результат", dropna=False)
+        .size()
+        .reset_index(name="Точек")
+        .sort_values(["Точек", "Результат"], ascending=[False, True])
     )
 
 
@@ -99,7 +117,7 @@ def _trace_only_hint(frame: pd.DataFrame) -> bool:
         "В этом наборе мало major-element колонок для честного химического распознавания фазы. Это похоже на LA-ICP-MS / trace-only данные: минерал лучше наследовать через Sample, зерно, физическую точку/кратер или назначить вручную, а не угадывать по микроэлементам."
     )
     st.caption(
-        "Для такого набора PetroLab не подготавливает ни одну фазу к автоматическому подтверждению, даже если отдельная эвристика дала высокий score."
+        "Для такого набора PetroLab не подготавливает ни одну химически угаданную фазу к автоматическому подтверждению. Если LA и EPMA явно связаны одной физической меткой, ниже появится фаза связанной зондовой точки."
     )
     c1, c2, c3 = st.columns(3)
     if c1.button("Sample и сессии", key="trace_to_sessions", width="stretch"):
@@ -109,6 +127,16 @@ def _trace_only_hint(frame: pd.DataFrame) -> bool:
     if c3.button("Шлиф / физическая точка", key="trace_to_slides", width="stretch"):
         _jump("slides")
     return True
+
+
+def _attach_linked_phases(project_id: int, dataframe: pd.DataFrame) -> pd.DataFrame:
+    out = dataframe.copy()
+    ids = out["_analysis_id"].astype(str).tolist() if "_analysis_id" in out.columns else []
+    linked = linked_phase_suggestions(project_id, ids)
+    out[_LINKED_PHASE_COLUMN] = [linked.get(str(value)).phase_label if linked.get(str(value)) else "" for value in out.get("_analysis_id", pd.Series("", index=out.index))]
+    out[_LINK_REASON_COLUMN] = [linked.get(str(value)).reason if linked.get(str(value)) else "" for value in out.get("_analysis_id", pd.Series("", index=out.index))]
+    out[_LINK_CONFLICT_COLUMN] = [bool(linked.get(str(value)).conflict) if linked.get(str(value)) else False for value in out.get("_analysis_id", pd.Series("", index=out.index))]
+    return out
 
 
 def render_mixed_minerals_page() -> None:
@@ -152,47 +180,77 @@ def render_mixed_minerals_page() -> None:
     suggested = attach_phase_suggestions(frame)
     screened = attach_chemical_outlier_screen(suggested, group_column=SUGGESTED_MINERAL_COLUMN)
     screened["Статус разбора"] = screened.apply(_review_status, axis=1)
+    if trace_only:
+        screened = _attach_linked_phases(project_id, screened)
+        linked_count = int(screened[_LINKED_PHASE_COLUMN].fillna("").astype(str).str.strip().ne("").sum())
+        link_conflicts = int(screened[_LINK_CONFLICT_COLUMN].fillna(False).astype(bool).sum())
+        screened["Статус разбора"] = "Нужна физическая привязка / ручное решение"
+        screened.loc[screened[_LINKED_PHASE_COLUMN].astype(str).str.strip().ne(""), "Статус разбора"] = "Фаза найдена по физической связи"
+        screened.loc[screened[_LINK_CONFLICT_COLUMN].fillna(False).astype(bool), "Статус разбора"] = "Конфликт связанных фаз"
+    else:
+        linked_count = 0
+        link_conflicts = 0
 
     high = int((screened[SUGGESTION_CONFIDENCE_COLUMN] == "high").sum())
     medium = int((screened[SUGGESTION_CONFIDENCE_COLUMN] == "medium").sum())
     ambiguous = int((screened[SUGGESTION_CONFIDENCE_COLUMN] == "ambiguous").sum())
     unresolved = int((screened[SUGGESTION_CONFIDENCE_COLUMN] == "unresolved").sum())
     outliers = int(screened[OUTLIER_COLUMN].fillna(False).astype(bool).sum())
-    render_badges([
-        (f"{len(screened)} точек", "accent"),
-        (f"{high} high-score" if trace_only else f"{high} готово", "neutral" if trace_only else "success"),
-        (f"{medium} вероятно", "neutral"),
-        (f"{ambiguous + unresolved} требуют решения", "warning"),
-        (f"{outliers} потенциальных выбросов", "warning" if outliers else "neutral"),
-    ])
-    st.caption(
-        "Выброс — только robust screening внутри предложенной фазы. Он никогда не удаляет и не исключает точку. "
-        "Необычный природный состав может быть важнее статистического большинства."
-    )
+    if trace_only:
+        render_badges([
+            (f"{len(screened)} точек", "accent"),
+            (f"{linked_count} фаз по физической связи", "success" if linked_count else "neutral"),
+            (f"{link_conflicts} конфликтов связи", "warning" if link_conflicts else "neutral"),
+            ("химическое автоназначение выключено", "warning"),
+        ])
+    else:
+        render_badges([
+            (f"{len(screened)} точек", "accent"),
+            (f"{high} готово", "success"),
+            (f"{medium} вероятно", "neutral"),
+            (f"{ambiguous + unresolved} требуют решения", "warning"),
+            (f"{outliers} потенциальных выбросов", "warning" if outliers else "neutral"),
+        ])
+        st.caption(
+            "Выброс — только robust screening внутри предложенной фазы. Он никогда не удаляет и не исключает точку. "
+            "Необычный природный состав может быть важнее статистического большинства."
+        )
 
-    render_section_header("Что нашлось", "Нажимать ничего не нужно — это сводка перед ручной проверкой")
-    st.dataframe(_summary_table(screened), width="stretch", hide_index=True)
+    render_section_header("Что нашлось", "Сводка перед ручной проверкой")
+    st.dataframe(_linked_summary_table(screened) if trace_only else _summary_table(screened), width="stretch", hide_index=True)
 
+    if trace_only:
+        show_options = ["Все", "Есть физическая связь", "Требуют решения", "Конфликты связи"]
+    else:
+        show_options = ["Все", "Требуют решения", "Только выбросы", "High", "Medium"]
     show_mode = st.segmented_control(
-        "Показать",
-        ["Все", "Требуют решения", "Только выбросы", "High", "Medium"],
-        default="Все",
-        key=f"mixed_show_{dataset_id}",
+        "Показать", show_options, default="Все", key=f"mixed_show_{dataset_id}"
     ) or "Все"
     view = screened
-    if show_mode == "Требуют решения":
-        view = view[~view[SUGGESTION_CONFIDENCE_COLUMN].isin(["high", "medium"]) | view[OUTLIER_COLUMN].fillna(False)]
-    elif show_mode == "Только выбросы":
-        view = view[view[OUTLIER_COLUMN].fillna(False)]
-    elif show_mode == "High":
-        view = view[view[SUGGESTION_CONFIDENCE_COLUMN] == "high"]
-    elif show_mode == "Medium":
-        view = view[view[SUGGESTION_CONFIDENCE_COLUMN] == "medium"]
+    if trace_only:
+        if show_mode == "Есть физическая связь":
+            view = view[view[_LINKED_PHASE_COLUMN].fillna("").astype(str).str.strip().ne("")]
+        elif show_mode == "Требуют решения":
+            view = view[view[_LINKED_PHASE_COLUMN].fillna("").astype(str).str.strip().eq("")]
+        elif show_mode == "Конфликты связи":
+            view = view[view[_LINK_CONFLICT_COLUMN].fillna(False).astype(bool)]
+    else:
+        if show_mode == "Требуют решения":
+            view = view[~view[SUGGESTION_CONFIDENCE_COLUMN].isin(["high", "medium"]) | view[OUTLIER_COLUMN].fillna(False)]
+        elif show_mode == "Только выбросы":
+            view = view[view[OUTLIER_COLUMN].fillna(False)]
+        elif show_mode == "High":
+            view = view[view[SUGGESTION_CONFIDENCE_COLUMN] == "high"]
+        elif show_mode == "Medium":
+            view = view[view[SUGGESTION_CONFIDENCE_COLUMN] == "medium"]
 
-    phase_options = sorted(value for value in screened[SUGGESTED_MINERAL_COLUMN].dropna().astype(str).unique() if value.strip())
-    chosen_phase = st.selectbox("Фаза", ["Все", *phase_options], key=f"mixed_phase_filter_{dataset_id}")
-    if chosen_phase != "Все":
-        view = view[view[SUGGESTION_CONFIDENCE_COLUMN].index.isin(view.index) & (view[SUGGESTED_MINERAL_COLUMN].astype(str) == chosen_phase)]
+    if not trace_only:
+        phase_options = sorted(value for value in screened[SUGGESTED_MINERAL_COLUMN].dropna().astype(str).unique() if value.strip())
+        chosen_phase = st.selectbox("Фаза", ["Все", *phase_options], key=f"mixed_phase_filter_{dataset_id}")
+        if chosen_phase != "Все":
+            view = view[view[SUGGESTED_MINERAL_COLUMN].astype(str) == chosen_phase]
+    else:
+        chosen_phase = "Все"
 
     policy_options = ["Только high без выбросов", "High + medium без выбросов", "Ничего — выбрать вручную"]
     policy = st.radio(
@@ -201,8 +259,9 @@ def render_mixed_minerals_page() -> None:
         index=2 if trace_only else 0,
         horizontal=True,
         key=f"mixed_policy_{dataset_id}",
+        disabled=trace_only,
         help=(
-            "Для trace-only LA автоматическое подтверждение отключено; фазы назначаются вручную или через физическую привязку."
+            "Для trace-only LA автоматическое подтверждение отключено: физическая связь только подставляет фазу в поле, а галочку ставите вы."
             if trace_only else
             "Это только начальные галочки. Любую строку можно включить, выключить или переименовать вручную."
         ),
@@ -212,13 +271,17 @@ def render_mixed_minerals_page() -> None:
         column for column in [
             "_analysis_id", "Sample", "Grain", "Point", "SiO2", "TiO2", "Al2O3", "FeO", "FeOt",
             "MgO", "CaO", "Na2O", "K2O", "P2O5", "Nb2O5", "ZrO2",
+            _LINKED_PHASE_COLUMN, _LINK_REASON_COLUMN, _LINK_CONFLICT_COLUMN,
             SUGGESTED_MINERAL_COLUMN, SUGGESTION_CONFIDENCE_COLUMN, "Статус разбора",
             OUTLIER_COLUMN, OUTLIER_REASON_COLUMN, SUGGESTION_REASON_COLUMN,
         ] if column in view.columns
     ]
     review = view[display_cols].copy()
     review["Подтвердить"] = False
-    review["Подтверждённая фаза"] = review[SUGGESTED_MINERAL_COLUMN].fillna("").astype(str)
+    if trace_only:
+        review["Подтверждённая фаза"] = review[_LINKED_PHASE_COLUMN].fillna("").astype(str)
+    else:
+        review["Подтверждённая фаза"] = review[SUGGESTED_MINERAL_COLUMN].fillna("").astype(str)
     no_outlier = ~review.get(OUTLIER_COLUMN, pd.Series(False, index=review.index)).fillna(False).astype(bool)
     if not trace_only and policy == "Только high без выбросов":
         review["Подтвердить"] = review[SUGGESTION_CONFIDENCE_COLUMN].eq("high") & no_outlier
@@ -227,7 +290,7 @@ def render_mixed_minerals_page() -> None:
 
     render_section_header("Проверка", f"Показано {len(review)} из {len(screened)} точек")
     st.caption(
-        "«Подтверждённая фаза» — свободное поле: можно принять предложение, написать своё название или оставить пустым. "
+        "«Подтверждённая фаза» — свободное поле: можно принять предложение, принять фазу по физической связи, написать своё название или оставить пустым. "
         "PetroLab сам выберет безопасный расчётный модуль; если подходящего модуля нет, фаза сохранится как отдельный generic-набор."
     )
     editor_key = f"mixed_review_{dataset_id}_{show_mode}_{chosen_phase}_{policy}"
@@ -240,11 +303,14 @@ def render_mixed_minerals_page() -> None:
         column_config={
             "Подтвердить": st.column_config.CheckboxColumn("В минерал", help="Только отмеченные строки будут перемещены."),
             "Подтверждённая фаза": st.column_config.TextColumn("Подтверждённая фаза", help="Можно ввести собственное название."),
-            SUGGESTED_MINERAL_COLUMN: st.column_config.TextColumn("Предложение"),
-            SUGGESTION_CONFIDENCE_COLUMN: st.column_config.TextColumn("Уверенность"),
+            SUGGESTED_MINERAL_COLUMN: st.column_config.TextColumn("Химическое предложение"),
+            SUGGESTION_CONFIDENCE_COLUMN: st.column_config.TextColumn("Уверенность химии"),
+            _LINKED_PHASE_COLUMN: st.column_config.TextColumn("Фаза по связи"),
+            _LINK_REASON_COLUMN: st.column_config.TextColumn("Почему связь"),
+            _LINK_CONFLICT_COLUMN: st.column_config.CheckboxColumn("Конфликт связи"),
             OUTLIER_COLUMN: st.column_config.CheckboxColumn("Выброс?"),
             OUTLIER_REASON_COLUMN: st.column_config.TextColumn("Почему выброс"),
-            SUGGESTION_REASON_COLUMN: st.column_config.TextColumn("Почему фаза"),
+            SUGGESTION_REASON_COLUMN: st.column_config.TextColumn("Почему химическая фаза"),
         },
         key=editor_key,
     )
