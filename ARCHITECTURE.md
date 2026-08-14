@@ -6,7 +6,7 @@
 
 `app.py` содержит только bootstrap, тему и навигацию. Научные формулы, файловые операции, статистика и хранение данных не зависят от Streamlit и тестируются отдельно.
 
-## Текущая структура v0.10
+## Текущая структура v0.12
 
 ```text
 PetroLab/
@@ -36,6 +36,8 @@ PetroLab/
 │   ├── rock_plotting.py                 # TAS/Harker/isotope/Rhodes rendering
 │   ├── settings_service.py              # local user defaults
 │   ├── release_notes.py                 # in-app changelog
+│   ├── measurement_registry.py          # physical targets and method-specific observations
+│   ├── slides.py                        # slide masters/previews, fields and spatial markers
 │   ├── minerals/                        # scientific mineral-formula domain
 │   ├── services/                        # application use-cases
 │   │   ├── import_service.py
