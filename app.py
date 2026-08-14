@@ -96,6 +96,7 @@ ROUTES = {
     "plots": render_plots_page,
     "ternary": render_ternary_page,
     "thermobarometry": render_thermobarometry_page,
+    "equilibrium": render_equilibrium_page,
     "science_plots": render_science_plots_page,
     "statistics": render_statistics_page,
     "generations": render_generations_page,
