@@ -37,6 +37,14 @@ for page_name in ["home_dashboard.py", "sources_dashboard.py", "analyses_dashboa
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
+# Import UI is a normal dashboard renderer, not a runtime monkeypatch.
+assert not (UI / "import_page_policy.py").exists()
+assert "install_import_page_policy" not in APP
+sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
+for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
+    assert marker in sources_dashboard, marker
+assert "from petrolab.ui.pages import sources as legacy" not in sources_dashboard
+
 # Navigation is flat/grouped: no second-stage workspace selector.
 assert "render_sidebar" in APP
 assert "PAGE_GROUPS" not in APP
@@ -69,6 +77,9 @@ assert "FIGURE_PRESETS" in plots
 for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
     assert marker in plots, f"Quick XY does not apply configured preset field: {marker}"
 assert 'f"{preset.title}' in plots
+home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
+assert "def _action(" not in home
+assert home.count('key=f"home_{route}"') == 1
 analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
 for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
     assert view in analyses
