@@ -1,0 +1,87 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:48:43.171Z.
+>>>>>>>>>>
+tab delimited	kds
+rock_types	minerals	element	kd	kd_low	kd_high	kd_definition	kd_types
+Syenite	Clinopyroxene	Cs		0.03	0.05	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Rb		0.02	0.04	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Ba		0.01	0.02	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Th		0.01	0.15	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	U		0.02	0.09	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Nb		0.03	0.03	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Ta		0.21	0.5	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	La		0.06	0.66	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Ce		0.21	0.96	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Pb		0.1	0.13	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Sr		0.25	0.25	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Nd		0.49	2.27	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Zr		0.24	1.02	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Hf		0.4	1.54	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Sm		0.48	6.18	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Eu		0.6	13.87	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Tb		0.6	8.63	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Tm		0.35	0.79	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Yb		0.4	2.63	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Lu		0.41	2.06	Solid-Melt	Phenocryst-Matrix
+Syenite	Clinopyroxene	Sc		4.01	334	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Rb		0.11	0.14	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Ba		0.39	5.58	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Th		0.03	0.07	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	U		0.06	0.45	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Ta		0.85	1.25	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	La		0.22	0.99	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Ce		1.05	2.06	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Sr		3	9.77	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Nd		2.53	3.56	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Zr		0.37	1.77	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Hf		0.54	1.19	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Sm		2.12	7.29	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Eu		1.07	9.39	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Tb		1.45	9.74	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Tm		0.92	2	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Yb		0.33	2.1	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Lu		1.08	2.83	Solid-Melt	Phenocryst-Matrix
+Syenite	Amphibole	Sc		0.9	120.7	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	La		0.09	0.22	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Ce		0.17	0.4	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Pr		0.31	0.66	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Nd		0.49	1	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Sm		0.94	1.72	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Eu		1.16	2.01	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Gd		1.35	2.25	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Tb		1.52	2.42	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Dy		1.63	2.48	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Ho		1.68	2.45	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Er		1.67	2.35	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Tm		1.62	2.21	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Yb		1.55	2.05	Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine-Augite	Lu		1.46	1.89	Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	La	0.38			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Ce	0.66			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Pr	1.07			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Nd	1.57			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Sm	2.57			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Eu	2.94			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Gd	3.22			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Tb	3.38			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Dy	3.41			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Ho	3.3			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Er	3.12			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Tm	2.88			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Yb	2.64			Solid-Melt	Phenocryst-Matrix
+Syenite	Augite	Lu	2.4			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	La	0.01			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Ce	0.03			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Pr	0.07			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Nd	0.13			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Sm	0.33			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Eu	0.45			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Gd	0.6			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Tb	0.76			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Dy	0.92			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Ho	1.06			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Er	1.16			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Tm	1.24			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Yb	1.28			Solid-Melt	Phenocryst-Matrix
+Syenite	Aegirine	Lu	1.3			Solid-Melt	Phenocryst-Matrix
