@@ -14,6 +14,7 @@ from petrolab.thermobarometry import (
     QC_INSUFFICIENT_INPUT,
     QC_NOT_APPLICABLE,
     QC_PASS,
+    QC_WARNING,
     calculate_putirka_2008_cpx_only_t32d,
     list_runs,
     save_run,
@@ -169,7 +170,8 @@ def render_thermobarometry_page() -> None:
     render_section_header("3. Предпросмотр и QC", "PASS попадает в научный итог; FAIL и неполные строки остаются видимыми для диагностики")
     render_badges([
         (f"{len(selection)} выбрано", "neutral"),
-        (f"{int(counts.get(QC_PASS, 0))} PASS", "success"),
+        (f"{int(counts.get(QC_PASS, 0))} подтверждённых", "success"),
+        (f"{int(counts.get(QC_WARNING, 0))} с предупреждением", "warning"),
         (f"{int(counts.get(QC_FAIL, 0))} FAIL", "warning"),
         (f"{int(counts.get(QC_INSUFFICIENT_INPUT, 0))} неполных", "warning"),
         (f"{int(counts.get(QC_NOT_APPLICABLE, 0))} требуют подтверждения", "danger"),
@@ -177,27 +179,28 @@ def render_thermobarometry_page() -> None:
     st.dataframe(display.head(1000), width="stretch", hide_index=True, height=360)
 
     if not confirmed:
-        st.info("Расчёт намеренно не будет сохранён, пока вы не подтвердите применимость метода.")
-    else:
-        if st.button("Сохранить расчёт в научный журнал", type="primary", width="stretch", key="save_thermobarometry_run"):
-            try:
-                saved = save_run(
-                    project_id,
-                    method_id=PUTIRKA_2008_CPX_T32D.method_id,
-                    source_dataframe=selection,
-                    results_dataframe=result,
-                    assumptions={
-                        "pressure_kbar": float(pressure),
-                        "applicability_confirmation": True,
-                        "fe_policy": "FeOt only; no implicit Fe3+/Fe2+ reconstruction",
-                        "qc_gate": "Cation sum (6 O) 3.99–4.02",
-                    },
-                )
-            except Exception as exc:
-                st.error(f"Расчёт не сохранён: {exc}")
-            else:
-                st.success(f"Сохранён run #{saved.id}. Исходные анализы не изменялись.")
-                st.rerun()
+        st.warning("Применимость не подтверждена: расчёт и сохранение доступны, но результат будет помечен предупреждением.")
+
+    if st.button("Сохранить расчёт в научный журнал", type="primary", width="stretch", key="save_thermobarometry_run"):
+        try:
+            saved = save_run(
+                project_id,
+                method_id=PUTIRKA_2008_CPX_T32D.method_id,
+                source_dataframe=selection,
+                results_dataframe=result,
+                assumptions={
+                    "pressure_kbar": float(pressure),
+                    "applicability_confirmation": bool(confirmed),
+                    "fe_policy": "FeOt only; no implicit Fe3+/Fe2+ reconstruction",
+                    "qc_gate": "Cation sum (6 O) 3.99–4.02",
+                    "advisory_policy": "расчёт сохранён независимо от предупреждений о применимости",
+                },
+            )
+        except Exception as exc:
+            st.error(f"Расчёт не сохранён: {exc}")
+        else:
+            st.success(f"Сохранён run #{saved.id}. Исходные анализы не изменялись.")
+            st.rerun()
 
     csv = display.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
