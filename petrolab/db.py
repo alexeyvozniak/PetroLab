@@ -24,6 +24,12 @@ DATASET_EXTRA_COLUMNS = {
     "sync_enabled": "INTEGER NOT NULL DEFAULT 0",
 }
 
+# Raw observations live in one database.  Projects are working contexts that
+# reference those observations; this system row is intentionally hidden from
+# the project picker.
+LIBRARY_PROJECT_NAME = "Общая база"
+_LEGACY_LIBRARY_PROJECT_NAMES = ("Общая база", "Общая библиотека")
+
 META_COLUMNS = {
     "_analysis_id", "_dataset_id", "_project_id", "_row_index", "_source_row",
     "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel",
@@ -54,6 +60,23 @@ def ensure_storage() -> None:
             )
             """
         )
+        project_columns = _table_columns(con, "projects")
+        if "is_system" not in project_columns:
+            con.execute("ALTER TABLE projects ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_dataset_links (
+                project_id INTEGER NOT NULL,
+                dataset_id INTEGER NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                added_at TEXT NOT NULL,
+                PRIMARY KEY(project_id, dataset_id),
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            )
+            """
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS idx_project_dataset_links_dataset ON project_dataset_links(dataset_id)")
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS datasets (
@@ -75,6 +98,22 @@ def ensure_storage() -> None:
         for col, ddl in DATASET_EXTRA_COLUMNS.items():
             if col not in existing:
                 con.execute(f"ALTER TABLE datasets ADD COLUMN {col} {ddl}")
+
+        link_columns = _table_columns(con, "project_dataset_links")
+        if "purpose" not in link_columns:
+            con.execute(
+                "ALTER TABLE project_dataset_links ADD COLUMN purpose TEXT NOT NULL DEFAULT 'working'"
+            )
+        # Existing project-owned datasets remain visible in their former project.
+        # From this migration forward this row is a membership, not ownership.
+        con.execute(
+            """
+            INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
+            SELECT project_id, id, 'Автоматически добавлено при переходе на общую базу', ?, 'working'
+            FROM datasets
+            """,
+            (_utcnow(),),
+        )
 
         con.execute(
             """
@@ -178,9 +217,12 @@ def connect():
         con.close()
 
 
-def list_projects() -> list[dict]:
+def list_projects(*, include_system: bool = False) -> list[dict]:
     with connect() as con:
-        rows = con.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        query = "SELECT * FROM projects"
+        if not include_system:
+            query += " WHERE COALESCE(is_system, 0)=0"
+        rows = con.execute(query + " ORDER BY created_at DESC").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -192,6 +234,30 @@ def create_project(name: str, description: str = "") -> int:
         cur = con.execute(
             "INSERT INTO projects(name, description, created_at) VALUES (?, ?, ?)",
             (name, description.strip(), _utcnow()),
+        )
+        con.commit()
+        return int(cur.lastrowid)
+
+
+def get_or_create_library_project() -> int:
+    """Return the hidden root that owns shared raw data, never an article project."""
+    with connect() as con:
+        placeholders = ", ".join("?" for _ in _LEGACY_LIBRARY_PROJECT_NAMES)
+        row = con.execute(
+            f"SELECT id FROM projects WHERE name IN ({placeholders}) ORDER BY id LIMIT 1",
+            _LEGACY_LIBRARY_PROJECT_NAMES,
+        ).fetchone()
+        if row:
+            con.execute("UPDATE projects SET is_system=1 WHERE id=?", (int(row["id"]),))
+            con.commit()
+            return int(row["id"])
+        cur = con.execute(
+            "INSERT INTO projects(name, description, created_at, is_system) VALUES (?, ?, ?, 1)",
+            (
+                LIBRARY_PROJECT_NAME,
+                "Системный корень общей базы. Рабочие проекты подключают данные ссылками без копирования.",
+                _utcnow(),
+            ),
         )
         con.commit()
         return int(cur.lastrowid)
@@ -217,6 +283,74 @@ def list_datasets(project_id: int | None = None) -> list[dict]:
                 (project_id,),
             ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_accessible_datasets(project_id: int) -> list[dict]:
+    """Return datasets included in a project's working context.
+
+    The dataset row is global; ``project_dataset_links`` is the many-to-many
+    membership layer.  ``project_id`` on datasets remains provenance for older
+    installations and source attribution, not an exclusivity boundary.
+    """
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT d.*, p.name AS project_name,
+                   CASE WHEN d.project_id=? THEN 0 ELSE 1 END AS linked_to_project,
+                   l.purpose AS membership_purpose, l.note AS membership_note
+            FROM project_dataset_links l
+            JOIN datasets d ON d.id=l.dataset_id
+            JOIN projects p ON p.id=d.project_id
+            WHERE l.project_id=?
+            ORDER BY imported_at DESC
+            """,
+            (int(project_id), int(project_id)),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def dataset_is_accessible(project_id: int, dataset_id: int) -> bool:
+    """Whether a dataset is part of this project's working context."""
+    with connect() as con:
+        row = con.execute(
+            "SELECT 1 FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(project_id), int(dataset_id)),
+        ).fetchone()
+    return row is not None
+
+
+def link_dataset_to_project(
+    project_id: int,
+    dataset_id: int,
+    note: str = "",
+    *,
+    purpose: str = "working",
+) -> None:
+    """Add a project membership without copying or mutating the raw dataset."""
+    with connect() as con:
+        dataset = con.execute("SELECT id FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
+        project = con.execute("SELECT id FROM projects WHERE id=?", (int(project_id),)).fetchone()
+        if dataset is None or project is None:
+            raise ValueError("Проект или набор данных не найден")
+        con.execute(
+            """
+            INSERT INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, dataset_id) DO UPDATE SET
+                note=excluded.note, purpose=excluded.purpose
+            """,
+            (int(project_id), int(dataset_id), str(note).strip(), _utcnow(), str(purpose).strip() or "working"),
+        )
+        con.commit()
+
+
+def unlink_dataset_from_project(project_id: int, dataset_id: int) -> None:
+    with connect() as con:
+        con.execute(
+            "DELETE FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(project_id), int(dataset_id)),
+        )
+        con.commit()
 
 
 def get_dataset(dataset_id: int) -> dict:
@@ -265,8 +399,19 @@ def add_dataset(
                 1 if sync_enabled else 0,
             ),
         )
+        dataset_id = int(cur.lastrowid)
+        # A new global row always starts with one explicit membership.  This
+        # keeps direct API callers and imported datasets consistent with the
+        # many-to-many project context model.
+        con.execute(
+            """
+            INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
+            VALUES (?, ?, ?, ?, 'working')
+            """,
+            (int(project_id), dataset_id, "Создано вместе с набором", _utcnow()),
+        )
         con.commit()
-        return int(cur.lastrowid)
+        return dataset_id
 
 
 def update_dataset_metadata(dataset_id: int, **fields) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.derived import formula_status
 from petrolab.minerals.registry import labels as mineral_labels
 from petrolab.repositories.image_repository import list_image_records
@@ -28,7 +28,7 @@ def render_home_dashboard_page() -> None:
         return
 
     project_id = int(project["id"])
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     analyses = sum(int(item.get("row_count") or 0) for item in datasets)
     images = list_image_records(project_id=project_id)
     stale = sum(int(formula_status(int(item["id"])).stale_rows) for item in datasets)
@@ -42,7 +42,7 @@ def render_home_dashboard_page() -> None:
 
     render_section_header("Продолжить работу", "Основной научный цикл")
     labels = [
-        ("01 · Импорт", "Excel / CSV и обновление источников", "sources"),
+        ("01 · Новые анализы", "Excel / CSV и обновление источников", "sources"),
         ("02 · Расчёты", "APFU и end-members", "formulae"),
         ("03 · Исследование", "XY, ternary, REE и статистика", "plots"),
         ("04 · Публикация", "Таблицы и экспорт", "article_tables"),

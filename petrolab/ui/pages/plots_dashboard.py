@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
 from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
+from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes, workbook_with_manifest
 from petrolab.settings_service import load_settings
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
@@ -24,11 +26,21 @@ from petrolab.visualization_presets import FIGURE_PRESETS
 
 
 def _quick_workspace(project_id: int) -> None:
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("В активном проекте нет данных для графика.")
         return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
+    requested_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
+    requested_analysis_ids = {
+        str(value) for value in st.session_state.pop("workflow_plot_analysis_ids", [])
+    }
+    requested_context = st.session_state.pop("workflow_plot_context", {})
+    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_ids]
+    default_labels = requested_labels or list(labels)
+    notice = st.session_state.pop("workflow_plot_notice", "")
+    if notice:
+        st.success(notice)
     settings = load_settings()
     preset_name = str(settings.get("default_figure_preset", "Lithos"))
     preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS["Lithos"])
@@ -37,13 +49,34 @@ def _quick_workspace(project_id: int) -> None:
     with left:
         st.markdown("### Данные")
         selected_labels = st.multiselect(
-            "Наборы", list(labels), default=list(labels), key="quick_plot_datasets"
+            "Наборы", list(labels), default=default_labels, key="quick_plot_datasets"
         )
         selected_ids = [labels[label] for label in selected_labels]
         if not selected_ids:
             st.info("Выберите хотя бы один набор.")
             return
         dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        if requested_analysis_ids:
+            dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
+            st.caption(f"Получен точный отбор из базы: {len(dataframe)} точек до QC-проверки.")
+        if "QC решение" in dataframe.columns:
+            excluded = dataframe["QC решение"].astype(str).str.casefold().eq("исключить")
+            if excluded.any():
+                dataframe = dataframe.loc[~excluded].copy()
+                st.caption(f"Скрыто по ручному решению QC: {int(excluded.sum())}.")
+        if "QC уровень" in dataframe.columns:
+            review_count = int(dataframe["QC уровень"].astype(str).eq("Требует проверки").sum())
+            blocked_count = int(dataframe["QC уровень"].astype(str).eq("Исключить по умолчанию").sum())
+            auto = dataframe.get("QC решение", pd.Series("Авто", index=dataframe.index)).astype(str).str.casefold().eq("авто")
+            auto_blocked = dataframe["QC уровень"].astype(str).eq("Исключить по умолчанию") & auto
+            if auto_blocked.any():
+                dataframe = dataframe.loc[~auto_blocked].copy()
+            if review_count or blocked_count:
+                st.warning(
+                    f"QC в текущем отборе: требуют проверки — {review_count}; "
+                    f"исключены по автоматическому правилу — {int(auto_blocked.sum())}. "
+                    "Поставьте «Включить» в QC решении, если точка должна попасть на график вопреки предупреждению."
+                )
         minerals = sorted(dataframe["Минерал"].dropna().astype(str).unique())
         selected_minerals = st.multiselect(
             "Минералы",
@@ -151,7 +184,24 @@ def _quick_workspace(project_id: int) -> None:
         tick_size=preset.tick_size,
         spine_width=preset.spine_width,
     )
-    e1, e2, e3 = st.columns([1, 1, 2])
+    manifest = build_selection_manifest(
+        kind="xy_figure",
+        dataframe=plot_source,
+        dataset_ids=selected_ids,
+        filters={
+            "database_selection": requested_context,
+            "minerals": selected_minerals,
+            "search": query,
+            "qc_policy": "manual exclude and automatic QC exclusions omitted",
+        },
+        recipe={
+            "x": x, "y": y, "group_column": group_col or "", "log_x": log_x,
+            "log_y": log_y, "title": title, "marker_size": marker_size,
+            "figure_preset": preset_name, "style_map": styles,
+        },
+    )
+    xlsx = workbook_with_manifest({"Точки графика": plot_source}, manifest)
+    e1, e2, e3, e4 = st.columns(4)
     e1.download_button(
         "SVG", figure_svg_bytes(figure), file_name="petrolab_xy.svg",
         mime="image/svg+xml", width="stretch"
@@ -160,7 +210,15 @@ def _quick_workspace(project_id: int) -> None:
         "PNG", figure_png_bytes(figure, preset.dpi), file_name="petrolab_xy.png",
         mime="image/png", width="stretch"
     )
-    e3.caption(
+    e3.download_button(
+        "XLSX + manifest", xlsx, file_name="petrolab_xy_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+    )
+    e4.download_button(
+        "JSON manifest", manifest_json_bytes(manifest), file_name="petrolab_xy_manifest.json",
+        mime="application/json", width="stretch",
+    )
+    st.caption(
         f"{preset.title} · {preset.font_family} · {preset.dpi} dpi · "
         f"{preset.width_in:g} × {preset.height_in:g} in"
     )

@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
-from petrolab.db import list_datasets, load_dataset_dataframe
+from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.services.image_service import (
     ImageAssignment,
     ImagePayload,
@@ -243,7 +243,7 @@ def render_images_dashboard_page() -> None:
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("Сначала импортируйте хотя бы один набор анализов.")
         return

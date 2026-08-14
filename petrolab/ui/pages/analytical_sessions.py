@@ -18,7 +18,7 @@ from petrolab.analytical_sessions import (
     set_annotations,
     update_session_status,
 )
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.sample_registry import create_sample, find_sample_matches, list_samples
 from petrolab.ui.layout import render_badges, render_page_header
@@ -136,7 +136,7 @@ def _dataset_step(project_id: int, session_id: int) -> list[dict]:
     st.markdown("### 3 · Данные сессии")
     linked = session_datasets(session_id)
     linked_ids = {int(item["id"]) for item in linked}
-    candidates = [item for item in list_datasets(project_id) if int(item["id"]) not in linked_ids]
+    candidates = [item for item in list_accessible_datasets(project_id) if int(item["id"]) not in linked_ids]
     if linked:
         st.dataframe(pd.DataFrame([{
             "Набор": item["name"], "Минерал": item["mineral_key"], "Источник": item["source_filename"],

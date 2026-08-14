@@ -7,7 +7,7 @@ from typing import Iterable
 import pandas as pd
 
 from petrolab.analysis_identity import source_row_fingerprint
-from petrolab.db import _json_safe_record, _utcnow, connect, list_datasets, load_dataset_dataframe
+from petrolab.db import _json_safe_record, _utcnow, connect, get_dataset, list_datasets, load_dataset_dataframe
 
 
 _SOURCE_FINGERPRINT_KEY = "__source_fingerprint__"
@@ -285,10 +285,13 @@ def load_dataset_with_derived(dataset_id: int, include_meta: bool = True) -> pd.
 
 
 def load_unified_with_derived(project_id: int | None = None, dataset_ids: list[int] | None = None) -> pd.DataFrame:
-    datasets = list_datasets(project_id)
     if dataset_ids is not None:
-        wanted = {int(value) for value in dataset_ids}
-        datasets = [dataset for dataset in datasets if int(dataset["id"]) in wanted]
+        # Plot selections may deliberately include a linked library dataset owned by
+        # another project. Resolve only the explicitly selected IDs; do not broaden
+        # the scope to every globally stored dataset.
+        datasets = [get_dataset(int(dataset_id)) for dataset_id in dict.fromkeys(dataset_ids)]
+    else:
+        datasets = list_datasets(project_id)
     frames: list[pd.DataFrame] = []
     for dataset in datasets:
         frame = load_dataset_with_derived(int(dataset["id"]), include_meta=True)

@@ -57,6 +57,15 @@ class ImportSchemaPreview:
     source_headers: tuple[tuple[str, str], ...]
     duplicate_canonical_columns: tuple[str, ...]
     measurement_notes: tuple[str, ...] = ()
+    recognized_oxides: tuple[tuple[str, str, str], ...] = ()
+    recognized_traces: tuple[tuple[str, str, str], ...] = ()
+    row_count: int = 0
+    empty_cells: int = 0
+    detection_limit_cells: int = 0
+    import_sections: tuple[tuple[str, int], ...] = ()
+    quality_counts: tuple[tuple[str, int], ...] = ()
+    adapter_name: str = ""
+    adapter_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,7 +109,7 @@ def validate_source_path(path: str | Path) -> Path:
 def list_linked_sheets(path: str | Path) -> list[str]:
     source = validate_source_path(path)
     if source.suffix.lower() in EXCEL_SUFFIXES:
-        return list_excel_sheets_path(source)
+        return _prioritize_analytical_sheets(source.read_bytes(), source.name, list_excel_sheets_path(source))
     return [""]
 
 
@@ -109,8 +118,22 @@ def list_uploaded_sheets(file_bytes: bytes, filename: str) -> list[str]:
     if suffix not in SUPPORTED_SOURCE_SUFFIXES:
         raise ValueError(f"Неподдерживаемый формат: {suffix or '(без расширения)'}")
     if suffix in EXCEL_SUFFIXES:
-        return list_excel_sheets(file_bytes)
+        return _prioritize_analytical_sheets(file_bytes, filename, list_excel_sheets(file_bytes))
     return [""]
+
+
+def _prioritize_analytical_sheets(file_bytes: bytes, filename: str, sheet_names: list[str]) -> list[str]:
+    """Put a detected multi-block EDS result sheet before its companion BSE map sheet."""
+    eds: list[str] = []
+    other: list[str] = []
+    for sheet_name in sheet_names:
+        try:
+            _, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name, 1)
+            adapter = column_map.get("__schema__", {}).get("adapter")
+        except Exception:
+            adapter = None
+        (eds if adapter in {"eds_multiblock", "oxford_eds", "la_icp_ms_raw"} else other).append(sheet_name)
+    return eds + other
 
 
 def inspect_linked_sheet(path: str | Path, sheet_name: str, header_row: int) -> ImportSchemaPreview:
@@ -140,7 +163,8 @@ def preview_linked_source(
     source = validate_source_path(path)
     dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
-    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, _ = _attach_detected_method(mapped, mapped_column_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -155,8 +179,37 @@ def preview_uploaded_source(
 ) -> pd.DataFrame:
     dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
-    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, _ = _attach_detected_method(mapped, mapped_column_map)
     return _calculate_mineral(mapped, mineral_key)
+
+
+def _attach_detected_method(dataframe: pd.DataFrame, column_map: dict) -> tuple[pd.DataFrame, dict]:
+    """Make WDS/EDS provenance filterable without guessing for ordinary tables."""
+    if "Method" in dataframe.columns or "Метод" in dataframe.columns:
+        return dataframe, column_map
+    adapter = str(column_map.get("__schema__", {}).get("adapter") or "")
+    method = ""
+    if adapter == "eds_multiblock":
+        method = "SEM-EDS"
+    elif any(bool(info.get("wds_protocol")) for info in column_map.values() if isinstance(info, dict)):
+        method = "EPMA-WDS"
+    if not method:
+        return dataframe, column_map
+    result = dataframe.copy()
+    result["Method"] = method
+    updated = dict(column_map)
+    updated["Method"] = {
+        "original": "Автоматически определено по формату протокола",
+        "column_index": None,
+        "quantity_kind": "identifier",
+        "source_unit": "",
+        "canonical_unit": "",
+        "to_canonical_factor": 1.0,
+        "to_source_factor": 1.0,
+        "warning": f"Метод автоматически распознан как {method}.",
+    }
+    return result, updated
 
 
 def _prepare_sheet(
@@ -176,6 +229,7 @@ def _prepare_sheet(
         mapped, mapped_column_map, _ = apply_measurement_overrides(
             mapped, mapped_column_map, measurement_map
         )
+        mapped, mapped_column_map = _attach_detected_method(mapped, mapped_column_map)
         calculated = _calculate_mineral(mapped, mineral_key)
     except Exception as exc:
         label = sheet_name or "CSV/активный лист"
@@ -406,6 +460,7 @@ def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
     mapped, mapped_column_map, _ = apply_measurement_overrides(
         mapped, mapped_column_map, measurement_map
     )
+    mapped, mapped_column_map = _attach_detected_method(mapped, mapped_column_map)
     calculated = _calculate_mineral(mapped, dataset.get("mineral_key") or "generic")
     persistence: RefreshPersistenceResult = replace_dataset_rows_stable(
         int(dataset_id), calculated, source_rows
@@ -438,6 +493,8 @@ def _schema_preview(
     pairs: list[tuple[str, str]] = []
     duplicates: list[str] = []
     notes: list[str] = []
+    oxides: list[tuple[str, str, str]] = []
+    traces: list[tuple[str, str, str]] = []
     for normalized in dataframe.columns:
         if str(normalized) in {"Σ оксидов", "QC суммы", "QC железа"}:
             continue
@@ -448,22 +505,59 @@ def _schema_preview(
             duplicates.append(str(normalized))
         source_unit = str(info.get("source_unit") or "")
         canonical_unit = str(info.get("canonical_unit") or "")
+        kind = str(info.get("quantity_kind") or "")
+        if kind == "oxide":
+            oxides.append((original, str(normalized), canonical_unit or source_unit or "wt%"))
+        elif kind in {"trace_element", "element_concentration", "element_unknown_unit"}:
+            traces.append((original, str(normalized), canonical_unit or source_unit or "не указана"))
         factor = float(info.get("to_canonical_factor", 1.0) or 1.0)
         warning = str(info.get("warning") or "")
         if source_unit and canonical_unit and (factor != 1.0 or source_unit != canonical_unit):
             notes.append(f"{original} → {normalized}: {source_unit} → {canonical_unit}, ×{factor:g}")
         if warning:
             notes.append(f"{original}: {warning}")
+    if "FeO" in dataframe.columns:
+        notes.append(
+            "FeO: подтвердите смысл колонки — отдельное Fe²⁺ или ΣFe, выраженное как FeO total."
+        )
     if "Fe2O3" in dataframe.columns:
         notes.append(
             "Fe2O3: подтвердите смысл колонки — отдельно заданное Fe³⁺ или ΣFe, выраженное как Fe2O3 total."
         )
+    detection_limits = [
+        f"{info.get('original', normalized)}: {float(info['detection_limit']):g} {info.get('detection_limit_unit', '')}".strip()
+        for normalized, info in column_map.items()
+        if info.get("detection_limit") is not None
+    ]
+    if detection_limits:
+        notes.append("D.L. 3σ сохранены для колонок: " + "; ".join(detection_limits))
+    source_view = dataframe.astype("string")
+    detection_limit_cells = int(source_view.apply(
+        lambda column: column.str.strip().str.match(r"^(?:<|≤)\s*(?:DL|LOD|LOQ|[0-9])", case=False, na=False)
+    ).to_numpy().sum())
+    sections: tuple[tuple[str, int], ...] = ()
+    if "Import section" in dataframe.columns:
+        counts = dataframe["Import section"].fillna("без названия").astype(str).value_counts()
+        sections = tuple((str(name), int(count)) for name, count in counts.items())
+    quality_counts: tuple[tuple[str, int], ...] = ()
+    if "QC уровень" in dataframe.columns:
+        counts = dataframe["QC уровень"].fillna("не оценено").astype(str).value_counts()
+        quality_counts = tuple((str(name), int(count)) for name, count in counts.items())
     return ImportSchemaPreview(
         sheet_name=sheet_name,
         schema=inspect_sheet_schema(dataframe.columns),
         source_headers=tuple(pairs),
         duplicate_canonical_columns=tuple(duplicates),
         measurement_notes=tuple(dict.fromkeys(notes)),
+        recognized_oxides=tuple(oxides),
+        recognized_traces=tuple(traces),
+        row_count=int(len(dataframe)),
+        empty_cells=int(dataframe.isna().to_numpy().sum()),
+        detection_limit_cells=detection_limit_cells,
+        import_sections=sections,
+        quality_counts=quality_counts,
+        adapter_name=str(column_map.get("__schema__", {}).get("adapter") or ""),
+        adapter_note=str(column_map.get("__schema__", {}).get("adapter_note") or ""),
     )
 
 

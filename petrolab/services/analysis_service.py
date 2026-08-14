@@ -15,8 +15,9 @@ from petrolab.sources import restore_source_backup, sync_workbook_changes, valid
 
 _GENERATED_QC_COLUMNS = (
     "Σ компонентов raw", "Поправка O=F,Cl", "Σ corrected", "Σ оксидов",
-    "QC суммы", "QC химии", "QC железа",
+    "QC суммы", "QC химии", "QC железа", "QC уровень", "QC причины",
 )
+_DATABASE_ONLY_COLUMNS = {"QC решение"}
 
 
 @dataclass
@@ -158,8 +159,15 @@ def save_changes_and_sync(changes: list[dict[str, Any]]) -> SaveResult:
     if not changes:
         return SaveResult()
 
+    source_changes = [change for change in changes if str(change.get("column_name")) not in _DATABASE_ONLY_COLUMNS]
+    database_only = [change for change in changes if str(change.get("column_name")) in _DATABASE_ONLY_COLUMNS]
+    if not source_changes:
+        result = save_changes_to_database(database_only)
+        result.warnings.append("Решение QC сохранено только в PetroLab; исходный Excel не изменялся.")
+        return result
+
     try:
-        grouped = _group_by_source(changes)
+        grouped = _group_by_source(source_changes)
     except Exception as exc:
         return SaveResult(errors=[str(exc)])
 
@@ -177,6 +185,7 @@ def save_changes_and_sync(changes: list[dict[str, Any]]) -> SaveResult:
     for _, backup, workbook_changes in completed:
         for change in workbook_changes:
             transactional_changes.append({**change, "source_backup": backup})
+    transactional_changes.extend(database_only)
 
     try:
         apply_analysis_changes(transactional_changes, synced_to_source=True)

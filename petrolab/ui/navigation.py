@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import streamlit as st
 
-from petrolab.db import list_datasets, list_projects
+from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.ui.project_context import active_project_id, set_active_project
 
 
 NAV_SECTIONS = {
     "Данные": [
-        ("home", "Главная"), ("intake", "Добавить данные"), ("sessions", "Сессии"),
-        ("mixed_minerals", "Разбор фаз"), ("database", "Вся база"), ("sources", "Импорт"),
+        ("home", "Главная"), ("sources", "Новые анализы"), ("intake", "Источники и литература"), ("sessions", "Сессии"),
+        ("mixed_minerals", "Разбор фаз"), ("measurements", "Образцы и измерения"), ("database", "Вся база"),
         ("analyses", "База анализов"), ("formulae", "Расчёты"),
     ],
     "Исследование": [
@@ -17,7 +17,10 @@ NAV_SECTIONS = {
         ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
         ("generations", "Поколения"),
     ],
-    "Материалы": [("rocks", "Породы"), ("images", "Изображения"), ("minerals", "Минералогические модули")],
+    "Материалы": [
+        ("rocks", "Породы"), ("slides", "Шлифы и поля"), ("images", "Изображения"),
+        ("minerals", "Минералогические модули"),
+    ],
     "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
     "Система": [
         ("projects", "Проекты"), ("collaboration", "Совместная работа"),
@@ -52,7 +55,7 @@ def render_sidebar(version: str) -> str:
             key="sidebar_project", label_visibility="collapsed",
         )
         set_active_project(int(selected))
-        datasets = list_datasets(int(selected))
+        datasets = list_accessible_datasets(int(selected))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True

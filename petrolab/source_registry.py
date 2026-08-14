@@ -142,12 +142,16 @@ def list_studies(project_id: int | None = None) -> list[dict]:
 def link_dataset_to_study(dataset_id: int, study_id: int, *, source_table: str = "", source_note: str = "") -> None:
     ensure_source_registry_schema()
     with connect() as con:
-        dataset = con.execute("SELECT project_id FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
         study = con.execute("SELECT project_id FROM studies WHERE id=?", (int(study_id),)).fetchone()
+        dataset = con.execute("SELECT id FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
         if not dataset or not study:
             raise ValueError("Набор данных или источник не найдены")
-        if int(dataset["project_id"]) != int(study["project_id"]):
-            raise ValueError("Нельзя связать набор и источник из разных проектов")
+        membership = con.execute(
+            "SELECT 1 FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(study["project_id"]), int(dataset_id)),
+        ).fetchone()
+        if not membership:
+            raise ValueError("Набор не добавлен в проект источника")
         con.execute(
             """
             INSERT INTO dataset_studies(dataset_id, study_id, source_table, source_note)
