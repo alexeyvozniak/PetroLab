@@ -4,28 +4,13 @@ from pathlib import Path
 
 import streamlit as st
 
-from petrolab.db import list_datasets, list_projects
+from petrolab.db import list_datasets
 from petrolab.io_utils import sha256_file
 from petrolab.services.import_service import refresh_dataset_from_source
 from petrolab.sources import source_status
 from petrolab.ui.layout import render_badges, render_hint, render_page_header
 from petrolab.ui.pages import sources as legacy
-
-
-def _active_project() -> dict | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    by_id = {int(project["id"]): project for project in projects}
-    ids = list(by_id)
-    try:
-        project_id = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        project_id = ids[0]
-    if project_id not in by_id:
-        project_id = ids[0]
-    st.session_state["active_project_id"] = project_id
-    return by_id[project_id]
+from petrolab.ui.project_context import active_project
 
 
 def _managed_copy_status(dataset: dict) -> tuple[str, str]:
@@ -76,7 +61,7 @@ def _render_source_statuses(project_id: int) -> None:
 
 
 def render_sources_dashboard_page() -> None:
-    project = _active_project()
+    project = active_project()
     context = str(project["name"]) if project else "Проект не выбран"
     render_page_header(
         "Импорт и источники",
