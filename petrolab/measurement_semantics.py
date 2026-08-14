@@ -9,6 +9,19 @@ SUPPORTED_MEASUREMENT_OVERRIDES = {
 }
 
 
+def _copy_column_map(column_map: Mapping[str, object]) -> dict[str, dict]:
+    """Copy provenance metadata without sharing the nested __schema__ mapping."""
+    mapped: dict[str, dict] = {}
+    for key, value in column_map.items():
+        if isinstance(value, Mapping):
+            mapped[str(key)] = dict(value)
+        else:
+            mapped[str(key)] = {}
+    schema = column_map.get("__schema__", {})
+    mapped["__schema__"] = dict(schema) if isinstance(schema, Mapping) else {}
+    return mapped
+
+
 def validate_measurement_overrides(
     columns: list[str] | tuple[str, ...] | pd.Index,
     overrides: Mapping[str, str] | None,
@@ -44,7 +57,7 @@ def apply_measurement_overrides(
     """
     clean = validate_measurement_overrides(dataframe.columns, overrides)
     out = dataframe.copy()
-    mapped = dict(column_map)
+    mapped = _copy_column_map(column_map)
 
     for source, target in clean.items():
         if source == target:
@@ -55,7 +68,7 @@ def apply_measurement_overrides(
         info["warning"] = "total Fe expressed as Fe2O3; not measured ferric Fe"
         mapped[target] = info
 
-    mapped.setdefault("__schema__", {})["measurement"] = clean
+    mapped["__schema__"]["measurement"] = clean
     return out, mapped, clean
 
 
