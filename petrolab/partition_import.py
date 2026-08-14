@@ -131,14 +131,7 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
                     candidate = f"{element} ({suffix})"
                 element = candidate
             metadata[element] = record
-            if "value" in record:
-                values[element] = record["value"]
-
-        # Interval-only exports are real observations, but cannot be used in
-        # arithmetic until the user selects an explicit method for them.
-        if not values:
-            continue
-
+            # Exact values remain numerics for simple calculation; a range-only\n            # report remains a structured value instead of being discarded or\n            # reduced to an arbitrary midpoint.\n            values[element] = record["value"] if "value" in record else record\n\n        if not values:\n            continue\n
         doi = _first_text(group, "doi")
         source: dict[str, Any] = {
             "citation": reference,
