@@ -7,9 +7,9 @@ from petrolab.dataframe_utils import apply_quick_filter, compute_changes, datase
 from petrolab.db import META_COLUMNS, list_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
+from petrolab.ui.analysis_components import PROTECTED_ANALYSIS_COLUMNS, render_point_card
 from petrolab.ui.editability import common_editable_source_columns
 from petrolab.ui.layout import render_badges, render_page_header
-from petrolab.ui.pages import analyses as legacy
 from petrolab.ui.project_context import active_project_id
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
@@ -59,10 +59,12 @@ def render_analyses_dashboard_page() -> None:
     )
     _show_save_flash()
     if project_id is None:
-        st.info("Сначала создайте проект."); return
+        st.info("Сначала создайте проект.")
+        return
     datasets = list_datasets(project_id)
     if not datasets:
-        st.info("В активном проекте нет данных."); return
+        st.info("В активном проекте нет данных.")
+        return
 
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
     with st.container(border=True):
@@ -72,7 +74,8 @@ def render_analyses_dashboard_page() -> None:
         query = st.text_input("Поиск", placeholder="Образец, зерно, поколение или значение", key="db_search_dashboard")
     selected_ids = [labels[label] for label in selected_labels]
     if not selected_ids:
-        st.info("Выберите хотя бы один набор."); return
+        st.info("Выберите хотя бы один набор.")
+        return
 
     dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
     shown = apply_quick_filter(dataframe, query).copy()
@@ -85,9 +88,17 @@ def render_analyses_dashboard_page() -> None:
         internals = [column for column in shown.columns if str(column).startswith("_")]
         editor = shown[internals + [column for column in wanted if column not in internals]].copy()
         editable = common_editable_source_columns(datasets, selected_ids)
-        protected = (set(shown.columns) - set(editable)) | legacy.PROTECTED_ANALYSIS_COLUMNS | set(derived) | META_COLUMNS
+        protected = (set(shown.columns) - set(editable)) | PROTECTED_ANALYSIS_COLUMNS | set(derived) | META_COLUMNS
         disabled = [column for column in editor.columns if column in protected or str(column).startswith("_")]
-        edited = st.data_editor(editor, width="stretch", hide_index=True, height=650, disabled=disabled, num_rows="fixed", key="unified_editor_dashboard")
+        edited = st.data_editor(
+            editor,
+            width="stretch",
+            hide_index=True,
+            height=650,
+            disabled=disabled,
+            num_rows="fixed",
+            key="unified_editor_dashboard",
+        )
         changes = compute_changes(editor, edited, protected_columns=protected)
         if changes:
             render_badges([(f"{len(changes)} несохранённых изменений", "warning")])
@@ -114,4 +125,4 @@ def render_analyses_dashboard_page() -> None:
     with point_tab:
         if len(shown) > 3000:
             st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск в toolbar, чтобы сузить выборку.")
-        legacy._render_point_card(shown, project_id)
+        render_point_card(shown, project_id)

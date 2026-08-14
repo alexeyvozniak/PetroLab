@@ -64,6 +64,18 @@ images_dashboard = _read("petrolab/ui/pages/images_dashboard.py")
 assert "_repair_detached" in images_dashboard
 assert 'link_status") or "") == "detached"' in images_dashboard
 assert "confirm_delete_image_" in images_dashboard
+image_components = _read("petrolab/ui/image_components.py")
+for marker in [
+    "def analysis_id_labels(",
+    "def render_multi_point_controls(",
+    "limit = 5000",
+    "valid_previous",
+    'for column in ("Sample", "Grain", "Generation", "Point")',
+    "semantic field-link",
+]:
+    assert marker in image_components, marker
+assert not (ROOT / "petrolab" / "ui" / "image_page_policy.py").exists()
+assert not (ROOT / "petrolab" / "ui" / "pages" / "images.py").exists()
 
 # Formula persistence and scientific-validity contract (A-47/A-79/A-82/A-92/A-94/A-97/A-98).
 formula_service = _read("petrolab/services/formula_service.py")
@@ -160,6 +172,8 @@ for marker in [
     "st.warning(str(warning))",
 ]:
     assert marker in analyses, marker
+assert "analysis_components" in analyses
+assert not (ROOT / "petrolab" / "ui" / "pages" / "analyses.py").exists()
 
 # Dataset selector identity and article-table labels must not silently collapse/round IDs (A-74/A-90).
 dataframe_utils = _read("petrolab/dataframe_utils.py")
@@ -228,7 +242,7 @@ for marker in [
 ]:
     assert marker in science_policy, marker
 assert "install_science_page_policy()" in app
-assert "install_image_page_policy()" in app
+assert "install_image_page_policy" not in app
 assert "install_plot_page_policy" not in app
 
 # Optional hints are optional; scientific warnings/provenance are not globally hidden (A-100).

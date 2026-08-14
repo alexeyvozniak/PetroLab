@@ -12,6 +12,7 @@ NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
 COMPONENTS = (UI / "components.py").read_text(encoding="utf-8")
 PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
 XY_COMPONENTS = (UI / "xy_components.py").read_text(encoding="utf-8")
+IMAGE_COMPONENTS = (UI / "image_components.py").read_text(encoding="utf-8")
 DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
 
@@ -28,28 +29,60 @@ assert "<h1 class=\"petrolab-page-title\">" in LAYOUT
 assert "<h2 class=\"petrolab-section-title\">" in LAYOUT
 assert "render_page_header" in LAYOUT and "render_badges" in LAYOUT
 
-# One global project context: sidebar owns selection; page-local selector is compatibility-only.
+# One global project context: sidebar owns selection; routed pages do not render local project selectors.
 for marker in ["ACTIVE_PROJECT_KEY", "def active_project(", "def active_project_id(", "def set_active_project("]:
     assert marker in PROJECT_CONTEXT, marker
 assert "active_project_id" in NAVIGATION and "set_active_project" in NAVIGATION
 assert 'st.session_state.get("_sidebar_project_ready")' in COMPONENTS
 assert "Compatibility fallback for standalone page/AppTest" in COMPONENTS
-for page_name in ["home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "formulae.py", "plots_dashboard.py", "rocks.py"]:
+for page_name in [
+    "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "formulae.py",
+    "plots_dashboard.py", "rocks.py", "images_dashboard.py",
+]:
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
-# Dashboard migrations are authoritative; do not restore removed policy/page splits.
-assert not (UI / "import_page_policy.py").exists()
-assert not (UI / "plot_page_policy.py").exists()
-assert not (PAGES / "home.py").exists()
-assert not (PAGES / "sources.py").exists()
-assert "install_import_page_policy" not in APP
-assert "install_plot_page_policy" not in APP
-assert "install_destructive_page_policy" not in APP
+# Dashboard migrations are authoritative; removed pages/policies must not return.
+for obsolete in [
+    UI / "import_page_policy.py",
+    UI / "plot_page_policy.py",
+    UI / "image_page_policy.py",
+    PAGES / "home.py",
+    PAGES / "sources.py",
+    PAGES / "analyses.py",
+    PAGES / "images.py",
+]:
+    assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
+for bootstrap in [
+    "install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy",
+    "install_image_page_policy",
+]:
+    assert bootstrap not in APP, bootstrap
+
 sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
 for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
     assert marker in sources_dashboard, marker
 assert "from petrolab.ui.pages import sources as legacy" not in sources_dashboard
+
+analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
+assert "analysis_components" in analyses
+assert "from petrolab.ui.pages import analyses" not in analyses
+for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
+    assert view in analyses
+
+images = (PAGES / "images_dashboard.py").read_text(encoding="utf-8")
+assert "image_components" in images
+assert "from petrolab.ui.pages import images" not in images
+assert "render_project_selector" not in images
+assert "st.columns([1.35, 1])" in images
+assert "confirm_delete_image_" in images
+for marker in [
+    'for column in ("Sample", "Grain", "Generation", "Point")',
+    "limit = 5000",
+    "valid_previous",
+    "semantic field-link",
+]:
+    assert marker in IMAGE_COMPONENTS, marker
 
 # XY quick/advanced workspaces are explicit and no longer rely on call order or a nested legacy page shell.
 advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")
@@ -97,9 +130,6 @@ for page_name in [
 settings = (PAGES / "settings.py").read_text(encoding="utf-8")
 assert 'st.tabs(' in settings
 assert '"Интерфейс"' in settings and '"Рисунки"' in settings and '"Таблицы"' in settings and '"Анализ"' in settings
-images = (PAGES / "images_dashboard.py").read_text(encoding="utf-8")
-assert "st.columns([1.35, 1])" in images
-assert "confirm_delete_image_" in images
 assert '"Быстрое построение"' in plots and '"Расширенный редактор"' in plots
 assert "FIGURE_PRESETS" in plots
 for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
@@ -108,15 +138,10 @@ assert 'f"{preset.title}' in plots
 home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
 assert "def _action(" not in home
 assert home.count('key=f"home_{route}"') == 1
-analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
-for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
-    assert view in analyses
 
-# Science/image compatibility is still explicit while those last two pages are migrated.
+# Science is now the only remaining startup compatibility layer.
 assert "install_science_page_policy()" in APP
-assert "install_image_page_policy()" in APP
 assert "_petrolab_science_policy_installed" in (UI / "science_page_policy.py").read_text(encoding="utf-8")
-assert "_petrolab_image_policy_installed" in (UI / "image_page_policy.py").read_text(encoding="utf-8")
 
 # Destructive actions are explicit: no runtime monkeypatch bootstrap remains.
 for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
