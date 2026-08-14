@@ -114,7 +114,7 @@ class GuidedWorkflowTests(unittest.TestCase):
         self.assertEqual(mineral_key_for_phase("pyrochlore-supergroup"), "generic")
         self.assertEqual(mineral_key_for_phase("моя редкая фаза"), "generic")
 
-    def test_split_preserves_projects_session_image_links_and_mixed_remainder(self):
+    def test_split_preserves_context_and_reuses_phase_child(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as workspace:
             created = materialize_confirmed_phases(10, {"a1": "trioctahedral mica"})
             child_id = int(created["trioctahedral mica"])
@@ -142,6 +142,20 @@ class GuidedWorkflowTests(unittest.TestCase):
             child_images = list_image_records(dataset_id=child_id)
             self.assertEqual([int(item["id"]) for item in child_images], [workspace.asset_id])
             self.assertEqual(child_images[0]["analysis_ids"], ["a1"])
+
+            # Resolve the last mixed point into the same phase on a later review pass.
+            repeated = materialize_confirmed_phases(10, {"a2": "trioctahedral mica"})
+            self.assertEqual(int(repeated["trioctahedral mica"]), child_id)
+            with db.connect() as con:
+                child_count = int(con.execute("SELECT row_count FROM datasets WHERE id=?", (child_id,)).fetchone()[0])
+                source = con.execute("SELECT name, row_count FROM datasets WHERE id=10").fetchone()
+                phase_children = int(con.execute("SELECT COUNT(*) FROM datasets WHERE name='mixed probe · trioctahedral mica'").fetchone()[0])
+                total = int(con.execute("SELECT COUNT(*) FROM analysis_rows").fetchone()[0])
+            self.assertEqual(child_count, 2)
+            self.assertEqual(int(source["row_count"]), 0)
+            self.assertIn("Исходный mixed (разобрано)", source["name"])
+            self.assertEqual(phase_children, 1)
+            self.assertEqual(total, 2)
 
 
 if __name__ == "__main__":
