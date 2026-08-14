@@ -1,0 +1,132 @@
+name: Windows installer
+
+on:
+  pull_request:
+    paths:
+      - "installer/**"
+      - ".github/workflows/windows-installer.yml"
+      - "requirements.txt"
+      - "tests_installer_contract.py"
+  push:
+    branches: [main]
+    paths:
+      - "installer/**"
+      - ".github/workflows/windows-installer.yml"
+      - "requirements.txt"
+      - "tests_installer_contract.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up build Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify installer contract
+        shell: pwsh
+        run: python tests_installer_contract.py
+
+      - name: Build portable Python runtime and app payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+
+          $dist = Join-Path $PWD "dist"
+          $payload = Join-Path $dist "payload"
+          $current = Join-Path $payload "current"
+          $runtime = Join-Path $payload "runtime"
+          New-Item -ItemType Directory -Force -Path $current, $runtime | Out-Null
+
+          Copy-Item app.py, requirements.txt, README.md -Destination $current
+          Copy-Item petrolab, .streamlit, docs -Destination $current -Recurse
+          Set-Content -LiteralPath (Join-Path $current ".petrolab_build_sha") -Value $env:GITHUB_SHA -NoNewline -Encoding ASCII
+
+          $pythonZip = Join-Path $dist "python-embed.zip"
+          $pythonUrl = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonZip
+          Expand-Archive -LiteralPath $pythonZip -DestinationPath $runtime -Force
+
+          $pth = Get-ChildItem -LiteralPath $runtime -Filter "python*._pth" | Select-Object -First 1
+          if (-not $pth) { throw "Embedded Python _pth file was not found." }
+          $lines = Get-Content -LiteralPath $pth.FullName
+          $lines = $lines | ForEach-Object { if ($_ -eq "#import site") { "import site" } else { $_ } }
+          if ($lines -notcontains "Lib\site-packages") { $lines += "Lib\site-packages" }
+          Set-Content -LiteralPath $pth.FullName -Value $lines -Encoding ASCII
+          New-Item -ItemType Directory -Force -Path (Join-Path $runtime "Lib\site-packages") | Out-Null
+
+          python -m pip install --disable-pip-version-check --target (Join-Path $runtime "Lib\site-packages") pip
+          python -m pip install --disable-pip-version-check --target (Join-Path $runtime "Lib\site-packages") -r requirements.txt
+
+          $runtimePython = Join-Path $runtime "python.exe"
+          & $runtimePython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Embedded runtime pip check failed." }
+          & $runtimePython -c "import streamlit,pandas,numpy,matplotlib,plotly,openpyxl,sklearn; print('portable runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Embedded runtime import smoke failed." }
+
+          $env:PETROLAB_DATA_DIR = Join-Path $env:TEMP "petrolab-installer-smoke-data"
+          if (Test-Path $env:PETROLAB_DATA_DIR) { Remove-Item $env:PETROLAB_DATA_DIR -Recurse -Force }
+          Push-Location $current
+          & $runtimePython -c "import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('PetroLab', petrolab.__version__, 'installer smoke OK')"
+          $smokeExit = $LASTEXITCODE
+          Pop-Location
+          if ($smokeExit -ne 0) { throw "PetroLab installer payload smoke failed." }
+
+          $versionLine = Select-String -Path petrolab\__init__.py -Pattern '^__version__\s*=\s*"([^"]+)"'
+          if (-not $versionLine.Matches.Count) { throw "Could not determine PetroLab version." }
+          $version = $versionLine.Matches[0].Groups[1].Value
+          "PETROLAB_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile PetroLab installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          iscc "/DMyAppVersion=$env:PETROLAB_VERSION" installer\PetroLab.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
+          $installer = Join-Path $PWD "dist\PetroLab-Setup-x64.exe"
+          if (-not (Test-Path $installer)) { throw "Installer output was not created." }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  PetroLab-Setup-x64.exe" | Set-Content -LiteralPath "dist\PetroLab-Setup-x64.sha256" -Encoding ASCII
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PetroLab-Windows-Installer
+          path: |
+            dist/PetroLab-Setup-x64.exe
+            dist/PetroLab-Setup-x64.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish rolling Windows installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f windows-latest $env:GITHUB_SHA
+          git push origin refs/tags/windows-latest --force
+
+          gh release view windows-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $env:GITHUB_SHA --notes "Rolling Windows installer for the current tested PetroLab build. Scientific user data are stored outside the application directory and are preserved by uninstall/update."
+          }
+          gh release upload windows-latest dist\PetroLab-Setup-x64.exe dist\PetroLab-Setup-x64.sha256 --clobber
