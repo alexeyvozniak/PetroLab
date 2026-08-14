@@ -1,6 +1,7 @@
 """Streamlit page renderers."""
 
 from .analyses_dashboard import render_analyses_dashboard_page as render_analyses_page
+from .analytical_sessions import render_analytical_sessions_page
 from .article_tables import render_article_tables_page
 from .change_log import render_change_log_page
 from .export import render_export_page
@@ -20,9 +21,10 @@ from .ternary import render_ternary_page
 from .updates import render_updates_page
 
 __all__ = [
-    "render_analyses_page", "render_article_tables_page", "render_change_log_page",
-    "render_export_page", "render_formulae_page", "render_help_page", "render_home_page",
-    "render_images_page", "render_minerals_page", "render_plots_page", "render_projects_page",
-    "render_rocks_page", "render_science_plots_page", "render_settings_page", "render_sources_page",
-    "render_statistics_page", "render_ternary_page", "render_updates_page",
+    "render_analyses_page", "render_analytical_sessions_page", "render_article_tables_page",
+    "render_change_log_page", "render_export_page", "render_formulae_page", "render_help_page",
+    "render_home_page", "render_images_page", "render_minerals_page", "render_plots_page",
+    "render_projects_page", "render_rocks_page", "render_science_plots_page",
+    "render_settings_page", "render_sources_page", "render_statistics_page",
+    "render_ternary_page", "render_updates_page",
 ]
