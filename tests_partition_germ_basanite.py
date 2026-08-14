@@ -17,7 +17,7 @@ created = seed_germ_alkaline_models()
 assert created
 models = list_partition_models()
 assert len(models) == len(created)
-assert {model["applicability"]["rock"] for model in models} >= {"Basanite", "Phonolite"}
+assert {model["applicability"]["rock"] for model in models} >= {"Basanite", "Phonolite", "Carbonatite"}
 assert all(model["source"]["database"] == "GERM KdD" for model in models)
 assert any("low" in metadata or "high" in metadata
            for model in models
