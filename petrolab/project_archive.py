@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from petrolab.db import ASSETS_DIR, DB_PATH, DATA_DIR, get_project, list_datasets
+from petrolab.db import ASSETS_DIR, DB_PATH, list_datasets, list_projects
 
 ArchiveMode = Literal["project", "project_sources", "full"]
 ImageMode = Literal["none", "originals"]
@@ -25,6 +25,13 @@ class ProjectArchiveResult:
 def _safe_name(value: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_. " else "_" for ch in value).strip()
     return cleaned or "PetroLab_project"
+
+
+def _project_record(project_id: int) -> dict:
+    for project in list_projects():
+        if int(project["id"]) == int(project_id):
+            return project
+    raise KeyError(f"Проект {project_id} не найден")
 
 
 def _unique_existing_paths(values: list[str]) -> list[Path]:
@@ -52,18 +59,13 @@ def create_project_archive(
     mode: ArchiveMode = "full",
     image_mode: ImageMode = "originals",
 ) -> ProjectArchiveResult:
-    """Create a portable single-file .petrolab archive for one project.
-
-    The archive always contains the PetroLab database snapshot and a manifest. Source
-    workbooks are included in project_sources/full modes. Image assets are included
-    only in full mode and only when image_mode is originals.
-    """
+    """Create a portable single-file .petrolab archive for one project."""
     if mode not in {"project", "project_sources", "full"}:
         raise ValueError(f"Неизвестный режим архива: {mode}")
     if image_mode not in {"none", "originals"}:
         raise ValueError(f"Неизвестный режим изображений: {image_mode}")
 
-    project = get_project(int(project_id))
+    project = _project_record(int(project_id))
     datasets = list_datasets(int(project_id))
     target = Path(destination).expanduser()
     if target.suffix.lower() != ".petrolab":
