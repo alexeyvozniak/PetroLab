@@ -18,6 +18,7 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import unquote, urljoin, urlparse
 import zipfile
 
@@ -31,6 +32,7 @@ GFZ_DOI = "10.5880/digis.e.2025.002"
 GFZ_INDEX_URL = "https://datapub.gfz.de/download/10.5880.DIGIS.E.2025.002-aYVBW/"
 CORPUS_SCHEMA_VERSION = "6"
 USER_AGENT = "PetroLab-mineral-validation/1.0"
+REQUEST_ATTEMPTS = 4
 
 # These are exactly the fifteen mineral compilations present in the published GFZ data bundle.
 SELECTED_FAMILIES = {
@@ -71,14 +73,31 @@ def _stable_seed(token: str, base_seed: int) -> int:
 
 
 def _request(url: str, *, stream: bool = False) -> requests.Response:
-    response = requests.get(
-        url,
-        stream=stream,
-        timeout=(30, 900),
-        headers={"User-Agent": USER_AGENT},
-    )
-    response.raise_for_status()
-    return response
+    last_error: requests.RequestException | None = None
+    for attempt in range(1, REQUEST_ATTEMPTS + 1):
+        try:
+            response = requests.get(
+                url,
+                stream=stream,
+                timeout=(30, 900),
+                headers={"User-Agent": USER_AGENT},
+            )
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            status = getattr(exc.response, "status_code", None)
+            retryable = status is None or status == 429 or (status is not None and 500 <= status < 600)
+            if not retryable or attempt == REQUEST_ATTEMPTS:
+                raise
+            delay = 2 ** (attempt - 1)
+            print(
+                f"Transient GFZ request failure ({attempt}/{REQUEST_ATTEMPTS}): {exc}; retrying in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
+    assert last_error is not None
+    raise last_error
 
 
 def _family_for_name(name: str) -> tuple[str, str] | None:
