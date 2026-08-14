@@ -118,16 +118,23 @@ assert "from petrolab.ui.pages import plots" not in advanced + XY_COMPONENTS
 assert "_petrolab_workspace_call_index" not in APP + plots + XY_COMPONENTS
 assert "render_advanced_xy_workspace(project_id)" in plots
 for marker in [
-    "Видимые статьи / источники", "Показать все источники", "Скрыть все источники",
-    "Данные остаются в базе", "filter_visible_sources",
+    "Статьи и источники на графике", "Включить все", "только на текущий график",
+    "данные остаются в базе", "filter_visible_sources",
 ]:
     assert marker in SOURCE_CONTROLS, marker
+assert "Скрыть все источники" not in SOURCE_CONTROLS
 database_browser = (PAGES / "database_browser.py").read_text(encoding="utf-8")
 for text in [database_browser, plots, advanced]:
     assert "attach_study_metadata" in text
 assert "Источник / статья" in database_browser
+from petrolab.ui.pages.database_browser import _SELECTION_FIELDS
+for field_key, (label, candidates) in _SELECTION_FIELDS.items():
+    assert label and isinstance(candidates, tuple) and candidates, field_key
+for label in ["Объект", "Образец", "Минерал", "Генерация", "Метод", "Источник / статья"]:
+    assert label in {config[0] for config in _SELECTION_FIELDS.values()}, label
 assert "visible_sources" in plots and "hidden_sources" in plots
 assert "visible_sources" in advanced and "hidden_sources" in advanced
+assert '"advanced_plot_visible_sources"' in APP
 
 # Science safeguards are direct page behavior, not monkeypatches.
 for marker in [

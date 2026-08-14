@@ -36,11 +36,11 @@ from petrolab.source_registry import (
 
 
 _SELECTION_FIELDS = {
-    "Object": ("Object", "Объект", "Locality", "Местность"),
-    "Sample": ("Sample", "Образец"),
-    "Mineral": ("Минерал", "Mineral"),
-    "Generation": ("Generation", "Генерация"),
-    "Method": ("Method", "Метод", "Technique", "Метод анализа"),
+    "Object": ("Объект", ("Object", "Объект", "Locality", "Местность")),
+    "Sample": ("Образец", ("Sample", "Образец")),
+    "Mineral": ("Минерал", ("Минерал", "Mineral")),
+    "Generation": ("Генерация", ("Generation", "Генерация")),
+    "Method": ("Метод", ("Method", "Метод", "Technique", "Метод анализа")),
     "Source": ("Источник / статья", (SOURCE_LABEL_COLUMN,)),
 }
 

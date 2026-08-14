@@ -50,6 +50,7 @@ def _reconcile_plot_recipe_state() -> None:
             "outlier_threshold", "exclude_auto_outliers", "manual_outlier_exclusions",
             "outlier_scope", "outlier_scope_group", "keep_hidden_manual_exclusions",
             "style_profile_select", "interactive_selected_point", "petrolab_advanced_interactive_plot",
+            "advanced_plot_visible_sources",
         }
         prefixes = ("filter_vals_", "range_low_", "range_high_", "style_editor_")
         for key in list(st.session_state):
