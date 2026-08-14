@@ -29,13 +29,20 @@ class WindowsInstallerContractTests(unittest.TestCase):
 
     def test_updater_is_transactional_and_does_not_touch_user_data(self):
         updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
-        self.assertIn('Invoke-RestMethod -Uri "$RepoApi/commits/main"', updater)
+        self.assertIn('$VerifiedRefUrl = "$RepoApi/git/ref/tags/windows-latest"', updater)
+        self.assertIn('Resolve-VerifiedBuildSha', updater)
         self.assertIn('"$RepoZipBase/$remoteSha.zip"', updater)
         self.assertIn('Test-StagedApp', updater)
         self.assertIn('Move-Item -LiteralPath $Current -Destination $Previous', updater)
         self.assertIn('Move-Item -LiteralPath $Previous -Destination $Current', updater)
         self.assertNotIn("PetroLab Data", updater)
         self.assertNotIn("Remove-Item $env:PETROLAB_DATA_DIR", updater)
+
+    def test_updater_only_defaults_to_verified_channel(self):
+        updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
+        self.assertIn("PETROLAB_UPDATE_TARGET_SHA", updater)
+        self.assertIn("Invoke-RestMethod -Uri $VerifiedRefUrl", updater)
+        self.assertNotIn('Invoke-RestMethod -Uri "$RepoApi/commits/main"', updater)
 
     def test_updater_is_compatible_with_windows_powershell_process_matching(self):
         updater = (INSTALLER / "update_petrolab.ps1").read_text(encoding="utf-8")
@@ -59,8 +66,10 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertIn("/_stcore/health", workflow)
         self.assertIn("powershell.exe -NoProfile -ExecutionPolicy Bypass", workflow)
         self.assertIn("installer-preservation-marker.txt", workflow)
+        self.assertIn("PETROLAB_UPDATE_TARGET_SHA", workflow)
+        self.assertIn("Wait for full Windows verification", workflow)
+        self.assertIn('git tag -f windows-latest $env:GITHUB_SHA', workflow)
         self.assertIn("actions/upload-artifact@v4", workflow)
-        self.assertIn("windows-latest", workflow)
 
 
 if __name__ == "__main__":
