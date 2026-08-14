@@ -11,7 +11,7 @@ import pandas as pd
 
 from petrolab.db import ensure_storage
 from petrolab.partition_import import import_partition_table
-from petrolab.partitioning import list_partition_models
+from petrolab.partitioning import assess_model_context, list_partition_models
 
 ensure_storage()
 created = import_partition_table(pd.DataFrame([
@@ -49,3 +49,9 @@ assert model["source"]["contribution_id"] == "265"
 assert model["source"]["element_metadata"]["La"]["high"] == 0.66
 assert model["applicability"]["kind"] == "Phenocryst-Matrix"
 print("GERM partition import tests: OK")
+
+assert assess_model_context(model, "Syenite")["status"] == "DIRECT"
+foreign = assess_model_context(model, "Lamprophyre")
+assert foreign["status"] == "OUT_OF_DOMAIN"
+assert "Syenite" in foreign["message"]
+print("model-context visibility tests: OK")
