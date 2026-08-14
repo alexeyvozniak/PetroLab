@@ -32,3 +32,23 @@ def reconstruction_qc(mode:str, *, has_measured_melt:bool, equilibrium_confirmed
     if source_kind in {"whole_rock","matrix"}: warnings.append(f"{source_kind} не идентичен расплаву и хранится как явное допущение")
     status="PASS" if mode=="recommended" and not warnings else ("WARNING" if mode!="exploratory" else "EXPLORATORY")
     return {"status":status,"warnings":warnings,"mode":mode}
+
+
+def assess_model_context(model: Mapping[str, object], rock_context: str | None = None) -> dict[str, str]:
+    """Describe applicability without hiding a model or blocking inspection.
+
+    Only exact declared lithology is called direct.  Any other comparison stays
+    visible and is explicitly marked outside the model's stated domain.
+    """
+    declared = str(dict(model.get("applicability") or {}).get("rock") or "").strip()
+    selected = (rock_context or "").strip()
+    if not selected:
+        return {"status": "UNSPECIFIED", "message": "Литологический контекст не задан"}
+    if declared and declared.casefold() == selected.casefold():
+        return {"status": "DIRECT", "message": "Соответствует заявленной литологии модели"}
+    if not declared:
+        return {"status": "UNSPECIFIED", "message": "У модели нет заявленной литологии"}
+    return {
+        "status": "OUT_OF_DOMAIN",
+        "message": f"Модель заявлена для: {declared}; выбрано: {selected}",
+    }
