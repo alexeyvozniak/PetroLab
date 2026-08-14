@@ -18,6 +18,8 @@ GERM_SELECTIONS = {
     "Lamprophyre": _DATA_DIR / "germ_kdd_lamprophyre_2026-08-14.txt",
     "Syenite": _DATA_DIR / "germ_kdd_syenite_2026-08-14.txt",
     "Granite": _DATA_DIR / "germ_kdd_granite_2026-08-14.txt",
+    "Basalt — Clinopyroxene": _DATA_DIR / "germ_kdd_basalt_clinopyroxene_2026-08-14.txt",
+    "Basalt — Olivine": _DATA_DIR / "germ_kdd_basalt_olivine_2026-08-14.txt",
 }
 GERM_BASANITE_NOTE = (
     "Официальная выборка GERM KdD: 323 строки из 4 вкладов для Basanite, "
@@ -26,8 +28,9 @@ GERM_BASANITE_NOTE = (
 GERM_CORE_NOTE = (
     "Встроенная GERM-библиотека: Basanite (323 строки, 4 вклада), "
     "Phonolite (24 строки, 2 вклада), Carbonatite (197 строк, 9 вкладов) и "
-    "Lamprophyre (31 строка, 1 вклад), Syenite (81 строка) и Granite (23 строки, 3 вклада), "
-    "скачана 2026-08-14. "
+    "Lamprophyre (31 строка, 1 вклад), Syenite (81 строка), Granite (23 строки, 3 вклада), "
+    "а также Basalt: Clinopyroxene (405 строк, 44 вклада) и Olivine (225 строк, 33 вклада). "
+    "Все выборки скачаны 2026-08-14; полный базальтовый экспорт из 1400 строк сервер GERM пока не подготовил. "
     "Исходные Kd, σ и интервалы сохранены без усреднения."
 )
 GERM_BASANITE_FILE = GERM_SELECTIONS["Basanite"]
