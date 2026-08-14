@@ -183,7 +183,7 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
 
 
 def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
-    """Read the user-facing CSV/TSV/XLSX variants of a partition table."""
+    """Read generic CSV/TSV/XLSX and the official GERM KdD text export."""
     suffix = Path(filename).suffix.casefold()
     if suffix in {".xlsx", ".xls"}:
         sheets = pd.read_excel(BytesIO(raw), sheet_name=None)
@@ -201,15 +201,14 @@ def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
     except UnicodeDecodeError:
         text = raw.decode("latin-1")
 
-    # The official KdD text export starts with a small metadata table, then a
-    # marked 'kds' section.  Find the real tabular header rather than treating
-    # the metadata line as data.
     lines = text.splitlines()
     header_index = next(
-        (index for index, line in enumerate(lines) if line.casefold().startswith("contribution_id\\trock_types\\tminerals\\telement")),
+        (
+            index for index, line in enumerate(lines)
+            if line.casefold().startswith("contribution_id\trock_types\tminerals\telement")
+        ),
         None,
     )
     if header_index is not None:
-        return pd.read_csv(StringIO("\
-".join(lines[header_index:])), sep="\\t")
+        return pd.read_csv(StringIO("\n".join(lines[header_index:])), sep="\t")
     return pd.read_csv(StringIO(text), sep=None, engine="python")
