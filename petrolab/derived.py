@@ -12,6 +12,10 @@ from petrolab.mineral_assignments import attach_mineral_assignments
 
 
 _SOURCE_FINGERPRINT_KEY = "__source_fingerprint__"
+_FORMULA_CONTEXT_COLUMNS = {
+    "Минерал", "Минерал исходного набора", "Минерал назначен вручную",
+    "Комментарий переотнесения", "Переотнесено",
+}
 
 
 @dataclass(frozen=True)
@@ -116,6 +120,15 @@ def _align_result_by_analysis_id(source: pd.DataFrame, result: pd.DataFrame) -> 
     return aligned
 
 
+def _formula_source_fingerprint(record: dict) -> str:
+    """Ignore local interpretation labels when checking source-chemistry freshness."""
+    source_like = {
+        key: value for key, value in record.items()
+        if str(key) not in _FORMULA_CONTEXT_COLUMNS
+    }
+    return source_row_fingerprint(source_like)
+
+
 def _formula_row_current(row) -> bool:
     """Prefer source-content fingerprints; retain timestamp fallback for legacy rows."""
     try:
@@ -182,7 +195,7 @@ def save_formula_results(
         payload = []
         for row_index, analysis_id in enumerate(analysis_ids):
             derived = {column: result_dataframe.iloc[row_index][column] for column in derived_columns}
-            derived[_SOURCE_FINGERPRINT_KEY] = source_row_fingerprint(source_dataframe.iloc[row_index].to_dict())
+            derived[_SOURCE_FINGERPRINT_KEY] = _formula_source_fingerprint(source_dataframe.iloc[row_index].to_dict())
             payload.append((
                 int(dataset_id), analysis_id, method_id, source_versions[analysis_id],
                 json.dumps(_json_safe_record(derived), ensure_ascii=False), now,
@@ -254,7 +267,7 @@ def save_point_formula_results(
         states = []
         for row_index, analysis_id in enumerate(analysis_ids):
             derived = {column: result_dataframe.iloc[row_index][column] for column in derived_columns}
-            derived[_SOURCE_FINGERPRINT_KEY] = source_row_fingerprint(source_dataframe.iloc[row_index].to_dict())
+            derived[_SOURCE_FINGERPRINT_KEY] = _formula_source_fingerprint(source_dataframe.iloc[row_index].to_dict())
             payload.append((
                 int(dataset_id), analysis_id, method_id, versions[analysis_id],
                 json.dumps(_json_safe_record(derived), ensure_ascii=False), now,
