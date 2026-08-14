@@ -4,30 +4,16 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label
-from petrolab.db import META_COLUMNS, list_datasets, list_projects
+from petrolab.db import META_COLUMNS, list_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
 from petrolab.ui.editability import common_editable_source_columns
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages import analyses as legacy
+from petrolab.ui.project_context import active_project_id
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
 _SAVE_FLASH_KEY = "analysis_save_flash"
-
-
-def _project_id() -> int | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    ids = [int(row["id"]) for row in projects]
-    try:
-        value = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        value = ids[0]
-    if value not in ids:
-        value = ids[0]
-    st.session_state["active_project_id"] = value
-    return value
 
 
 def _view_columns(dataframe, derived: set[str], mode: str):
@@ -65,7 +51,7 @@ def _rerun_with_result(message: str, warnings: list[str]) -> None:
 
 
 def render_analyses_dashboard_page() -> None:
-    project_id = _project_id()
+    project_id = active_project_id()
     render_page_header(
         "База анализов",
         "Исходная химия, локальная интерпретация и актуальные расчётные поля в одной рабочей таблице.",
