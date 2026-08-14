@@ -17,7 +17,7 @@ NAV_SECTIONS = {
     "Исследование": [
         ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
         ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
-        ("generations", "Поколения"), ("thermobarometry", "Термобарометрия"),
+        ("generations", "Поколения"), ("equilibrium", "Равновесные пары"), ("thermobarometry", "Термобарометрия"),
     ],
     "Материалы": [
         ("rocks", "Породы"), ("slides", "Шлифы и поля"), ("images", "Изображения"),
