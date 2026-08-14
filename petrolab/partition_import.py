@@ -7,7 +7,7 @@ assigns an equilibrium interpretation automatically.
 """
 from __future__ import annotations
 
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
@@ -197,6 +197,19 @@ def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
         raise ValueError("В Excel не найден лист с Rock Type(s), Mineral(s) и Element.")
 
     try:
-        return pd.read_csv(BytesIO(raw), sep=None, engine="python")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return pd.read_csv(BytesIO(raw), sep=None, engine="python", encoding="latin-1")
+        text = raw.decode("latin-1")
+
+    # The official KdD text export starts with a small metadata table, then a
+    # marked 'kds' section.  Find the real tabular header rather than treating
+    # the metadata line as data.
+    lines = text.splitlines()
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.casefold().startswith("contribution_id\\trock_types\\tminerals\\telement")),
+        None,
+    )
+    if header_index is not None:
+        return pd.read_csv(StringIO("\
+".join(lines[header_index:])), sep="\\t")
+    return pd.read_csv(StringIO(text), sep=None, engine="python")
