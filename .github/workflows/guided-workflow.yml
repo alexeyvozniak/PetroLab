@@ -13,6 +13,7 @@ on:
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
       - "petrolab/ui/pages/images_dashboard.py"
+      - "petrolab/ui/pages/sources_dashboard.py"
       - "petrolab/ui/pages/home_dashboard.py"
       - "petrolab/ui/navigation.py"
       - "petrolab/ui/pages/__init__.py"
@@ -29,6 +30,7 @@ on:
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
       - "petrolab/ui/pages/images_dashboard.py"
+      - "petrolab/ui/pages/sources_dashboard.py"
       - "petrolab/ui/pages/home_dashboard.py"
       - "petrolab/ui/navigation.py"
       - "petrolab/ui/pages/__init__.py"
@@ -61,6 +63,7 @@ jobs:
           petrolab/ui/pages/guided_workflow.py
           petrolab/ui/pages/mixed_minerals.py
           petrolab/ui/pages/images_dashboard.py
+          petrolab/ui/pages/sources_dashboard.py
           petrolab/ui/pages/home_dashboard.py
           petrolab/ui/navigation.py
           tests_guided_ui_viewports.py
