@@ -11,6 +11,7 @@ LAYOUT = (UI / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
 COMPONENTS = (UI / "components.py").read_text(encoding="utf-8")
 PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
+XY_COMPONENTS = (UI / "xy_components.py").read_text(encoding="utf-8")
 DESTRUCTIVE = (UI / "destructive_page_policy.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
 
@@ -37,15 +38,35 @@ for page_name in ["home_dashboard.py", "sources_dashboard.py", "analyses_dashboa
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
-# First legacy/dashboard split is collapsed: import and home have one authoritative renderer.
+# Dashboard migrations are authoritative; do not restore the removed home/source/plot policy split.
 assert not (UI / "import_page_policy.py").exists()
+assert not (UI / "plot_page_policy.py").exists()
 assert not (PAGES / "home.py").exists()
 assert not (PAGES / "sources.py").exists()
 assert "install_import_page_policy" not in APP
+assert "install_plot_page_policy" not in APP
 sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
 for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
     assert marker in sources_dashboard, marker
 assert "from petrolab.ui.pages import sources as legacy" not in sources_dashboard
+
+# XY quick/advanced workspaces are explicit and no longer rely on call order or a nested legacy page shell.
+advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")
+plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
+for marker in [
+    "def render_advanced_xy_workspace(", "render_outlier_controls", "render_advanced_interactive",
+    "Сохранённый рецепт ссылается на наборы", "В график входит", "save_plot_recipe",
+]:
+    assert marker in advanced, marker
+for marker in [
+    "def render_quick_interactive(", "def render_advanced_interactive(",
+    'key="petrolab_quick_interactive_plot"', 'key="petrolab_advanced_interactive_plot"',
+    "default_outlier_method", "Внутри групп", "hidden_saved", "sanitize_xy_rows",
+]:
+    assert marker in XY_COMPONENTS, marker
+assert "legacy.render_plots_page" not in plots
+assert "_petrolab_workspace_call_index" not in APP + plots + XY_COMPONENTS
+assert "render_advanced_xy_workspace(project_id)" in plots
 
 # Navigation is flat/grouped: no second-stage workspace selector.
 assert "render_sidebar" in APP
@@ -73,7 +94,6 @@ assert '"Интерфейс"' in settings and '"Рисунки"' in settings and
 images = (PAGES / "images_dashboard.py").read_text(encoding="utf-8")
 assert "st.columns([1.35, 1])" in images
 assert "confirm_delete_image_" in images
-plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 assert '"Быстрое построение"' in plots and '"Расширенный редактор"' in plots
 assert "FIGURE_PRESETS" in plots
 for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
@@ -86,8 +106,15 @@ analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
 for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
     assert view in analyses
 
-# Existing one-click destructive actions must be intercepted before reaching storage.
+# Science/image compatibility is now bootstrapped explicitly rather than hidden behind plot policy.
+assert "install_science_page_policy()" in APP
+assert "install_image_page_policy()" in APP
+assert "_petrolab_science_policy_installed" in (UI / "science_page_policy.py").read_text(encoding="utf-8")
+assert "_petrolab_image_policy_installed" in (UI / "image_page_policy.py").read_text(encoding="utf-8")
+
+# Existing destructive actions remain intercepted before reaching storage.
 assert "install_destructive_page_policy" in APP
+assert "render_plot_confirmations" in DESTRUCTIVE
 for marker in [
     '"plot_recipe"', '"style_profile"', '"work_group"', '"rock_image"', '"rock_links"',
     "original_delete_recipe", "original_delete_profile", "original_clear_group",

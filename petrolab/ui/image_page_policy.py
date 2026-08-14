@@ -8,6 +8,9 @@ from petrolab.dataframe_utils import apply_quick_filter
 def install() -> None:
     from petrolab.ui.pages import images as page
 
+    if getattr(page, "_petrolab_image_policy_installed", False):
+        return
+
     def render_multi_point_controls(prefix: str, dataframe) -> None:
         query = st.text_input(
             "Поиск по образцу / зерну / точке",
@@ -64,3 +67,4 @@ def install() -> None:
 
     page._render_multi_point_controls = render_multi_point_controls
     page._render_field_controls = render_field_controls
+    page._petrolab_image_policy_installed = True
