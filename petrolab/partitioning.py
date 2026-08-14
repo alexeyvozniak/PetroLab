@@ -35,20 +35,16 @@ def reconstruction_qc(mode:str, *, has_measured_melt:bool, equilibrium_confirmed
 
 
 def assess_model_context(model: Mapping[str, object], rock_context: str | None = None) -> dict[str, str]:
-    """Describe applicability without hiding a model or blocking inspection.
-
-    Only exact declared lithology is called direct.  Any other comparison stays
-    visible and is explicitly marked outside the model's stated domain.
-    """
+    """Describe applicability in Russian without hiding or blocking a model."""
     declared = str(dict(model.get("applicability") or {}).get("rock") or "").strip()
     selected = (rock_context or "").strip()
     if not selected:
-        return {"status": "UNSPECIFIED", "message": "Литологический контекст не задан"}
+        return {"status": "контекст не задан", "message": "Контекст породы не задан"}
     if declared and declared.casefold() == selected.casefold():
-        return {"status": "DIRECT", "message": "Соответствует заявленной литологии модели"}
+        return {"status": "соответствует", "message": "Литология совпадает с заявленной областью модели"}
     if not declared:
-        return {"status": "UNSPECIFIED", "message": "У модели нет заявленной литологии"}
+        return {"status": "контекст не указан", "message": "Для модели не указана литология применения"}
     return {
-        "status": "OUT_OF_DOMAIN",
-        "message": f"Модель заявлена для: {declared}; выбрано: {selected}",
+        "status": "предупреждение",
+        "message": f"Модель заявлена для породы «{declared}», а выбран контекст «{selected}».",
     }
