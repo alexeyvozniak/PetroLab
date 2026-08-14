@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from petrolab.sample_locations import current_sample_location, record_sample_location, sample_location_history
 from petrolab.sample_registry import (
     add_sample_alias,
     create_sample,
@@ -18,6 +19,7 @@ from petrolab.unified_catalog import mineral_inventory, sample_overview, unlinke
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
+from petrolab.settings_service import load_settings, save_settings
 
 
 _SELECTION_FIELDS = {
@@ -220,6 +222,77 @@ def _link_library_datasets(project_id: int) -> None:
             st.caption(f"Наборов в рабочем контексте: {len(accessible)}.")
 
 
+def _render_sample_location_card(project_id: int) -> None:
+    """A voluntary specimen passport: current place plus immutable movement history."""
+    samples = list_samples(project_id)
+    if not samples:
+        return
+    settings = load_settings()
+    remind = bool(settings.get("show_sample_location_prompt", True))
+    with st.expander("Карточка образца и местонахождение", expanded=remind):
+        if remind:
+            st.markdown("#### Где сейчас образец?")
+            st.caption(
+                "Необязательная короткая отметка для физических образцов и шлифов. "
+                "Она не мешает сохранению данных; бывшие места останутся в истории."
+            )
+        labels = {
+            f"{row['name']} · id {int(row['id'])}": int(row["id"])
+            for row in samples
+        }
+        selected_label = st.selectbox("Образец", list(labels), key="sample_location_selected")
+        sample_id = labels[selected_label]
+        current = current_sample_location(sample_id)
+        if current:
+            st.info(f"Сейчас: **{current.location}** · отмечено {current.recorded_at}")
+        else:
+            st.info("Текущее местонахождение ещё не отмечено.")
+        location = st.text_input(
+            "Где сейчас находится образец / шлиф?",
+            value=current.location if current else "",
+            placeholder="например, шкаф A-3; у Ивана; лаборатория МГУ",
+            key=f"sample_location_value_{sample_id}",
+        )
+        note = st.text_input(
+            "Комментарий · необязательно",
+            value="",
+            placeholder="выдан на анализ; коробка; дата возврата",
+            key=f"sample_location_note_{sample_id}",
+        )
+        c1, c2 = st.columns(2)
+        never_ask = c2.checkbox(
+            "Больше не показывать напоминание",
+            value=False,
+            key=f"sample_location_hide_prompt_{sample_id}",
+        )
+        if c1.button("Обновить местонахождение", type="primary", key=f"sample_location_save_{sample_id}"):
+            try:
+                event = record_sample_location(sample_id, location, note=note)
+            except (KeyError, ValueError) as exc:
+                st.error(str(exc))
+            else:
+                if never_ask:
+                    save_settings({**settings, "show_sample_location_prompt": False})
+                st.success(f"Отмечено: {event.location}.")
+                st.rerun()
+        if never_ask and c2.button("Скрыть напоминание", key=f"sample_location_hide_{sample_id}"):
+            save_settings({**settings, "show_sample_location_prompt": False})
+            st.success("Напоминание скрыто. Карточка и история остаются доступны здесь.")
+            st.rerun()
+
+        history = sample_location_history(sample_id)
+        if history:
+            st.caption("История перемещений")
+            st.dataframe(
+                pd.DataFrame(history).rename(columns={
+                    "location": "Место",
+                    "note": "Комментарий",
+                    "recorded_at": "Отмечено",
+                }),
+                width="stretch", hide_index=True, height=min(280, 44 + 34 * len(history)),
+            )
+
+
 def render_database_browser_page() -> None:
     render_page_header(
         "Вся база",
@@ -255,6 +328,7 @@ def render_database_browser_page() -> None:
             mask = view.astype(str).apply(lambda col: col.str.contains(query.strip(), case=False, na=False)).any(axis=1)
             view = view[mask]
         st.dataframe(view, width="stretch", hide_index=True, height=560)
+        _render_sample_location_card(project_id)
         empty_count = int(view["Пустой"].sum()) if not view.empty and "Пустой" in view.columns else 0
         if empty_count:
             st.caption(f"Пустых полевых образцов без аналитики: {empty_count}. Это нормально: они уже являются полноценными Sample и могут пополняться позже.")
