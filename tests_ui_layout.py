@@ -14,6 +14,8 @@ PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
 XY_COMPONENTS = (UI / "xy_components.py").read_text(encoding="utf-8")
 IMAGE_COMPONENTS = (UI / "image_components.py").read_text(encoding="utf-8")
 DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
+PLOT_ACTIONS = (UI / "plot_actions.py").read_text(encoding="utf-8")
+SCIENCE = (PAGES / "science_plots.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
 
 # Scientific-dashboard visual system, accessibility and responsive behavior.
@@ -42,20 +44,24 @@ for page_name in [
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
-# Dashboard migrations are authoritative; removed pages/policies must not return.
+# The refactor is authoritative: no runtime page-policy modules or parallel legacy pages may return.
 for obsolete in [
     UI / "import_page_policy.py",
     UI / "plot_page_policy.py",
     UI / "image_page_policy.py",
+    UI / "science_page_policy.py",
+    UI / "destructive_page_policy.py",
     PAGES / "home.py",
     PAGES / "sources.py",
     PAGES / "analyses.py",
     PAGES / "images.py",
+    PAGES / "plots.py",
 ]:
     assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
+assert not list(UI.glob("*_page_policy.py")), "runtime page policy module returned"
 for bootstrap in [
     "install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy",
-    "install_image_page_policy",
+    "install_image_page_policy", "install_science_page_policy",
 ]:
     assert bootstrap not in APP, bootstrap
 
@@ -84,10 +90,9 @@ for marker in [
 ]:
     assert marker in IMAGE_COMPONENTS, marker
 
-# XY quick/advanced workspaces are explicit and no longer rely on call order or a nested legacy page shell.
+# XY quick/advanced workspaces and guarded actions have explicit owners.
 advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")
 plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
-plot_facade = (PAGES / "plots.py").read_text(encoding="utf-8")
 for marker in [
     "def render_advanced_xy_workspace(", "render_outlier_controls", "render_advanced_interactive",
     "Сохранённый рецепт ссылается на наборы", "В график входит", "save_plot_recipe",
@@ -97,15 +102,30 @@ for marker in [
     "def render_quick_interactive(", "def render_advanced_interactive(",
     'key="petrolab_quick_interactive_plot"', 'key="petrolab_advanced_interactive_plot"',
     "default_outlier_method", "Внутри групп", "hidden_saved", "sanitize_xy_rows",
+    "from petrolab.ui.plot_actions import clear_work_group",
 ]:
     assert marker in XY_COMPONENTS, marker
-assert "legacy.render_plots_page" not in plots
+for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "confirm_then", "render_plot_confirmations"]:
+    assert marker in PLOT_ACTIONS, marker
+assert "from petrolab.ui.pages import plots" not in advanced + XY_COMPONENTS
 assert "_petrolab_workspace_call_index" not in APP + plots + XY_COMPONENTS
 assert "render_advanced_xy_workspace(project_id)" in plots
-assert "def render_plots_page(" not in plot_facade
-assert "load_unified_with_derived" not in plot_facade
-for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "confirm_then"]:
-    assert marker in plot_facade, marker
+
+# Science safeguards are direct page behavior, not monkeypatches.
+for marker in [
+    "def _mineral_filtered_presets(",
+    "require_known_units=True",
+    "_PATTERN_YLABELS",
+    "def _apply_pattern_group_styles(",
+    "def _sync_science_axis_defaults(",
+    "matches_preset",
+    "Пользовательские оси: литературное название, source citation и overlay preset'а отключены.",
+    "Grouped boxplot требует ровно один числовой параметр",
+    'key="hist_svg"',
+    'key="box_svg"',
+    "render_page_header",
+]:
+    assert marker in SCIENCE, marker
 
 # Navigation is flat/grouped: no second-stage workspace selector.
 assert "render_sidebar" in APP
@@ -120,7 +140,7 @@ for label in ["Главная", "Импорт", "База анализов", "Р
 for page_name in [
     "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py",
     "plots_dashboard.py", "images_dashboard.py", "settings.py", "statistics.py",
-    "formulae.py", "help.py", "rocks.py",
+    "formulae.py", "help.py", "rocks.py", "science_plots.py",
 ]:
     path = PAGES / page_name
     assert path.exists(), page_name
@@ -139,11 +159,7 @@ home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
 assert "def _action(" not in home
 assert home.count('key=f"home_{route}"') == 1
 
-# Science is now the only remaining startup compatibility layer.
-assert "install_science_page_policy()" in APP
-assert "_petrolab_science_policy_installed" in (UI / "science_page_policy.py").read_text(encoding="utf-8")
-
-# Destructive actions are explicit: no runtime monkeypatch bootstrap remains.
+# Destructive actions are explicit and reusable, never installed dynamically.
 for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
     assert marker in DESTRUCTIVE_ACTIONS, marker
 rocks = (PAGES / "rocks.py").read_text(encoding="utf-8")
