@@ -22,7 +22,7 @@ def render_distribution_page() -> None:
             made=seed_initial_alkaline_models()
             st.success("Добавлено моделей: "+str(len(made)) if made else "Эти модели уже есть в библиотеке.")
         st.caption(GERM_ALKALINE_NOTE)
-        if st.button("Добавить экспериментальную библиотеку GERM: щелочные породы"):
+        if st.button("Добавить экспериментальную библиотеку GERM: щелочные и родственные породы"):
             made=seed_germ_alkaline_models()
             st.success("Добавлено моделей GERM: "+str(len(made)) if made else "Эти выборки GERM уже есть в библиотеке.")
     with st.expander("Смотреть литературные коэффициенты D", expanded=False):
