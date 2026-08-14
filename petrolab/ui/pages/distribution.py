@@ -29,7 +29,7 @@ def render_distribution_page() -> None:
             rock_context = st.selectbox(
                 "Контекст вашей породы (не ограничивает каталог)",
                 ["Не задавать"] + rocks,
-                help="Например, при работе с лампрофиром фонолитные модели остаются видимыми: они будут отмечены как вне заявленной области, но не скрыты.",
+                help="Например, при работе с лампрофиром фонолитные модели остаются видимыми: появится только понятное предупреждение, но модель останется доступной.",
                 key="partition_rock_context",
             )
             query = st.text_input("Поиск по породе, минералу, источнику или элементу", key="partition_catalogue_query")
@@ -57,7 +57,7 @@ def render_distribution_page() -> None:
                     "Элементов": len(model["values"]),
                 })
             catalogue = pd.DataFrame(rows)
-            st.caption("Каталог ничего не отбрасывает. OUT_OF_DOMAIN — предупреждение об области применимости для расчёта, а не запрет на просмотр или экспорт.")
+            st.caption("Каталог ничего не отбрасывает. Предупреждение говорит лишь о границах опубликованной модели; оно не запрещает просмотр, экспорт или расчёт.")
             st.dataframe(catalogue, width="stretch", hide_index=True)
             if not catalogue.empty:
                 chosen_id = st.selectbox("Открыть модель", catalogue["ID"].tolist(), format_func=lambda item: next(model["name"] for model in models if model["id"] == item), key="partition_model_open")
@@ -75,9 +75,9 @@ def render_distribution_page() -> None:
                     })
                 st.dataframe(pd.DataFrame(element_rows), width="stretch", hide_index=True)
                 chosen_context = assess_model_context(chosen, context_value)
-                if chosen_context["status"] == "OUT_OF_DOMAIN":
-                    st.warning(chosen_context["message"] + ". Просмотр разрешён; для расчёта это будет явно записано в provenance.")
-                elif chosen_context["status"] == "DIRECT":
+                if chosen_context["status"] == "предупреждение":
+                    st.warning(chosen_context["message"] + " Расчёт и просмотр доступны; это допущение будет записано в истории расчёта.")
+                elif chosen_context["status"] == "соответствует":
                     st.success(chosen_context["message"])
                 else:
                     st.info(chosen_context["message"])
