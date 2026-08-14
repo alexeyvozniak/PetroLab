@@ -50,8 +50,8 @@ assert model["source"]["element_metadata"]["La"]["high"] == 0.66
 assert model["applicability"]["kind"] == "Phenocryst-Matrix"
 print("GERM partition import tests: OK")
 
-assert assess_model_context(model, "Syenite")["status"] == "DIRECT"
+assert assess_model_context(model, "Syenite")["status"] == "соответствует"
 foreign = assess_model_context(model, "Lamprophyre")
-assert foreign["status"] == "OUT_OF_DOMAIN"
+assert foreign["status"] == "предупреждение"
 assert "Syenite" in foreign["message"]
 print("model-context visibility tests: OK")
