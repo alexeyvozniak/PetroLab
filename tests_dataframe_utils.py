@@ -13,6 +13,7 @@ from petrolab.dataframe_utils import (
     row_identity,
     values_equal,
 )
+from petrolab.io_utils import add_qc_columns, normalize_columns_with_map
 from petrolab.outliers import apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 from petrolab.ui.editability import common_editable_source_columns
 
@@ -126,5 +127,27 @@ assert chem.loc[iqr.outlier_mask, "_analysis_id"].tolist() == ["p7"]
 manual = exclude_analysis_ids(chem, ["p1", "p7"])
 assert set(manual["_analysis_id"]) == {"p0", "p2", "p3", "p4", "p5", "p6"}
 assert len(chem) == 8
+
+# Detection-limit qualifiers are analytical information, not missing data. Header/unit
+# normalization must scale the threshold and preserve the qualifier itself.
+censored = pd.DataFrame({
+    "La ppb": ["<10", 250.0],
+    "Ce ppm": ["≤0.02", 1.5],
+    "SiO2": [50.0, 51.0],
+    "FeO": [8.0, 9.0],
+})
+normalized, mapping = normalize_columns_with_map(censored)
+assert normalized.columns.tolist() == ["La [µg/g]", "Ce [µg/g]", "SiO2", "FeO"]
+assert normalized.loc[0, "La [µg/g]"] == "<0.01"
+assert float(normalized.loc[1, "La [µg/g]"]) == 0.25
+assert normalized.loc[0, "Ce [µg/g]"] == "≤0.02"
+assert mapping["La [µg/g]"]["source_unit"].lower() == "ppb"
+
+# QC calculations may use a numeric view of chemistry, but must not overwrite the
+# preserved qualifier in the dataframe returned to the rest of PetroLab.
+qc = add_qc_columns(normalized)
+assert qc.loc[0, "La [µg/g]"] == "<0.01"
+assert qc.loc[0, "Ce [µg/g]"] == "≤0.02"
+assert "Σ оксидов" in qc.columns
 
 print("dataframe utility tests: OK")
