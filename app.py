@@ -11,6 +11,7 @@ from petrolab.storage import ensure_storage
 from petrolab.ui.navigation import render_sidebar
 from petrolab.ui.pages import (
     render_analyses_page,
+    render_analytical_sessions_page,
     render_article_tables_page,
     render_change_log_page,
     render_data_intake_page,
@@ -78,6 +79,7 @@ _reconcile_plot_recipe_state()
 ROUTES = {
     "home": render_home_page,
     "intake": render_data_intake_page,
+    "sessions": render_analytical_sessions_page,
     "database": render_database_browser_page,
     "sources": render_sources_page,
     "analyses": render_analyses_page,
