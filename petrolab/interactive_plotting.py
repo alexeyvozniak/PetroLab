@@ -57,6 +57,26 @@ def _rgba(color: str, alpha: float) -> str:
     return color
 
 
+def _manual_polygons(style: Mapping[str, Any]) -> list[np.ndarray]:
+    raw = style.get("manual_envelope_points")
+    if not isinstance(raw, list) or len(raw) < 3:
+        return []
+    try:
+        polygon = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return []
+    if polygon.ndim != 2 or polygon.shape[1] != 2 or not np.isfinite(polygon).all():
+        return []
+    if not np.allclose(polygon[0], polygon[-1]):
+        polygon = np.vstack([polygon, polygon[0]])
+    return [polygon]
+
+
+def _field_dash(value: Any) -> str:
+    value = str(value or "solid").lower()
+    return value if value in {"solid", "dot", "dash", "longdash", "dashdot", "longdashdot"} else "solid"
+
+
 def _add_envelope_traces(
     figure: go.Figure,
     subset: pd.DataFrame,
@@ -87,22 +107,34 @@ def _add_envelope_traces(
 
     method = str(style.get("envelope_method", "confidence_ellipse") or "confidence_ellipse")
     level = float(style.get("envelope_level", 0.90) or 0.90)
-    try:
-        result = compute_group_envelope(subset, x, y, method=method, level=level)
-    except (ValueError, np.linalg.LinAlgError):
-        return
-    fill_alpha = float(style.get("envelope_alpha", 0.16) or 0.16)
-    for index, polygon in enumerate(result.polygons):
+    polygons = _manual_polygons(style)
+    manual = bool(polygons)
+    result = None
+    if not manual:
+        try:
+            result = compute_group_envelope(subset, x, y, method=method, level=level)
+            polygons = result.polygons
+        except (ValueError, np.linalg.LinAlgError):
+            return
+
+    fill_alpha = float(style.get("envelope_alpha", 0.16) or 0.0)
+    fill_color = str(style.get("envelope_fill_color") or color)
+    line_color = str(style.get("envelope_line_color") or color)
+    fill_enabled = bool(style.get("envelope_fill", True))
+    line_width = float(style.get("envelope_line_width", 1.5) or 0.0)
+    line_dash = _field_dash(style.get("envelope_line_dash", "solid"))
+    for index, polygon in enumerate(polygons):
+        if manual:
+            description = f"manual; исходное: {method}, уровень {level:.0%}; n={len(subset)}"
+        else:
+            description = f"{result.method}; уровень {result.level:.0%}; n={result.n}"
         figure.add_trace(go.Scatter(
-            x=polygon[:, 0], y=polygon[:, 1], mode="lines", fill="toself",
-            fillcolor=_rgba(color, fill_alpha),
-            line={"color": color, "width": float(style.get("envelope_line_width", 1.5) or 1.5)},
+            x=polygon[:, 0], y=polygon[:, 1], mode="lines", fill="toself" if fill_enabled else None,
+            fillcolor=_rgba(fill_color, fill_alpha) if fill_enabled else "rgba(0,0,0,0)",
+            line={"color": line_color, "width": line_width, "dash": line_dash},
             name=f"{group_name} · поле" if index == 0 else f"{group_name} · поле {index + 1}",
             legendgroup=f"envelope-{group_name}", showlegend=index == 0,
-            hovertemplate=(
-                f"<b>{group_name}</b><br>{result.method}; уровень {result.level:.0%}; n={result.n}"
-                "<extra></extra>"
-            ),
+            hovertemplate=f"<b>{group_name}</b><br>{description}<extra></extra>",
         ))
 
 
