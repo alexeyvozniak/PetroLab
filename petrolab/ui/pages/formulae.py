@@ -4,12 +4,13 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
-from petrolab.db import list_datasets, list_projects, load_dataset_dataframe
+from petrolab.db import list_datasets, load_dataset_dataframe
 from petrolab.derived import formula_status, save_formula_results
 from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
 from petrolab.minerals.formulae import methods_for
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
+from petrolab.ui.project_context import active_project_id
 
 
 def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
@@ -18,21 +19,6 @@ def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
 
 def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
     return [column for column in ("Sample", "Grain", "Point", "Generation") if column in dataframe.columns]
-
-
-def _project_id() -> int | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    ids = [int(item["id"]) for item in projects]
-    try:
-        project_id = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        project_id = ids[0]
-    if project_id not in ids:
-        project_id = ids[0]
-    st.session_state["active_project_id"] = project_id
-    return project_id
 
 
 def _render_classification_summary(result: pd.DataFrame) -> None:
@@ -82,7 +68,7 @@ def render_formulae_page() -> None:
         "Структурные формулы, APFU и end-members сохраняются отдельным слоем и не подменяют исходную химию.",
         eyebrow="Данные",
     )
-    project_id = _project_id()
+    project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
@@ -133,12 +119,12 @@ def render_formulae_page() -> None:
     ]
     if status.has_active_formula and status.method_id == method.id:
         status_badges.extend([
-            (f"Fresh: {status.current_rows}/{status.total_rows}", "success" if status.stale_rows == 0 else "warning"),
-            (f"Valid: {status.valid_rows}", "success" if status.invalid_rows == 0 else "warning"),
-            (f"Invalid: {status.invalid_rows}", "warning" if status.invalid_rows else "neutral"),
+            (f"Актуально: {status.current_rows}/{status.total_rows}", "success" if status.stale_rows == 0 else "warning"),
+            (f"Валидно: {status.valid_rows}", "success" if status.invalid_rows == 0 else "warning"),
+            (f"Не рассчитано: {status.invalid_rows}", "warning" if status.invalid_rows else "neutral"),
         ])
         if status.unknown_validity_rows:
-            status_badges.append((f"Legacy validity unknown: {status.unknown_validity_rows}", "warning"))
+            status_badges.append((f"Старые результаты без validity: {status.unknown_validity_rows}", "warning"))
     else:
         status_badges.append(("○ Не сохранён для этого метода", "neutral"))
     render_badges(status_badges)
