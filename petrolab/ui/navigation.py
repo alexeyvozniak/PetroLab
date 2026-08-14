@@ -10,9 +10,10 @@ from petrolab.update_checker import available_update
 
 NAV_SECTIONS = {
     "Данные": [
-        ("home", "Главная"), ("sources", "Новые анализы"), ("intake", "Источники и литература"), ("sessions", "Сессии"),
-        ("mixed_minerals", "Разбор фаз"), ("measurements", "Образцы и измерения"), ("database", "Вся база"),
-        ("analyses", "База анализов"), ("formulae", "Расчёты"),
+        ("home", "Главная"), ("workflow", "Рабочий процесс"), ("sources", "Новые анализы"),
+        ("sessions", "Сессии"), ("mixed_minerals", "Фазы и выбросы"),
+        ("measurements", "Образцы и измерения"), ("intake", "Источники и литература"),
+        ("database", "Вся база"), ("analyses", "База анализов"), ("formulae", "Расчёты"),
     ],
     "Исследование": [
         ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
