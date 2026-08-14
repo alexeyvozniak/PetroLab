@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
+from petrolab.group_envelopes import compute_group_envelope
 
 
 PLOTLY_SYMBOLS = {
@@ -45,6 +46,64 @@ def _outline_color(style: Mapping[str, Any] | None) -> str:
     if value in {"group", "series", "цвет группы"}:
         return str((style or {}).get("color", "black"))
     return "black"
+
+
+def _rgba(color: str, alpha: float) -> str:
+    if color.startswith("#") and len(color) == 7:
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+        return f"rgba({r},{g},{b},{max(0.0, min(1.0, alpha)):.3f})"
+    return color
+
+
+def _add_envelope_traces(
+    figure: go.Figure,
+    subset: pd.DataFrame,
+    x: str,
+    y: str,
+    group_name: str,
+    style: Mapping[str, Any],
+) -> None:
+    display_mode = str(style.get("display_mode", "points") or "points")
+    if display_mode not in {"field", "points+field", "centroid"}:
+        return
+    color = str(style.get("color", "#636EFA"))
+    if display_mode == "centroid":
+        x_values = pd.to_numeric(subset[x], errors="coerce")
+        y_values = pd.to_numeric(subset[y], errors="coerce")
+        valid = pd.DataFrame({"x": x_values, "y": y_values}).replace([np.inf, -np.inf], np.nan).dropna()
+        if valid.empty:
+            return
+        figure.add_trace(go.Scatter(
+            x=[float(valid["x"].median())], y=[float(valid["y"].median())], mode="markers+text",
+            text=[str(group_name)], textposition="top center", name=f"{group_name} · центр",
+            marker={"size": _marker_size(style) + 3.0, "color": color, "symbol": _marker_symbol(style),
+                    "line": {"width": float(style.get("outline_width", 1.0) or 0.0), "color": _outline_color(style)}},
+            hovertemplate=f"<b>{group_name}</b><br>медианный центр<extra></extra>",
+            showlegend=False,
+        ))
+        return
+
+    method = str(style.get("envelope_method", "confidence_ellipse") or "confidence_ellipse")
+    level = float(style.get("envelope_level", 0.90) or 0.90)
+    try:
+        result = compute_group_envelope(subset, x, y, method=method, level=level)
+    except (ValueError, np.linalg.LinAlgError):
+        return
+    fill_alpha = float(style.get("envelope_alpha", 0.16) or 0.16)
+    for index, polygon in enumerate(result.polygons):
+        figure.add_trace(go.Scatter(
+            x=polygon[:, 0], y=polygon[:, 1], mode="lines", fill="toself",
+            fillcolor=_rgba(color, fill_alpha),
+            line={"color": color, "width": float(style.get("envelope_line_width", 1.5) or 1.5)},
+            name=f"{group_name} · поле" if index == 0 else f"{group_name} · поле {index + 1}",
+            legendgroup=f"envelope-{group_name}", showlegend=index == 0,
+            hovertemplate=(
+                f"<b>{group_name}</b><br>{result.method}; уровень {result.level:.0%}; n={result.n}"
+                "<extra></extra>"
+            ),
+        ))
 
 
 def build_interactive_scatter(
@@ -91,6 +150,10 @@ def build_interactive_scatter(
             continue
         style = dict((style_map or {}).get(str(group_name), {}))
         style.setdefault("color", _GROUP_COLORS[group_index % len(_GROUP_COLORS)])
+        _add_envelope_traces(figure, subset, x, y, str(group_name), style)
+        display_mode = str(style.get("display_mode", "points") or "points")
+        if display_mode in {"field", "centroid"}:
+            continue
         customdata = [
             [str(row["_analysis_id"])] + [_text(row.get(column)) for column in hover_columns]
             for _, row in subset.iterrows()
