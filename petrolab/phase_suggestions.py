@@ -48,9 +48,7 @@ def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, lis
     sio2 = _value(row, "SiO2")
     tio2 = _value(row, "TiO2")
     al2o3 = _value(row, "Al2O3")
-    cr2o3 = _value(row, "Cr2O3")
     feo = _sum(row, "FeO", "FeOt")
-    fe2o3 = _sum(row, "Fe2O3", "Fe2O3t")
     mgo = _value(row, "MgO")
     cao = _value(row, "CaO")
     na2o = _value(row, "Na2O")
@@ -64,7 +62,6 @@ def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, lis
         scores[key][0] += float(points)
         scores[key][1].append(reason)
 
-    # Highly diagnostic accessory/oxide phases first.
     if _gt(p2o5, 20) and _gt(cao, 20):
         add("apatite", 6, "high P2O5 + CaO")
     if _gt(zro2, 30) and _between(sio2, 10, 45):
@@ -77,17 +74,20 @@ def score_phase_candidates(row: Mapping[str, Any]) -> dict[str, tuple[float, lis
         add("spinel", 5, "Si-poor Al/Cr/Fe oxide")
     if _gt(tio2, 25) and (not np.isfinite(sio2) or sio2 < 8) and _sum(row, "FeO", "FeOt", "Fe2O3", "Fe2O3t") > 20:
         add("fe_ti_oxide", 6, "Ti-Fe oxide signature")
-    if (not np.isfinite(sio2) or sio2 < 12) and _sum(row, "CaO", "MgO", "FeO", "FeOt", "MnO") > 40 and (not np.isfinite(al2o3) or al2o3 < 8):
-        add("carbonate", 5, "Si-poor Ca-Mg-Fe composition")
+    if (
+        (not np.isfinite(sio2) or sio2 < 12)
+        and _sum(row, "CaO", "MgO", "FeO", "FeOt", "MnO") > 40
+        and (not np.isfinite(al2o3) or al2o3 < 8)
+        and (not np.isfinite(p2o5) or p2o5 < 5)
+    ):
+        add("carbonate", 5, "Si-poor Ca-Mg-Fe composition with low/absent P2O5")
 
-    # Framework silicates.
     alkalis = _sum(row, "Na2O", "K2O")
     if _between(sio2, 55, 75) and _between(al2o3, 12, 28) and alkalis + (cao if np.isfinite(cao) else 0) > 7:
         add("feldspar", 5, "Si-Al framework silicate with Na-K-Ca")
     if _between(sio2, 35, 50) and _between(al2o3, 20, 40) and alkalis > 12:
         add("nepheline", 6, "Si-poor Al-rich alkali feldspathoid signature")
 
-    # Mafic silicates. Rules are deliberately conservative where amphibole/cpx overlap.
     mafic = _sum(row, "MgO", "FeO", "FeOt")
     if _between(sio2, 30, 45) and mafic > 35 and (not np.isfinite(cao) or cao < 6) and (not np.isfinite(al2o3) or al2o3 < 6):
         add("olivine", 6, "Mg-Fe rich low-Al low-Ca silicate")
@@ -113,13 +113,13 @@ def suggest_phase(row: Mapping[str, Any]) -> tuple[str, str, str]:
     best_name, (best_score, reasons) = ranked[0]
     second_score = ranked[1][1][0] if len(ranked) > 1 else 0.0
     margin = best_score - second_score
-    # High confidence requires a specific score and meaningful separation.
     if best_score >= 6 and margin >= 2:
         confidence = "high"
     elif best_score >= 4.5 and margin >= 1.5:
         confidence = "medium"
     else:
-        return "", "ambiguous", "; ".join(reasons + ([f"competing candidate: {ranked[1][0]}" ] if len(ranked) > 1 else []))
+        competitor = [f"competing candidate: {ranked[1][0]}"] if len(ranked) > 1 else []
+        return "", "ambiguous", "; ".join(reasons + competitor)
     return best_name, confidence, "; ".join(reasons)
 
 
@@ -138,7 +138,11 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
     Analysis IDs, data_json, source row, image links and provenance remain intact. No rows are
     duplicated. Unassigned analyses stay in the source dataset.
     """
-    clean = {str(analysis_id).strip(): str(mineral).strip() for analysis_id, mineral in assignments.items() if str(analysis_id).strip() and str(mineral).strip()}
+    clean = {
+        str(analysis_id).strip(): str(mineral).strip()
+        for analysis_id, mineral in assignments.items()
+        if str(analysis_id).strip() and str(mineral).strip()
+    }
     if not clean:
         return {}
     now = _utcnow()
@@ -156,7 +160,10 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
         if missing:
             raise ValueError("Некоторые анализы не принадлежат исходному mixed dataset")
 
-        columns = [str(row[1]) for row in con.execute("PRAGMA table_info(datasets)").fetchall() if str(row[1]) != "id"]
+        columns = [
+            str(row[1]) for row in con.execute("PRAGMA table_info(datasets)").fetchall()
+            if str(row[1]) != "id"
+        ]
         created: dict[str, int] = {}
         for mineral in sorted(set(clean.values())):
             values = {column: source[column] for column in columns}
@@ -171,8 +178,13 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
             )
             child_id = int(cur.lastrowid)
             created[mineral] = child_id
-            # Preserve Study/Source provenance when present.
-            study = con.execute("SELECT study_id, source_table, source_note FROM dataset_studies WHERE dataset_id=?", (int(source_dataset_id),)).fetchone() if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_studies'").fetchone() else None
+            has_studies = con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_studies'"
+            ).fetchone()
+            study = con.execute(
+                "SELECT study_id, source_table, source_note FROM dataset_studies WHERE dataset_id=?",
+                (int(source_dataset_id),),
+            ).fetchone() if has_studies else None
             if study:
                 con.execute(
                     "INSERT OR REPLACE INTO dataset_studies(dataset_id, study_id, source_table, source_note) VALUES (?, ?, ?, ?)",
@@ -186,12 +198,24 @@ def materialize_confirmed_phases(source_dataset_id: int, assignments: Mapping[st
                 f"UPDATE analysis_rows SET dataset_id=? WHERE dataset_id=? AND analysis_id IN ({marks})",
                 [child_id, int(source_dataset_id), *ids],
             )
-            moved = con.execute("SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id", (child_id,)).fetchall()
-            con.executemany("UPDATE analysis_rows SET row_index=? WHERE analysis_id=?", [(index, row["analysis_id"]) for index, row in enumerate(moved)])
+            moved = con.execute(
+                "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
+                (child_id,),
+            ).fetchall()
+            con.executemany(
+                "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+                [(index, row["analysis_id"]) for index, row in enumerate(moved)],
+            )
             con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(moved), child_id))
 
-        remaining = con.execute("SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id", (int(source_dataset_id),)).fetchall()
-        con.executemany("UPDATE analysis_rows SET row_index=? WHERE analysis_id=?", [(index, row["analysis_id"]) for index, row in enumerate(remaining)])
+        remaining = con.execute(
+            "SELECT analysis_id FROM analysis_rows WHERE dataset_id=? ORDER BY source_row, analysis_id",
+            (int(source_dataset_id),),
+        ).fetchall()
+        con.executemany(
+            "UPDATE analysis_rows SET row_index=? WHERE analysis_id=?",
+            [(index, row["analysis_id"]) for index, row in enumerate(remaining)],
+        )
         con.execute("UPDATE datasets SET row_count=? WHERE id=?", (len(remaining), int(source_dataset_id)))
         con.commit()
     return created
