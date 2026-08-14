@@ -9,6 +9,7 @@ from petrolab.analysis_groups import attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_datasets
 from petrolab.derived import load_unified_with_derived
+from petrolab.generations import attach_generations
 from petrolab.minerals.registry import MINERALS
 from petrolab.ui.components import render_project_selector
 from petrolab.ui.project_context import active_project_id
@@ -64,7 +65,9 @@ def render_analysis_scope(
         st.info("Выберите хотя бы один набор данных.")
         return None
 
-    dataframe = attach_work_groups(load_unified_with_derived(project_id, list(dataset_ids)))
+    dataframe = attach_generations(
+        attach_work_groups(load_unified_with_derived(project_id, list(dataset_ids)))
+    )
     if dataframe.empty:
         st.info("В выбранных наборах нет аналитических строк.")
         return None

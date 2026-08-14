@@ -7,6 +7,7 @@ from typing import Iterable, Iterator
 
 import pandas as pd
 
+from petrolab.column_schema import describe_header
 from petrolab.db import DB_PATH
 from petrolab.storage import ensure_storage as ensure_full_storage
 
@@ -242,25 +243,71 @@ def apply_rock_import_batch(
     return tuple(created), tuple(updated), tuple(skipped)
 
 
+def _canonical_manual_composition_row(row: dict) -> dict | None:
+    analyte = _text(row.get("analyte")).strip()
+    numeric = _nullable_float(row.get("value"))
+    if not analyte or numeric is None:
+        return None
+
+    unit = _text(row.get("unit")).strip()
+    direct = describe_header(analyte)
+    base = direct.canonical_name
+    if " [" in base:
+        base = base.split(" [", 1)[0]
+    candidate = f"{base} [{unit}]" if unit else analyte
+    descriptor = describe_header(candidate)
+
+    if descriptor.quantity_kind in {"oxide", "trace_element", "element_concentration"}:
+        canonical = descriptor.canonical_name
+        numeric *= float(descriptor.to_canonical_factor)
+        canonical_unit = descriptor.canonical_unit or descriptor.source_unit
+    else:
+        # Preserve genuinely custom fields, but do not pretend that an unknown unit was
+        # normalized. Scientific plots/calculations will only consume recognized fields.
+        canonical = analyte
+        canonical_unit = unit
+
+    return {
+        "analyte": canonical,
+        "value": numeric,
+        "unit": canonical_unit,
+        "method": _text(row.get("method")),
+        "source": _text(row.get("source")),
+    }
+
+
 def upsert_composition_values(rock_id: int, rows: Iterable[dict]) -> None:
+    """Replace the complete manually edited composition table.
+
+    The historical function name is retained for API compatibility, but the Streamlit
+    editor sends the whole current table. Replace semantics make row deletion real and
+    avoid stale analytes reappearing after rerun. Recognized analyte/unit pairs are stored
+    on the same canonical unit basis as imported whole-rock chemistry.
+    """
+    prepared: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        normalized = _canonical_manual_composition_row(dict(row))
+        if normalized is None:
+            continue
+        analyte = str(normalized["analyte"])
+        if analyte in seen:
+            raise ValueError(f"Компонент {analyte} указан в таблице несколько раз")
+        seen.add(analyte)
+        prepared.append(normalized)
+
     now = _utcnow()
     with rock_connection() as con:
-        for row in rows:
-            analyte = _text(row.get("analyte")).strip()
-            if not analyte:
-                continue
-            numeric = _nullable_float(row.get("value"))
+        con.execute("DELETE FROM rock_compositions WHERE rock_id=?", (int(rock_id),))
+        for row in prepared:
             con.execute(
                 """
                 INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(rock_id, analyte) DO UPDATE SET
-                    value=excluded.value, unit=excluded.unit, method=excluded.method,
-                    source=excluded.source, updated_at=excluded.updated_at
                 """,
                 (
-                    int(rock_id), analyte, numeric, _text(row.get("unit")), _text(row.get("method")),
-                    _text(row.get("source")), now,
+                    int(rock_id), row["analyte"], row["value"], row["unit"],
+                    row["method"], row["source"], now,
                 ),
             )
 
@@ -381,6 +428,28 @@ def isotope_wide(project_id: int | None = None) -> pd.DataFrame:
 def set_mineral_links(rock_id: int, dataset_ids: Iterable[int]) -> None:
     ids = sorted({int(value) for value in dataset_ids})
     with rock_connection() as con:
+        rock = con.execute(
+            "SELECT project_id FROM rock_samples WHERE id=?",
+            (int(rock_id),),
+        ).fetchone()
+        if rock is None:
+            raise ValueError("Порода больше не существует")
+        project_id = int(rock["project_id"])
+
+        if ids:
+            marks = ",".join("?" for _ in ids)
+            datasets = con.execute(
+                f"SELECT id, project_id FROM datasets WHERE id IN ({marks})",
+                ids,
+            ).fetchall()
+            found = {int(row["id"]): int(row["project_id"]) for row in datasets}
+            missing = [dataset_id for dataset_id in ids if dataset_id not in found]
+            if missing:
+                raise ValueError("Часть mineral datasets больше не существует")
+            foreign = [dataset_id for dataset_id in ids if found[dataset_id] != project_id]
+            if foreign:
+                raise ValueError("Нельзя связать породу с dataset другого проекта")
+
         con.execute("DELETE FROM rock_mineral_links WHERE rock_id=?", (int(rock_id),))
         now = _utcnow()
         for dataset_id in ids:

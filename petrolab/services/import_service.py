@@ -73,6 +73,16 @@ class RefreshResult:
     positional_fallback_disabled: bool = False
 
 
+@dataclass(frozen=True)
+class _PreparedSheet:
+    sheet_name: str
+    dataframe: pd.DataFrame
+    column_map: dict
+    source_rows: list[int]
+    mineral_key: str
+    header_row: int
+
+
 def validate_source_path(path: str | Path) -> Path:
     source = Path(path).expanduser()
     if not source.exists():
@@ -149,6 +159,127 @@ def preview_uploaded_source(
     return _calculate_mineral(mapped, mineral_key)
 
 
+def _prepare_sheet(
+    dataframe: pd.DataFrame,
+    column_map: dict,
+    source_rows: list[int],
+    *,
+    sheet_name: str,
+    mineral_key: str,
+    header_row: int,
+    semantic_map: Mapping[str, str] | None,
+    measurement_map: Mapping[str, str] | None,
+) -> _PreparedSheet:
+    """Complete all fallible schema/calculation work before a dataset is persisted."""
+    try:
+        mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+        mapped, mapped_column_map, _ = apply_measurement_overrides(
+            mapped, mapped_column_map, measurement_map
+        )
+        calculated = _calculate_mineral(mapped, mineral_key)
+    except Exception as exc:
+        label = sheet_name or "CSV/активный лист"
+        raise ValueError(f"Лист «{label}» не прошёл preflight импорта: {exc}") from exc
+    return _PreparedSheet(
+        sheet_name,
+        calculated,
+        mapped_column_map,
+        source_rows,
+        mineral_key,
+        int(header_row),
+    )
+
+
+def _sheet_header_row(
+    sheet_name: str,
+    default: int,
+    header_rows: Mapping[str, int] | None,
+) -> int:
+    value = (header_rows or {}).get(sheet_name, default)
+    result = int(value)
+    if result < 1:
+        raise ValueError(f"Лист «{sheet_name or 'CSV'}»: строка заголовков должна быть >= 1")
+    return result
+
+
+def _sheet_mineral_key(
+    sheet_name: str,
+    default: str,
+    mineral_keys: Mapping[str, str] | None,
+) -> str:
+    value = str((mineral_keys or {}).get(sheet_name, default))
+    if value not in MINERALS:
+        raise KeyError(f"Лист «{sheet_name or 'CSV'}»: неизвестный минерал {value}")
+    return value
+
+
+def _prepare_linked_batch(
+    source: Path,
+    sheet_names: list[str],
+    *,
+    header_row: int,
+    mineral_key: str,
+    header_rows: Mapping[str, int] | None,
+    mineral_keys: Mapping[str, str] | None,
+    semantic_maps: Mapping[str, Mapping[str, str]] | None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None,
+) -> list[_PreparedSheet]:
+    prepared: list[_PreparedSheet] = []
+    for sheet_name in sheet_names:
+        current_header = _sheet_header_row(sheet_name, header_row, header_rows)
+        current_mineral = _sheet_mineral_key(sheet_name, mineral_key, mineral_keys)
+        dataframe, column_map, source_rows = read_tabular_path(
+            source, sheet_name or None, current_header
+        )
+        prepared.append(
+            _prepare_sheet(
+                dataframe,
+                column_map,
+                source_rows,
+                sheet_name=sheet_name,
+                mineral_key=current_mineral,
+                header_row=current_header,
+                semantic_map=(semantic_maps or {}).get(sheet_name, {}),
+                measurement_map=(measurement_maps or {}).get(sheet_name, {}),
+            )
+        )
+    return prepared
+
+
+def _prepare_uploaded_batch(
+    file_bytes: bytes,
+    filename: str,
+    sheet_names: list[str],
+    *,
+    header_row: int,
+    mineral_key: str,
+    header_rows: Mapping[str, int] | None,
+    mineral_keys: Mapping[str, str] | None,
+    semantic_maps: Mapping[str, Mapping[str, str]] | None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None,
+) -> list[_PreparedSheet]:
+    prepared: list[_PreparedSheet] = []
+    for sheet_name in sheet_names:
+        current_header = _sheet_header_row(sheet_name, header_row, header_rows)
+        current_mineral = _sheet_mineral_key(sheet_name, mineral_key, mineral_keys)
+        dataframe, column_map, source_rows = read_tabular_with_map(
+            file_bytes, filename, sheet_name or None, current_header
+        )
+        prepared.append(
+            _prepare_sheet(
+                dataframe,
+                column_map,
+                source_rows,
+                sheet_name=sheet_name,
+                mineral_key=current_mineral,
+                header_row=current_header,
+                semantic_map=(semantic_maps or {}).get(sheet_name, {}),
+                measurement_map=(measurement_maps or {}).get(sheet_name, {}),
+            )
+        )
+    return prepared
+
+
 def import_linked_sheets(
     *,
     project_id: int,
@@ -159,37 +290,43 @@ def import_linked_sheets(
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
+    header_rows: Mapping[str, int] | None = None,
+    mineral_keys: Mapping[str, str] | None = None,
 ) -> ImportBatchResult:
     source = validate_source_path(path)
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
 
+    # Preflight the entire workbook first. A schema/calculation failure on a later sheet
+    # must not leave the earlier sheets partially imported into the project.
+    prepared = _prepare_linked_batch(
+        source,
+        sheet_names,
+        header_row=int(header_row),
+        mineral_key=mineral_key,
+        header_rows=header_rows,
+        mineral_keys=mineral_keys,
+        semantic_maps=semantic_maps,
+        measurement_maps=measurement_maps,
+    )
     source_hash = sha256_file(source)
     dataset_ids: list[int] = []
-    for sheet_name in sheet_names:
-        dataframe, column_map, source_rows = read_tabular_path(source, sheet_name or None, int(header_row))
-        mapped, mapped_column_map, _ = apply_semantic_mapping(
-            dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
-        )
-        mapped, mapped_column_map, _ = apply_measurement_overrides(
-            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
-        )
-        calculated = _calculate_mineral(mapped, mineral_key)
-        name = _dataset_name(dataset_name, source.stem, sheet_name, len(sheet_names))
+    for item in prepared:
+        name = _dataset_name(dataset_name, source.stem, item.sheet_name, len(prepared))
         dataset_ids.append(
             _save_dataset(
                 project_id=project_id,
-                df=calculated,
+                df=item.dataframe,
                 dataset_name=name,
-                mineral_key=mineral_key,
+                mineral_key=item.mineral_key,
                 source_filename=source.name,
-                source_sheet=sheet_name or "",
+                source_sheet=item.sheet_name or "",
                 source_hash=source_hash,
-                column_map=mapped_column_map,
-                source_rows=source_rows,
+                column_map=item.column_map,
+                source_rows=item.source_rows,
                 source_path=str(source),
                 source_kind="linked",
-                header_row=int(header_row),
+                header_row=item.header_row,
                 sync_enabled=source.suffix.lower() in SYNCABLE_SUFFIXES,
             )
         )
@@ -207,40 +344,45 @@ def import_uploaded_sheets(
     header_row: int,
     semantic_maps: Mapping[str, Mapping[str, str]] | None = None,
     measurement_maps: Mapping[str, Mapping[str, str]] | None = None,
+    header_rows: Mapping[str, int] | None = None,
+    mineral_keys: Mapping[str, str] | None = None,
 ) -> ImportBatchResult:
     if not sheet_names:
         raise ValueError("Не выбран ни один лист для импорта")
     list_uploaded_sheets(file_bytes, filename)
 
+    # Validate every selected sheet before writing the managed source or creating any
+    # dataset rows. This keeps a failed multi-sheet import free of partial DB/file state.
+    prepared = _prepare_uploaded_batch(
+        file_bytes,
+        filename,
+        sheet_names,
+        header_row=int(header_row),
+        mineral_key=mineral_key,
+        header_rows=header_rows,
+        mineral_keys=mineral_keys,
+        semantic_maps=semantic_maps,
+        measurement_maps=measurement_maps,
+    )
     managed_path = _store_managed_source(project_id, filename, file_bytes)
     source_hash = sha256_bytes(file_bytes)
     dataset_ids: list[int] = []
-    for sheet_name in sheet_names:
-        dataframe, column_map, source_rows = read_tabular_with_map(
-            file_bytes, filename, sheet_name or None, int(header_row)
-        )
-        mapped, mapped_column_map, _ = apply_semantic_mapping(
-            dataframe, column_map, (semantic_maps or {}).get(sheet_name, {})
-        )
-        mapped, mapped_column_map, _ = apply_measurement_overrides(
-            mapped, mapped_column_map, (measurement_maps or {}).get(sheet_name, {})
-        )
-        calculated = _calculate_mineral(mapped, mineral_key)
-        name = _dataset_name(dataset_name, Path(filename).stem, sheet_name, len(sheet_names))
+    for item in prepared:
+        name = _dataset_name(dataset_name, Path(filename).stem, item.sheet_name, len(prepared))
         dataset_ids.append(
             _save_dataset(
                 project_id=project_id,
-                df=calculated,
+                df=item.dataframe,
                 dataset_name=name,
-                mineral_key=mineral_key,
+                mineral_key=item.mineral_key,
                 source_filename=Path(filename).name,
-                source_sheet=sheet_name or "",
+                source_sheet=item.sheet_name or "",
                 source_hash=source_hash,
-                column_map=mapped_column_map,
-                source_rows=source_rows,
+                column_map=item.column_map,
+                source_rows=item.source_rows,
                 source_path=str(managed_path),
                 source_kind="managed_copy",
-                header_row=int(header_row),
+                header_row=item.header_row,
                 sync_enabled=managed_path.suffix.lower() in SYNCABLE_SUFFIXES,
             )
         )
