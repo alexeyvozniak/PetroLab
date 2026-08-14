@@ -20,6 +20,7 @@ from petrolab.ui.pages import (
     render_export_page,
     render_formulae_page,
     render_generations_page,
+    render_guided_workflow_page,
     render_help_page,
     render_home_page,
     render_images_page,
@@ -83,6 +84,7 @@ _reconcile_plot_recipe_state()
 
 ROUTES = {
     "home": render_home_page,
+    "workflow": render_guided_workflow_page,
     "intake": render_data_intake_page,
     "sessions": render_analytical_sessions_page,
     "mixed_minerals": render_mixed_minerals_page,
