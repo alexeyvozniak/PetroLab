@@ -54,4 +54,5 @@ Filename: "{sys}\wscript.exe"; Parameters: """{app}\launch_petrolab.vbs"""; Desc
 ; Intentionally only remove installer-owned cache/rollback directories.
 ; User scientific data live in {userdocs}\PetroLab Data and are never listed here.
 Type: filesandordirs; Name: "{app}\previous"
+Type: filesandordirs; Name: "{app}\runtime.previous"
 Type: filesandordirs; Name: "{app}\update-staging"
