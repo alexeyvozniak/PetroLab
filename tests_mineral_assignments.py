@@ -12,6 +12,7 @@ import pandas as pd
 import petrolab.db as db
 import petrolab.mineral_assignments as assignments
 import petrolab.sample_locations as locations
+from petrolab.measurement_registry import create_entity
 import petrolab.sample_registry as registry
 from petrolab.storage import ensure_storage
 
@@ -86,6 +87,19 @@ class AssignmentAndLocationTests(unittest.TestCase):
             self.assertEqual(current.location, "у Петра")
             history = locations.sample_location_history(sample_id)
             self.assertEqual([item["location"] for item in history], ["у Петра", "шкаф A-3"])
+
+    def test_thin_section_has_its_own_location_history(self):
+        with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
+            sample_id = registry.create_sample(ws.project_id, "PG-02")
+            thin_section_id = create_entity(
+                ws.project_id, kind="thin_section", name="PG-02-1", sample_id=sample_id
+            )
+            locations.record_entity_location(thin_section_id, "лаборатория")
+            locations.record_entity_location(thin_section_id, "у оператора зонда")
+            current = locations.current_entity_location(thin_section_id)
+            self.assertIsNotNone(current)
+            self.assertEqual(current.location, "у оператора зонда")
+            self.assertEqual(len(locations.entity_location_history(thin_section_id)), 2)
 
 
 if __name__ == "__main__":
