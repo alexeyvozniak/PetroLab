@@ -25,12 +25,22 @@ GERM_ALKALINE_NOTE = (
     "Исходные Kd, σ и интервалы сохранены без усреднения."
 )
 GERM_BASANITE_FILE = GERM_SELECTIONS["Basanite"]
+# Citations as displayed by GERM KdD for the bundled contribution IDs.
+GERM_CONTRIBUTION_CITATIONS = {
+    "Phonolite": {
+        "4": "Schnetzler & Philpotts (1970) v. 1",
+        "7": "Philpotts & Schnetzler (1970) v. 1",
+    },
+}
 
 
 def seed_germ_selection(rock_type: str) -> list[int]:
     """Add one bundled GERM selection to the global model library once."""
     source_file = GERM_SELECTIONS[rock_type]
     table = read_partition_upload(source_file.read_bytes(), source_file.name)
+    citations = GERM_CONTRIBUTION_CITATIONS.get(rock_type, {})
+    if citations and "contribution_id" in table:
+        table["reference"] = table["contribution_id"].astype(str).map(citations)
     return import_partition_table(table)
 
 
