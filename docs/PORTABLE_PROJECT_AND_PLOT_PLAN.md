@@ -1,32 +1,52 @@
-# PetroLab: portable project and interactive plot plan
+# PetroLab: portable projects and interactive XY
 
-## Goal
+## Status
 
-Make PetroLab comfortable for one researcher working on several computers without repeating Excel mapping, image linking, grouping or plot cleanup.
+This work is implemented in PR #33. The goal is to let one researcher move a PetroLab project between computers without repeating Excel semantic mapping, image linking, working groups or plot cleanup, while keeping graph-only decisions separate from analytical storage.
 
-## Phase 1 — implemented in this branch
+## Portable `.petrolab` project
 
-### Portable project archive
+Three archive levels are available:
 
-Three export levels:
+1. `project` — project-scoped database snapshot + manifest;
+2. `project_sources` — project + source Excel/CSV files;
+3. `full` — project + source Excel/CSV + image assets.
 
-1. `project` — database snapshot + manifest.
-2. `project_sources` — project + source Excel/CSV files.
-3. `full` — project + source Excel/CSV + original image assets.
+For a full archive, images can be stored as:
 
-The result is one `.petrolab` file (ZIP container with an explicit manifest). The project page exposes the three choices and a download button.
+- scientific originals;
+- optimized derivative JPEG copies for a smaller portable package.
 
-Current safety rule: the archive service creates backups/export packages only. Automatic restore is intentionally not yet enabled until path rewriting and database merge semantics are covered by tests.
+Optimized copies are explicitly derivatives and never replace the original scientific files.
 
-### Interactive XY inspection
+The database snapshot is project-scoped: rows belonging only to other projects are removed before packaging. Global rows with nullable `project_id` are retained where they may be needed by project recipes or shared styles.
 
-- Hover is compact and shows X, Y, Sample, Point, Generation and work group when available.
-- Clicking / lasso / box selection remains available.
-- Selected points can be hidden only from the current plot; Excel and analytical storage are untouched.
-- Hidden point IDs remain recipe/session-level exclusions and can be restored.
-- Full selected-analysis inspection with related images remains available.
+## Restore on another computer
 
-### Marker styling
+The Projects page can open a `.petrolab` archive.
+
+Safety rules:
+
+- validate archive format and manifest before writing;
+- reject ZIP path traversal;
+- run SQLite `PRAGMA integrity_check` before replacing the active database;
+- restore into an empty workspace by default;
+- replacing a non-empty workspace requires explicit confirmation;
+- make a SQLite safety backup before an explicit replacement;
+- reconnect packaged source files and image assets to local restored paths.
+
+The restore operation intentionally does not attempt an implicit two-way merge between unrelated local workspaces. That would risk ID and scientific-provenance conflicts.
+
+## Interactive XY inspection
+
+- compact hover: X, Y, Sample, Point, Generation and work group when available;
+- click, box and lasso selection;
+- selected points can be hidden only from the current plot;
+- graph exclusions do not modify Excel or analytical storage;
+- hidden analysis IDs are reversible and saved with the current plotting state/recipe;
+- selected analyses can be opened in a detailed property view together with related images.
+
+## Marker styling
 
 Per group:
 
@@ -37,71 +57,54 @@ Per group:
 - outline: black / white / group color / none;
 - outline width.
 
-## Phase 2 — next implementation
+## Group fields / envelopes
 
-### Restore `.petrolab` on another computer
-
-Required before calling portable projects complete:
-
-- validate archive manifest and version;
-- make a safety snapshot of the current workspace;
-- restore into a new local workspace, never silently overwrite an existing workspace;
-- rewrite source paths to extracted `sources/` files;
-- rewrite image paths to extracted `images/` files;
-- verify source SHA256 values;
-- run schema migrations before opening the restored project;
-- expose explicit conflict handling when a project with the same identity already exists.
-
-### Compressed image mode
-
-Add a third image option:
-
-- none;
-- optimized working copies;
-- originals.
-
-Optimized images must be stored as derivatives and must never replace scientific originals or be represented as originals.
-
-## Phase 3 — group envelopes / fields
-
-Add a separate scientific envelope layer, not a renderer hack.
-
-Supported methods should be explicit and saved in plot recipes:
-
-1. convex hull;
-2. confidence ellipse (68 / 90 / 95%);
-3. KDE density contour with stated probability level;
-4. optional alpha shape after a tested implementation is available.
-
-Each group gets display mode:
+Several groups can show fields simultaneously on the same XY diagram. Each group independently selects one display mode:
 
 - points;
 - field;
 - points + field;
-- centroid / median only.
+- median center only.
 
-Every exported field must carry metadata: method, parameters, n, group name and exclusions. Manual and automatic outliers must be applied before envelope calculation and listed in the recipe.
+Implemented field methods:
 
-## Phase 4 — overlay manager
+1. `convex_hull` — convex hull of the included points;
+2. `confidence_ellipse` — bivariate covariance ellipse with an explicit probability level and a stated bivariate-normal assumption;
+3. `kde` — Gaussian-kernel density contour with an explicit probability-mass level.
 
-Allow several literature/classification overlays at once with independent:
+Fields are calculated from the data that remain after current range, automatic-outlier, manual and interactive graph exclusions. Therefore a point hidden from the current plot cannot silently continue to control that plot's field.
 
-- visibility;
-- line width / line style;
-- fill / alpha;
-- label visibility;
-- z-order.
+The interactive field hover reports method, level and `n`. Field settings are stored in the same per-group style map used by saved profiles and plot recipes. Publication PNG/SVG output uses the same group-field settings as the interactive view.
 
-Scientific overlays remain source-aware. Unsourced geometry must not be presented as a formal classification field.
+## Scientific rules
 
-## Acceptance workflow
+- no plot action deletes an analysis from Excel;
+- graph hiding, statistical outlier suggestions and source-data deletion remain distinct operations;
+- confidence ellipses are not presented as distribution-free fields;
+- KDE and hull geometry are calculated from the actual included sample rather than hand-drawn approximations;
+- source-aware literature/classification overlays remain separate from data-derived group fields;
+- unsourced geometry must not be presented as a formal scientific classification field.
 
-Before merging each phase, verify on real PetroLab-style data:
+## Regression coverage
 
-1. import heterogeneous Excel sheets;
-2. confirm semantic mappings;
-3. link images to stable analysis IDs;
-4. save a plot recipe with transparency, outline and exclusions;
-5. export `.petrolab` in all supported modes;
-6. verify archive contents and hashes;
-7. after restore is implemented, move the archive to a clean test workspace and confirm mappings, analysis IDs, images and plot recipes survive unchanged.
+Windows CI includes dedicated checks for:
+
+- project-scoped archive contents;
+- optimized-image derivative mode;
+- refusal to overwrite a non-empty workspace without explicit confirmation;
+- convex-hull geometry;
+- confidence-ellipse geometry;
+- KDE contour output and metadata;
+- normal PetroLab architecture, storage, scientific, browser and Windows-startup regressions.
+
+## Recommended real-data acceptance test
+
+After merge, validate once on a real PetroLab project before relying on the portable workflow for unique data:
+
+1. import heterogeneous Excel sheets and confirm semantic mappings;
+2. attach several images to stable analysis IDs;
+3. save a plot recipe with transparency, outlines, one hidden point and at least two simultaneous group fields;
+4. export a full `.petrolab` archive;
+5. restore it in a clean test workspace on another computer;
+6. confirm mappings, analysis IDs, image links, plot recipe and field settings survived unchanged;
+7. make one source edit and verify the normal source-sync safeguards still behave as expected.
