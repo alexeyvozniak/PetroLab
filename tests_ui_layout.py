@@ -39,7 +39,7 @@ assert 'st.session_state.get("_sidebar_project_ready")' in COMPONENTS
 assert "Compatibility fallback for standalone page/AppTest" in COMPONENTS
 for page_name in [
     "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "formulae.py",
-    "plots_dashboard.py", "rocks.py", "images_dashboard.py",
+    "plots_dashboard.py", "rocks.py", "images_dashboard.py", "slides.py",
 ]:
     text = (PAGES / page_name).read_text(encoding="utf-8")
     assert "project_context" in text, f"page still resolves project state independently: {page_name}"
@@ -89,6 +89,12 @@ for marker in [
     "semantic field-link",
 ]:
     assert marker in IMAGE_COMPONENTS, marker
+
+slides = (PAGES / "slides.py").read_text(encoding="utf-8")
+for marker in ["render_slides_page", "Шлифы и поля", "Оригинал остаётся", "Одна метка может связать EPMA, ЭДС и LA"]:
+    assert marker in slides, marker
+assert '("slides", "Шлифы и поля")' in NAVIGATION
+assert '"slides": render_slides_page' in APP
 
 # XY quick/advanced workspaces and guarded actions have explicit owners.
 advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")
