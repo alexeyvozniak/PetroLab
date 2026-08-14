@@ -8,6 +8,7 @@ from petrolab.ui.project_context import active_project_id
 from petrolab.ui.layout import render_hint, render_page_header
 from petrolab.partition_seed_models import seed_initial_alkaline_models
 from petrolab.partition_import import import_partition_table, read_partition_upload
+from petrolab.partitioning import assess_model_context, list_partition_models
 
 _META={"_analysis_id","_dataset_id","_project_id","_row_index","_source_row"}
 def render_distribution_page() -> None:
@@ -19,6 +20,68 @@ def render_distribution_page() -> None:
         if st.button("Добавить проверенные basanite-модели"):
             made=seed_initial_alkaline_models()
             st.success("Добавлено моделей: "+str(len(made)) if made else "Эти модели уже есть в библиотеке.")
+    with st.expander("Смотреть литературные коэффициенты D", expanded=False):
+        models = list_partition_models()
+        if not models:
+            st.caption("Библиотека пока пуста: добавьте проверенные модели или импортируйте таблицу GERM.")
+        else:
+            rocks = sorted({str(model["applicability"].get("rock", "")).strip() for model in models if str(model["applicability"].get("rock", "")).strip()})
+            rock_context = st.selectbox(
+                "Контекст вашей породы (не ограничивает каталог)",
+                ["Не задавать"] + rocks,
+                help="Например, при работе с лампрофиром фонолитные модели остаются видимыми: они будут отмечены как вне заявленной области, но не скрыты.",
+                key="partition_rock_context",
+            )
+            query = st.text_input("Поиск по породе, минералу, источнику или элементу", key="partition_catalogue_query")
+            context_value = None if rock_context == "Не задавать" else rock_context
+            rows = []
+            for model in models:
+                source = model["source"]
+                applicability = model["applicability"]
+                context = assess_model_context(model, context_value)
+                searchable = " ".join([
+                    model["name"], model["mineral"], str(applicability.get("rock", "")),
+                    str(source.get("citation", "")), " ".join(model["values"].keys()),
+                ]).casefold()
+                if query and query.casefold() not in searchable:
+                    continue
+                rows.append({
+                    "ID": model["id"],
+                    "Порода модели": applicability.get("rock", "—"),
+                    "Минерал": model["mineral"],
+                    "Фаза": model["counter_phase"],
+                    "Определение D": source.get("kd_definition", "—"),
+                    "Тип данных": source.get("kd_types", "—"),
+                    "Статус относительно контекста": context["status"],
+                    "Источник": source.get("citation", "—"),
+                    "Элементов": len(model["values"]),
+                })
+            catalogue = pd.DataFrame(rows)
+            st.caption("Каталог ничего не отбрасывает. OUT_OF_DOMAIN — предупреждение об области применимости для расчёта, а не запрет на просмотр или экспорт.")
+            st.dataframe(catalogue, width="stretch", hide_index=True)
+            if not catalogue.empty:
+                chosen_id = st.selectbox("Открыть модель", catalogue["ID"].tolist(), format_func=lambda item: next(model["name"] for model in models if model["id"] == item), key="partition_model_open")
+                chosen = next(model for model in models if model["id"] == chosen_id)
+                element_rows = []
+                metadata = chosen["source"].get("element_metadata", {})
+                for element, value in chosen["values"].items():
+                    raw = metadata.get(element, value if isinstance(value, dict) else {})
+                    element_rows.append({
+                        "Элемент": element,
+                        "Kd": raw.get("value", value if not isinstance(value, dict) else np.nan),
+                        "σ": raw.get("sd", np.nan),
+                        "Kd low": raw.get("low", np.nan),
+                        "Kd high": raw.get("high", np.nan),
+                    })
+                st.dataframe(pd.DataFrame(element_rows), width="stretch", hide_index=True)
+                chosen_context = assess_model_context(chosen, context_value)
+                if chosen_context["status"] == "OUT_OF_DOMAIN":
+                    st.warning(chosen_context["message"] + ". Просмотр разрешён; для расчёта это будет явно записано в provenance.")
+                elif chosen_context["status"] == "DIRECT":
+                    st.success(chosen_context["message"])
+                else:
+                    st.info(chosen_context["message"])
+
     with st.expander("Импорт полной литературной таблицы D", expanded=False):
         upload=st.file_uploader("GERM / собственная таблица (CSV, TSV или Excel)", type=["csv","tsv","txt","xlsx","xls"], key="partition_table_upload")
         st.caption("Поддерживается текущий экспорт GERM KdD: Rock Types, Minerals, Kd, Kd Sigma, Kd Low, Kd High, Definition и Type. Импортируются любые элементы, включая главные; интервал не превращается в среднее. Значения в GERM заданы по элементам, не по оксидам.")
