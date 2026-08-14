@@ -70,61 +70,84 @@ def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _project_database_snapshot(project_id: int, target: Path) -> None:
-    """Copy DB and remove rows that belong only to other projects.
+def _project_owned_ids(con: sqlite3.Connection, table: str, project_id: int) -> set[int]:
+    tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if table not in tables or "project_id" not in _table_columns(con, table):
+        return set()
+    return {int(row[0]) for row in con.execute(f"SELECT id FROM {table} WHERE project_id=?", (int(project_id),)).fetchall()}
 
-    Global rows with nullable project_id are intentionally retained because saved global
-    style/classification settings may be required by the selected project's recipes.
+
+def _delete_refs_outside(con: sqlite3.Connection, table: str, column: str, allowed: set[int] | set[str]) -> None:
+    if allowed:
+        marks = ",".join("?" for _ in allowed)
+        con.execute(
+            f"DELETE FROM {table} WHERE {column} IS NOT NULL AND {column} NOT IN ({marks})",
+            tuple(allowed),
+        )
+    else:
+        con.execute(f"DELETE FROM {table} WHERE {column} IS NOT NULL")
+
+
+def _project_database_snapshot(project_id: int, target: Path) -> None:
+    """Copy DB and retain only rows belonging to one project and its child entities.
+
+    Global rows with nullable project_id are intentionally retained because global styles or
+    classifications may be required by the selected project's saved recipes. Child tables are
+    scoped by their owning Sample/Study/Session/Dataset/Analysis/Rock/Asset IDs, preventing
+    metadata from another project leaking into a portable archive.
     """
     shutil.copy2(DB_PATH, target)
     con = sqlite3.connect(target)
     try:
         con.execute("PRAGMA foreign_keys=OFF")
-        dataset_ids = {
-            int(row[0]) for row in con.execute("SELECT id FROM datasets WHERE project_id=?", (int(project_id),)).fetchall()
-        }
+        table_names = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+
+        dataset_ids = _project_owned_ids(con, "datasets", project_id)
+        sample_ids = _project_owned_ids(con, "samples", project_id)
+        study_ids = _project_owned_ids(con, "studies", project_id)
+        session_ids = _project_owned_ids(con, "analytical_sessions", project_id)
+        rock_ids = _project_owned_ids(con, "rock_samples", project_id)
+        asset_ids = _project_owned_ids(con, "image_assets", project_id)
+
         analysis_ids: set[str] = set()
-        if dataset_ids:
+        if "analysis_rows" in table_names and dataset_ids:
             marks = ",".join("?" for _ in dataset_ids)
             analysis_ids = {
                 str(row[0]) for row in con.execute(
-                    f"SELECT analysis_id FROM analysis_rows WHERE dataset_id IN ({marks})", tuple(dataset_ids)
+                    f"SELECT analysis_id FROM analysis_rows WHERE dataset_id IN ({marks})",
+                    tuple(dataset_ids),
                 ).fetchall()
             }
-        asset_ids = {
-            int(row[0]) for row in con.execute("SELECT id FROM image_assets WHERE project_id=?", (int(project_id),)).fetchall()
-        } if "image_assets" in {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")} else set()
 
         tables = [
             str(row[0]) for row in con.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
         ]
+        reference_scopes: tuple[tuple[str, set], ...] = (
+            ("dataset_id", dataset_ids),
+            ("analysis_id", analysis_ids),
+            ("sample_id", sample_ids),
+            ("study_id", study_ids),
+            ("session_id", session_ids),
+            ("rock_id", rock_ids),
+            ("asset_id", asset_ids),
+        )
         for table in tables:
             columns = _table_columns(con, table)
             if table == "projects":
                 con.execute("DELETE FROM projects WHERE id<>?", (int(project_id),))
-            elif "project_id" in columns:
-                # Keep global rows where project_id is NULL.
-                con.execute(f"DELETE FROM {table} WHERE project_id IS NOT NULL AND project_id<>?", (int(project_id),))
-            elif "dataset_id" in columns:
-                if dataset_ids:
-                    marks = ",".join("?" for _ in dataset_ids)
-                    con.execute(f"DELETE FROM {table} WHERE dataset_id IS NOT NULL AND dataset_id NOT IN ({marks})", tuple(dataset_ids))
-                else:
-                    con.execute(f"DELETE FROM {table} WHERE dataset_id IS NOT NULL")
-            elif "analysis_id" in columns:
-                if analysis_ids:
-                    marks = ",".join("?" for _ in analysis_ids)
-                    con.execute(f"DELETE FROM {table} WHERE analysis_id IS NOT NULL AND analysis_id NOT IN ({marks})", tuple(analysis_ids))
-                else:
-                    con.execute(f"DELETE FROM {table} WHERE analysis_id IS NOT NULL")
-            elif "asset_id" in columns:
-                if asset_ids:
-                    marks = ",".join("?" for _ in asset_ids)
-                    con.execute(f"DELETE FROM {table} WHERE asset_id IS NOT NULL AND asset_id NOT IN ({marks})", tuple(asset_ids))
-                else:
-                    con.execute(f"DELETE FROM {table} WHERE asset_id IS NOT NULL")
+                continue
+            if "project_id" in columns:
+                con.execute(
+                    f"DELETE FROM {table} WHERE project_id IS NOT NULL AND project_id<>?",
+                    (int(project_id),),
+                )
+                continue
+            for column, allowed in reference_scopes:
+                if column in columns:
+                    _delete_refs_outside(con, table, column, allowed)
+                    break
         con.commit()
     finally:
         con.close()
@@ -213,7 +236,6 @@ def create_project_archive(
                         destination_path = destination_path.with_suffix(suffix)
                         destination_path.write_bytes(data)
                     except Exception:
-                        # Unsupported/corrupt images are omitted rather than silently represented as originals.
                         continue
                 else:
                     shutil.copy2(path, destination_path)
@@ -279,7 +301,6 @@ def restore_project_archive(
         project = manifest.get("project") or {}
         project_id = int(project["id"])
 
-        # Validate SQLite before touching current workspace.
         con = sqlite3.connect(archived_db)
         try:
             check = con.execute("PRAGMA integrity_check").fetchone()[0]
@@ -317,7 +338,6 @@ def restore_project_archive(
         con = sqlite3.connect(DB_PATH)
         try:
             con.row_factory = sqlite3.Row
-            # Reconnect dataset sources by original source_filename where possible.
             if restored_sources.exists():
                 files = [p for p in restored_sources.iterdir() if p.is_file()]
                 datasets = con.execute("SELECT id, source_filename FROM datasets WHERE project_id=?", (project_id,)).fetchall()
@@ -326,7 +346,6 @@ def restore_project_archive(
                     matches = [p for p in files if p.name.endswith(name)]
                     if len(matches) == 1:
                         con.execute("UPDATE datasets SET source_path=? WHERE id=?", (str(matches[0].resolve()), int(row["id"])))
-            # Reconnect images by unique stored filename stem/suffix; optimized derivatives may use .jpg.
             if restored_assets.exists():
                 asset_files = [p for p in restored_assets.rglob("*") if p.is_file()]
                 records = con.execute("SELECT id, stored_path FROM image_assets WHERE project_id=?", (project_id,)).fetchall()
