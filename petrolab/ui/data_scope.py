@@ -11,6 +11,7 @@ from petrolab.db import list_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.minerals.registry import MINERALS
 from petrolab.ui.components import render_project_selector
+from petrolab.ui.project_context import active_project_id
 
 
 @dataclass(frozen=True)
@@ -39,9 +40,8 @@ def render_analysis_scope(
         scope = "Активный проект"
 
     if scope == "Активный проект":
-        if st.session_state.get("_sidebar_project_ready") and st.session_state.get("active_project_id") is not None:
-            project_id = int(st.session_state["active_project_id"])
-        else:
+        project_id = active_project_id()
+        if project_id is None:
             project = render_project_selector(f"{key_prefix}_project")
             if project is None:
                 return None
