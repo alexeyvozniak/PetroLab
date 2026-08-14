@@ -25,7 +25,7 @@ def render_distribution_page() -> None:
         if upload is not None and st.button("Импортировать таблицу D"):
             try:
                 raw=upload.getvalue()
-                df=pd.read_csv(__import__("io").BytesIO(raw), sep="\t" if upload.name.lower().endswith((".tsv",".txt")) else ",")
+                df=read_partition_upload(raw, upload.name)
                 made=import_partition_table(df)
                 st.success(f"Создано литературных моделей: {len(made)}")
             except Exception as exc: st.error(str(exc))
