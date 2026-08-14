@@ -7,6 +7,8 @@ assigns an equilibrium interpretation automatically.
 """
 from __future__ import annotations
 
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -166,3 +168,23 @@ def import_partition_table(dataframe: pd.DataFrame) -> list[int]:
             )
         )
     return created
+
+
+def read_partition_upload(raw: bytes, filename: str) -> pd.DataFrame:
+    """Read the user-facing CSV/TSV/XLSX variants of a partition table."""
+    suffix = Path(filename).suffix.casefold()
+    if suffix in {".xlsx", ".xls"}:
+        sheets = pd.read_excel(BytesIO(raw), sheet_name=None)
+        for _, candidate in sheets.items():
+            names = {
+                _ALIASES.get(str(column).strip().casefold(), str(column).strip().casefold())
+                for column in candidate.columns
+            }
+            if {"rock_type", "mineral", "element"} <= names:
+                return candidate
+        raise ValueError("В Excel не найден лист с Rock Type(s), Mineral(s) и Element.")
+
+    try:
+        return pd.read_csv(BytesIO(raw), sep=None, engine="python")
+    except UnicodeDecodeError:
+        return pd.read_csv(BytesIO(raw), sep=None, engine="python", encoding="latin-1")
