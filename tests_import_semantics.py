@@ -54,7 +54,7 @@ try:
         {},
     )
 except ValueError as exc:
-    assert "конфликтующие научные колонки" in str(exc)
+    assert "конфликтующие научные колонки" in str(exc).casefold()
 else:
     raise AssertionError("Duplicate canonical chemistry was accepted")
 
