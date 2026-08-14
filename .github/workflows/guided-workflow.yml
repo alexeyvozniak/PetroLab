@@ -11,6 +11,7 @@ on:
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
+      - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/theme.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
@@ -30,6 +31,7 @@ on:
       - "petrolab/phase_suggestions.py"
       - "petrolab/repositories/image_repository.py"
       - "petrolab/services/image_relink_service.py"
+      - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/theme.py"
       - "petrolab/ui/pages/guided_workflow.py"
       - "petrolab/ui/pages/mixed_minerals.py"
@@ -65,6 +67,7 @@ jobs:
           petrolab/phase_suggestions.py
           petrolab/repositories/image_repository.py
           petrolab/services/image_relink_service.py
+          petrolab/ui/workflow_routing.py
           petrolab/ui/pages/guided_workflow.py
           petrolab/ui/pages/mixed_minerals.py
           petrolab/ui/pages/images_dashboard.py
