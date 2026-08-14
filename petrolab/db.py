@@ -222,6 +222,18 @@ def ensure_storage() -> None:
             FOREIGN KEY(assemblage_id) REFERENCES assemblages(id) ON DELETE CASCADE,
             FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE)""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_assemblage_members_analysis ON assemblage_members(analysis_id)")
+        con.execute("""CREATE TABLE IF NOT EXISTS partition_models (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, mineral TEXT NOT NULL,
+            counter_phase TEXT NOT NULL, model_kind TEXT NOT NULL, values_json TEXT NOT NULL,
+            source_json TEXT NOT NULL DEFAULT '{}', applicability_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS distribution_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, assemblage_id INTEGER,
+            model_id INTEGER, mode TEXT NOT NULL, input_json TEXT NOT NULL, assumptions_json TEXT NOT NULL DEFAULT '{}',
+            results_json TEXT NOT NULL, qc_json TEXT NOT NULL DEFAULT '[]', calculated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(assemblage_id) REFERENCES assemblages(id) ON DELETE SET NULL,
+            FOREIGN KEY(model_id) REFERENCES partition_models(id) ON DELETE SET NULL)""")
         con.commit()
 
 
