@@ -18,6 +18,7 @@ from petrolab.ui.pages import (
     render_data_intake_page,
     render_database_browser_page,
     render_export_page,
+    render_equilibrium_page,
     render_formulae_page,
     render_generations_page,
     render_help_page,
