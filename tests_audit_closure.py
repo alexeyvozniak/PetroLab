@@ -191,25 +191,45 @@ for marker in [
     "original_delete_rock_image",
     "original_set_mineral_links",
     'st.button("Отмена"',
+    "render_plot_confirmations",
 ]:
     assert marker in destructive, marker
 
-# Plot/science policies that were previously easy to regress (A-10/A-13/A-20/A-30/A-32/A-36/A-57/A-73/A-78/A-91/A-99).
-plot_policy = _read("petrolab/ui/plot_page_policy.py")
+# Plot/science safeguards now have explicit owners instead of a combined runtime plot monkeypatch
+# (A-10/A-13/A-20/A-30/A-32/A-36/A-57/A-73/A-78/A-91/A-99).
+assert not (ROOT / "petrolab" / "ui" / "plot_page_policy.py").exists()
+xy_components = _read("petrolab/ui/xy_components.py")
 for marker in [
     "default_outlier_method",
     "Внутри групп",
     "hidden_saved",
+    "sanitize_xy_rows",
+    'key="petrolab_quick_interactive_plot"',
+    'key="petrolab_advanced_interactive_plot"',
+]:
+    assert marker in xy_components, marker
+advanced_xy = _read("petrolab/ui/pages/plots_advanced.py")
+for marker in [
+    "Сохранённый рецепт ссылается на наборы",
     "loaded_recipe = None",
-    "Сохранённый рецепт ссылается на datasets",
+    "render_outlier_controls",
+    "render_advanced_interactive",
+    "В график входит",
+]:
+    assert marker in advanced_xy, marker
+science_policy = _read("petrolab/ui/science_page_policy.py")
+for marker in [
     "require_known_units=True",
     "strict_presets",
     "Grouped boxplot требует ровно один числовой параметр",
     '"SVG"',
     "consistent_pattern",
+    "_petrolab_science_policy_installed",
 ]:
-    assert marker in plot_policy, marker
-assert "_petrolab_plot_policy_installed" in app
+    assert marker in science_policy, marker
+assert "install_science_page_policy()" in app
+assert "install_image_page_policy()" in app
+assert "install_plot_page_policy" not in app
 
 # Optional hints are optional; scientific warnings/provenance are not globally hidden (A-100).
 layout = _read("petrolab/ui/layout.py")
