@@ -1,0 +1,231 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:55:12.285Z.
+>>>>>>>>>>
+tab delimited	kds
+contribution_id	rock_types	minerals	element	kd	kd_sigma	kd_low	kd_high	kd_definition	kd_types
+4	Ankaramite:Basalt	Olivine	Dy	0.014				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Eu	0.01				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Yb	0.023				Solid-Melt	Interpolated
+4	Ankaramite:Basalt	Olivine	Nd	0.01				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Er	0.017				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Sm	0.011				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Ce	0.009				Solid-Melt	Phenocryst-Matrix
+4	Ankaramite:Basalt	Olivine	Gd	0.012				Solid-Melt	Phenocryst-Matrix
+7	Ankaramite:Basalt	Olivine	Ba			0.00864	0.0112	Solid-Melt	Phenocryst-Matrix
+7	Basalt	Olivine	Rb			0.00839	0.0133	Solid-Melt	Phenocryst-Matrix
+7	Basalt	Olivine	Sr			0.00937	0.0185	Solid-Melt	Phenocryst-Matrix
+7	Basalt	Olivine	K			0.0056	0.00809	Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Ca	0.0094				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Tb	0.00518				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Lu	0.0139				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Eu	0.00455				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Yb	0.0087				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Sm	0.0027				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Cu	0.023				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	La	0.0084				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Nd	0.008				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	Mg	8				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Sm	0.006				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Ho	0.05				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Yb	0.28				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Tb	0.01				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Sc	0.33				Solid-Melt	Phenocryst-Matrix
+18	Basalt	Olivine	La	0.00263				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Ga				0.25	Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Ba				0.05	Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Eu	0.008				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Fe	1.85				Solid-Melt	Experimental
+20	Basalt	Olivine	Mn	2.6				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Yb	0.042				Solid-Melt	Experimental
+20	Basalt	Olivine	Zn	1.8				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Au	0.7				Solid-Melt	Experimental
+20	Basalt	Olivine	Co	3.1				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Mn	1.47				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Ce	0.01				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Co	4.3				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Ti	0.019				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Sb	0.3				Solid-Melt	Phenocryst-Matrix
+20	Basalt	Olivine	Gd	0.008				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Zn	0.8				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Ni			15		Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Lu	0.062				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	As	0.3				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Mg	6.6				Solid-Melt	Experimental
+29	Basalt	Olivine	Ca	0.025				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Cr	1.18				Solid-Melt	Experimental
+29	Basalt	Olivine	Sc	0.23		0.23		Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Ga	0.04				Solid-Melt	Phenocryst-Matrix
+29	Basalt	Olivine	Cu	0.55				Solid-Melt	Phenocryst-Matrix
+33	Basalt	Olivine	U	0.0001				Solid-Melt	Calculated
+33	Basalt	Olivine	Lu	0.0015				Solid-Melt	Calculated
+33	Basalt	Olivine	Nd	0.001				Solid-Melt	Calculated
+33	Basalt	Olivine	La	0.0004				Solid-Melt	Calculated
+33	Basalt	Olivine	Rb	0.00018				Solid-Melt	Calculated
+33	Basalt	Olivine	Ce	0.0005				Solid-Melt	Calculated
+34	Basalt	Olivine	Lu	0.051				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	Ni	0.94				Solid-Melt	Experimental
+33	Basalt	Olivine	Nb	0.01				Solid-Melt	Calculated
+33	Basalt	Olivine	Gd	0.0015				Solid-Melt	Calculated
+33	Basalt	Olivine	Hf	0.01				Solid-Melt	Calculated
+33	Basalt	Olivine	Pb	0.0001				Solid-Melt	Calculated
+33	Basalt	Olivine	Eu	0.0016				Solid-Melt	Calculated
+33	Basalt	Olivine	Tb	0.0015				Solid-Melt	Calculated
+33	Basalt	Olivine	Ho	0.0016				Solid-Melt	Calculated
+34	Basalt	Olivine	Ho	0.013				Solid-Melt	Experimental
+34	Basalt	Olivine	Yb	0.01				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	K				0.04	Solid-Melt	Experimental
+34	Basalt	Olivine	Gd	0.0029				Solid-Melt	Experimental
+34	Basalt	Olivine	Sm	0.0011				Solid-Melt	Experimental
+34	Basalt	Olivine	Dy	0.002				Solid-Melt	Experimental
+34	Basalt	Olivine	Eu	0.001				Solid-Melt	Experimental
+34	Basalt	Olivine	Y	0.0036				Solid-Melt	Experimental
+34	Basalt	Olivine	Er	0.0025				Solid-Melt	Experimental
+33	Basalt	Olivine	Tm	0.0015				Solid-Melt	Calculated
+33	Basalt	Olivine	Th	0.0001				Solid-Melt	Calculated
+35	Komatiite:Basalt	Olivine	V	0.22				Solid-Melt	Experimental
+37	Basalt	Olivine	Cu	0.11				Solid-Melt	Phenocryst-Matrix
+34	Basalt	Olivine	La				0.0001	Solid-Melt	Experimental
+34	Basalt	Olivine	Pr	0.0002				Solid-Melt	Experimental
+33	Basalt	Olivine	Sr	0.00019				Solid-Melt	Calculated
+33	Basalt	Olivine	Dy	0.0017				Solid-Melt	Calculated
+33	Basalt	Olivine	Ti	0.006				Solid-Melt	Calculated
+35	Komatiite:Basalt	Olivine	Na	0.13				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	Cr	0.26				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	Al	0.05				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	Fe	0.59				Solid-Melt	Experimental
+35	Komatiite:Basalt	Olivine	Mn	0.42				Solid-Melt	Experimental
+34	Basalt	Olivine	Tm	0.003				Solid-Melt	Experimental
+34	Basalt	Olivine	Ce	0.0001				Solid-Melt	Experimental
+34	Basalt	Olivine	Tb	0.0015				Solid-Melt	Experimental
+40	Komatiite:Basalt	Olivine	Cr			0.58	0.657	Solid-Melt	Experimental
+34	Basalt	Olivine	Sc			0.18	0.29	Solid-Melt	Experimental
+34	Basalt	Olivine	Nd	0.0003				Solid-Melt	Experimental
+33	Basalt	Olivine	Pr	0.0008				Solid-Melt	Calculated
+33	Basalt	Olivine	Sm	0.0013				Solid-Melt	Calculated
+33	Basalt	Olivine	Er	0.0015				Solid-Melt	Calculated
+33	Basalt	Olivine	Yb	0.0015				Solid-Melt	Calculated
+39	Basalt	Olivine	Ti			0.015	0.018	Solid-Melt	Experimental
+37	Basalt	Olivine	V	0.088				Solid-Melt	Phenocryst-Matrix
+39	Basalt	Olivine	Mn			1.38	1.53	Solid-Melt	Experimental
+37	Basalt	Olivine	Ti	0.037				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Olivine	Cr	1.1				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Olivine	Fe	1.05				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Olivine	Ni	12.2				Solid-Melt	Phenocryst-Matrix
+39	Basalt	Olivine	Ca			0.034	0.035	Solid-Melt	Experimental
+39	Basalt	Olivine	Lu			0.045	0.081	Solid-Melt	Experimental
+37	Basalt	Olivine	Co	3				Solid-Melt	Phenocryst-Matrix
+49	Basalt	Olivine	Pb			0.000069	0.000479	Solid-Melt	Experimental
+49	Basalt	Olivine	U			0.0000056	0.00001	Solid-Melt	Experimental
+37	Basalt	Olivine	Mn	0.917				Solid-Melt	Phenocryst-Matrix
+37	Basalt	Olivine	Zn	0.86				Solid-Melt	Phenocryst-Matrix
+49	Basalt	Olivine	Sr			0.0000154	0.0000508	Solid-Melt	Experimental
+40	Komatiite:Basalt	Olivine	Ni			4.5	7.1	Solid-Melt	Experimental
+49	Basalt	Olivine	Ba			0.0000022	0.0000087	Solid-Melt	Experimental
+55	Basalt	Olivine	Ni	15.5				Solid-Melt	Experimental
+52	Basalt	Olivine	Tb	0.004				Solid-Melt	Phenocryst-Matrix
+49	Basalt	Olivine	Th			0.0000024	0.00001	Solid-Melt	Experimental
+52	Basalt	Olivine	Ce	0.009				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Pr	0.005				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Eu	0.003				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Tm	0.009				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Gd	0.004				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Ho	0.007				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Lu	0.018				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Sm	0.003				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	La	0.012				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Nd	0.004				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Er	0.008				Solid-Melt	Phenocryst-Matrix
+52	Basalt	Olivine	Yb	0.013				Solid-Melt	Phenocryst-Matrix
+72	Basalt	Olivine	Y			0.00494	0.0125	Solid-Melt	Experimental
+72	Basalt	Olivine	Al			0.0101	0.0222	Solid-Melt	Experimental
+72	Basalt	Olivine	Mn			0.5	1.07	Solid-Melt	Experimental
+72	Basalt	Olivine	Ho			0.0047	0.0118	Solid-Melt	Experimental
+72	Basalt	Olivine	Fe			0.51	1.55	Solid-Melt	Experimental
+72	Basalt	Olivine	Mg			1.96	4.44	Solid-Melt	Experimental
+72	Basalt	Olivine	Sr			0.000039	0.00025	Solid-Melt	Experimental
+72	Basalt	Olivine	La			0.0000037	0.000012	Solid-Melt	Experimental
+69	Ankaramite:Basalt	Olivine	K	0.000177				Solid-Melt	Phenocryst-Matrix
+72	Basalt	Olivine	Pr			0.000026	0.000084	Solid-Melt	Experimental
+72	Basalt	Olivine	Ba			0.0000013	0.000032	Solid-Melt	Experimental
+72	Basalt	Olivine	Ca			0.0192	0.0375	Solid-Melt	Experimental
+72	Basalt	Olivine	Cr			0.63	1.85	Solid-Melt	Experimental
+74	Basalt	Olivine	Ni			7.6	48	Solid-Melt	Experimental
+72	Basalt	Olivine	Co			1.1	3.56	Solid-Melt	Experimental
+72	Basalt	Olivine	Yb			0.0157	0.0469	Solid-Melt	Experimental
+69	Ankaramite:Basalt	Olivine	Rb	0.000179				Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Co			2.75	4.19	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Sm			0.003	0.015	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Cr			1	1.2	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Ti			0.04	0.08	Solid-Melt	Phenocryst-Matrix
+71	Basalt	Olivine	Ni			9.3	12.8	Solid-Melt	Experimental
+69	Ankaramite:Basalt	Olivine	Cs	0.00043				Solid-Melt	Phenocryst-Matrix
+69	Ankaramite:Basalt	Olivine	Sr	0.000191				Solid-Melt	Phenocryst-Matrix
+69	Ankaramite:Basalt	Olivine	Ba	0.00011				Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Cu			0.4	0.5	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Co	52				Sulfide-Liquid-Olivine	Phenocryst-Matrix
+74	Basalt	Olivine	Ti			0.03	0.15	Solid-Melt	Experimental
+72	Basalt	Olivine	Sm			0.00014	0.00063	Solid-Melt	Experimental
+80	Basalt	Olivine	Cu	730				Sulfide-Liquid-Olivine	Phenocryst-Matrix
+80	Basalt	Olivine	V			1	1.2	Solid-Melt	Phenocryst-Matrix
+74	Basalt	Olivine	Co			3.63	6.3	Solid-Melt	Experimental
+79	Basalt	Olivine	Cr			1.06	3.06	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Ni			10.7	12.2	Solid-Melt	Phenocryst-Matrix
+74	Basalt	Olivine	Cr			1.1	5.2	Solid-Melt	Experimental
+74	Basalt	Olivine	V			0.02	0.09	Solid-Melt	Experimental
+74	Basalt	Olivine	Mn			0.99	1.22	Solid-Melt	Experimental
+72	Basalt	Olivine	Tb			0.0016	0.0041	Solid-Melt	Experimental
+72	Basalt	Olivine	Si			0.77	0.91	Solid-Melt	Experimental
+72	Basalt	Olivine	Sc			0.12	0.38	Solid-Melt	Experimental
+79	Basalt	Olivine	Ca			0.02	0.036	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Sc			0.14	0.22	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Na			0.012	0.024	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Mg			4.61	7.46	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Fe			1.19	1.87	Solid-Melt	Phenocryst-Matrix
+79	Basalt	Olivine	Ni			8.25	23.5	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Mn			1.2	1.3	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Ni	351				Sulfide-Liquid-Olivine	Phenocryst-Matrix
+79	Basalt	Olivine	Mn			0.73	1.67	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Sc				0.04	Solid-Melt	Phenocryst-Matrix
+80	Basalt	Olivine	Co			4.4	4.8	Solid-Melt	Phenocryst-Matrix
+132	Lunar:LKFM:Basalt	Olivine	Gd	0.00144				Solid-Melt	Experimental
+132	Lunar:LKFM:Basalt	Olivine	Sm	0.00079				Solid-Melt	Experimental
+139	Basalt	Olivine	Ni			8.63	18.54	Solid-Melt	Phenocryst-Matrix
+149	Picrite:Basalt	Olivine	Lu			0.157	0.393	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Eu			0.104	0.344	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Y				0.01	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Ta				0.01	Solid-Melt	Experimental
+159	Basalt	Olivine	Dy	0.007				Solid-Melt	Host-Melt Inclusion
+149	Picrite:Basalt	Olivine	Yb			0.143	0.394	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Nd			0.109	0.352	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Sm			0.105	0.362	Solid-Melt	Experimental
+139	Basalt	Olivine	Sc			0.13	0.22	Solid-Melt	Phenocryst-Matrix
+139	Basalt	Olivine	Fe			1.74	3	Solid-Melt	Phenocryst-Matrix
+139	Basalt	Olivine	Co			2.75	4.44	Solid-Melt	Phenocryst-Matrix
+150	Calc Alkaline Picrite:Basalt	Olivine	Ti	0.02				Solid-Melt	Experimental
+140	Basalt	Olivine	Co			1.6	2.22	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Zr	0.01				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Hf				0.01	Solid-Melt	Experimental
+159	Basalt	Olivine	Y	0.009				Solid-Melt	Host-Melt Inclusion
+159	Basalt	Olivine	Yb	0.021				Solid-Melt	Host-Melt Inclusion
+139	Basalt	Olivine	Mn			1.01	1.75	Solid-Melt	Phenocryst-Matrix
+140	Basalt	Olivine	Ni			4.36	5.05	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Sc	0.16				Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	P				0.01	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	Nb				0.01	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Ce			0.115	0.354	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Sr			0.0993	0.349	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Ba			0.127	0.365	Solid-Melt	Experimental
+159	Basalt	Olivine	Ti	0.007				Solid-Melt	Host-Melt Inclusion
+149	Picrite:Basalt	Olivine	La			0.124	0.346	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Gd			0.111	0.366	Solid-Melt	Experimental
+149	Picrite:Basalt	Olivine	Er			0.138	0.385	Solid-Melt	Experimental
+150	Calc Alkaline Picrite:Basalt	Olivine	V	0.06				Solid-Melt	Experimental
+159	Basalt	Olivine	Li	0.35				Solid-Melt	Host-Melt Inclusion
+159	Basalt	Olivine	Cr	0.73				Solid-Melt	Host-Melt Inclusion
+156	Basalt	Olivine	Ni			1.35	1.73	Solid-Melt	Experimental
+197	Basalt	Olivine	P	0.1				Solid-Melt	Experimental
+239	Picrite:Basalt	Olivine	Os	20	5			Solid-Melt	Phenocryst-Matrix
+239	Ankaramite:Basalt	Olivine	Os	200				Solid-Melt	Phenocryst-Matrix
+251	Basalt	Olivine	Ni			5.9	29	Solid-Melt	Experimental
+241	Synthetic Komatiite:Basalt	Olivine	Cr			0.55	0.826	Solid-Melt	Experimental

@@ -1,0 +1,30 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:40:10.937Z.
+>>>>>>>>>>
+tab delimited	kds
+contribution_id	rock_types	minerals	element	kd	kd_definition	kd_types
+4	Phonolite	Biotite	Sm	0.031	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Gd	0.275	Solid-Melt	Interpolated
+4	Phonolite	Biotite	Nd	0.032	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Eu	0.03	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Dy	0.313	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Ce	0.034	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Gd	0.03	Solid-Melt	Interpolated
+4	Phonolite	Clinopyroxene	Yb	0.227	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Er	0.034	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Ce	0.096	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Sm	0.261	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Eu	0.26	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Dy	0.03	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Biotite	Yb	0.042	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Nd	0.182	Solid-Melt	Phenocryst-Matrix
+4	Phonolite	Clinopyroxene	Er	0.234	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Biotite	Rb	3.06	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Clinopyroxene	K	0.0135	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Biotite	Ba	1.09	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Clinopyroxene	Rb	0.0152	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Biotite	K	2.65	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Biotite	Sr	0.0812	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Clinopyroxene	Sr	0.154	Solid-Melt	Phenocryst-Matrix
+7	Phonolite	Clinopyroxene	Ba	0.0128	Solid-Melt	Phenocryst-Matrix

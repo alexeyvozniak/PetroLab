@@ -1,0 +1,29 @@
+﻿tab delimited	contribution
+data_model_version	description
+1.0	Downloaded from KdD at 2026-08-14T14:49:20.912Z.
+>>>>>>>>>>
+tab delimited	kds
+contribution_id	rock_types	minerals	element	kd	kd_low	kd_high	kd_definition	kd_types
+9	Granite	Apatite	Lu		7.5	20.4	Solid-Melt	Experimental
+9	Granite	Apatite	Sr		2.1	2.4	Solid-Melt	Experimental
+9	Granite	Apatite	Dy		15.9	30.7	Solid-Melt	Experimental
+9	Granite	Apatite	La		8	11.9	Solid-Melt	Experimental
+9	Granite	Apatite	Sm		18.5	38.4	Solid-Melt	Experimental
+44	Granite	Apatite	Nd	57.1			Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Ce		0.27	0.31	Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Er	275			Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Lu	199			Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Sm		0.87	3.24	Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Nd		0.26	0.55	Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Eu		0.18	1.57	Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Lu	1230			Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Ce	29.6			Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Sm	84.8			Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Dy	246			Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Yb	232			Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Er		81.5	450	Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Yb		178	890	Solid-Melt	Phenocryst-Matrix
+44	Granite	Apatite	Eu	9.22			Solid-Melt	Phenocryst-Matrix
+44	Granite	Zircon	Dy		25.2	105	Solid-Melt	Phenocryst-Matrix
+113	Granite	Biotite	Cl		1.22	6.25	Solid-Melt	Experimental
+113	Granite	Biotite	F		1.59	7.19	Solid-Melt	Experimental

@@ -14,6 +14,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_point_style": "balanced",
     "ui_density": "comfortable",
     "show_help_hints": True,
+    "show_sample_location_prompt": True,
     "show_release_notes_on_home": True,
     "check_updates_automatically": True,
     "default_outlier_method": "MAD",

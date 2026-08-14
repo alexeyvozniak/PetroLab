@@ -1,4 +1,4 @@
-# ПетроЛаб v0.12.0
+# ПетроЛаб v0.13.0
 
 Локальная русскоязычная научная рабочая среда для петрологии, минералогии и геохимии. Исходные Excel, производные минералогические расчёты, локальная интерпретация, изображения и валовые составы пород хранятся как связанные, но разные слои данных.
 
@@ -16,11 +16,11 @@
 - Source-aware классификационные схемы: Morimoto pyroxene, Ab–An–Or, garnet projections, Grütter G10 diagnostics, Wyatt ilmenite reference и другие kimberlite/lamprophyre presets.
 - REE и multi-element spider diagrams с CI-chondrite / primitive-mantle нормировкой только для концентраций с известной единицей.
 - Гистограммы, boxplot, описательная статистика, корреляции, PCA, K-means и иерархическая кластеризация с явной обработкой слишком маленьких выборок.
-- Изображения: batch-wizard, привязка одной фотографии к нескольким точкам, Sample/Grain/Generation/Point или всему набору, grid-галерея и статус потерянных связей.
+- Изображения: batch-wizard, привязка фотографии к Sample, шлифу/препарату, зерну, поколению, нескольким точкам или всему набору; grid-галерея и статус потерянных связей.
 - Шлифы и поля: лёгкое превью тяжёлого оригинала, препараты, поля и пространственные метки, связывающие одну позицию с отдельными EPMA/EDS/LA-ICP-MS результатами без их смешения.
 - Журнальные шаблоны рисунков и таблиц (Lithos, Geodynamics & Tectonophysics, ДАН, Elsevier/Supplementary), гармоничные стили маркеров и редактируемые подписи/сетка/поля.
 - Отдельная база пород: паспорт, массив/местоположение, описание, возраст и метод, валовая химия, изотопия, лаборатория/методика, фотографии и связи минерал–порода.
-- Whole-rock TAS, Harker/binary, REE/spider, isotope XY и Rhodes-style olivine–rock equilibrium screening/Kd.
+- Whole-rock TAS, Harker/binary, REE/spider, isotope XY и Rhodes-style olivine–rock equilibrium screening/Kd; литературные Kd также доступны как REE-D, Onuma и Kd-spider.
 - Научный dashboard: task-oriented главная, toolbar-база анализов, status-first расчёты, вкладки настроек, searchable справка и отдельные «Что нового» / «История правок данных».
 
 ## Запуск Windows
