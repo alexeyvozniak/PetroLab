@@ -18,14 +18,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: requirements.txt
-
       - name: Validate BAT encoding and line endings
         shell: python
         run: |
@@ -37,81 +35,65 @@ jobs:
               assert all(b < 128 for b in data), f'{path}: non-ASCII byte found'
               assert b'\n' not in data.replace(b'\r\n', b''), f'{path}: bare LF found'
           print('Windows launchers: encoding and CRLF OK')
-
       - name: Install PetroLab dependencies
         shell: cmd
         run: |
           python -m pip install --disable-pip-version-check -r requirements.txt
           python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
-
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
-
+        run: python -m compileall -q app.py petrolab tests_architecture.py tests_formulae.py tests_mineral_classification.py tests_dataframe_utils.py tests_new_features.py tests_mixed_minerals.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_smoke.py tests_streamlit.py
       - name: Enforce architecture rules
         shell: cmd
         run: python tests_architecture.py
-
       - name: Check responsive UI structure
         shell: cmd
         run: python tests_ui_layout.py
-
       - name: Run storage bootstrap and repeated-isotope migration tests
         shell: cmd
         run: python tests_storage_isotopes.py
-
       - name: Run v0.11 scientific and data-integrity regressions
         shell: cmd
         run: python tests_v011_integrity.py
-
       - name: Verify audit v10 closure contract
         shell: cmd
         run: python tests_audit_closure.py
-
       - name: Run portable project archive regressions
         shell: cmd
         run: python tests_project_archive.py
-
       - name: Run group envelope scientific regressions
         shell: cmd
         run: python tests_group_envelopes.py
-
       - name: Run manual field editor regressions
         shell: cmd
         run: python tests_manual_fields.py
-
       - name: Run universal sample registry regressions
         shell: cmd
         run: python tests_sample_registry.py
-
       - name: Run source registry and data-health regressions
         shell: cmd
         run: python tests_source_registry.py
-
+      - name: Run mixed-mineral suggestion/materialization regressions
+        shell: cmd
+        run: python tests_mixed_minerals.py
       - name: Run total-Fe and derived-result integration tests
         shell: cmd
         run: python tests_new_features.py
-
       - name: Run mineral classification and Ti-garnet tests
         shell: cmd
         run: python tests_mineral_classification.py
-
       - name: Run ternary math and plotting regression tests
         shell: cmd
         run: python tests_ternary.py
-
       - name: Run sourced ternary overlay tests
         shell: cmd
         run: python tests_ternary_overlays.py
-
       - name: Run science workbench and whole-rock tests
         shell: cmd
         run: python tests_science_workbench.py
-
       - name: Run real-browser multi-viewport UI checks
         shell: cmd
         run: python tests_ui_viewports.py
-
       - name: Upload viewport screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -119,7 +101,6 @@ jobs:
           name: petrolab-viewport-screenshots
           path: viewport_artifacts
           if-no-files-found: warn
-
       - name: Run real PetroLab Windows startup in CI mode
         shell: cmd
         run: |
