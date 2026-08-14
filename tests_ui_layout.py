@@ -9,18 +9,43 @@ PAGES = UI / "pages"
 THEME = (UI / "theme.py").read_text(encoding="utf-8")
 LAYOUT = (UI / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
+COMPONENTS = (UI / "components.py").read_text(encoding="utf-8")
+PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
 DESTRUCTIVE = (UI / "destructive_page_policy.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
 
-# Scientific-dashboard visual system and responsive behavior.
+# Scientific-dashboard visual system, accessibility and responsive behavior.
 for token in ["--petro-bg", "--petro-surface", "--petro-text", "--petro-accent", "--petro-success", "--petro-warning", "--petro-danger"]:
     assert token in THEME, token
+assert "--petro-text-muted: #596663" in THEME
 assert "focus-visible" in THEME
 assert "@media (max-width: 1100px)" in THEME
 assert "@media (max-width: 760px)" in THEME
 assert "overflow-x: auto" in THEME
 assert "max-width" in THEME
+assert "<h1 class=\"petrolab-page-title\">" in LAYOUT
+assert "<h2 class=\"petrolab-section-title\">" in LAYOUT
 assert "render_page_header" in LAYOUT and "render_badges" in LAYOUT
+
+# One global project context: sidebar owns selection; page-local selector is compatibility-only.
+for marker in ["ACTIVE_PROJECT_KEY", "def active_project(", "def active_project_id(", "def set_active_project("]:
+    assert marker in PROJECT_CONTEXT, marker
+assert "active_project_id" in NAVIGATION and "set_active_project" in NAVIGATION
+assert 'st.session_state.get("_sidebar_project_ready")' in COMPONENTS
+assert "Compatibility fallback for standalone page/AppTest" in COMPONENTS
+for page_name in ["home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "formulae.py", "plots_dashboard.py"]:
+    text = (PAGES / page_name).read_text(encoding="utf-8")
+    assert "project_context" in text, f"page still resolves project state independently: {page_name}"
+
+# First legacy/dashboard split is collapsed: import and home have one authoritative renderer.
+assert not (UI / "import_page_policy.py").exists()
+assert not (PAGES / "home.py").exists()
+assert not (PAGES / "sources.py").exists()
+assert "install_import_page_policy" not in APP
+sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
+for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
+    assert marker in sources_dashboard, marker
+assert "from petrolab.ui.pages import sources as legacy" not in sources_dashboard
 
 # Navigation is flat/grouped: no second-stage workspace selector.
 assert "render_sidebar" in APP
@@ -50,6 +75,13 @@ assert "st.columns([1.35, 1])" in images
 assert "confirm_delete_image_" in images
 plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 assert '"Быстрое построение"' in plots and '"Расширенный редактор"' in plots
+assert "FIGURE_PRESETS" in plots
+for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
+    assert marker in plots, f"Quick XY does not apply configured preset field: {marker}"
+assert 'f"{preset.title}' in plots
+home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
+assert "def _action(" not in home
+assert home.count('key=f"home_{route}"') == 1
 analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
 for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
     assert view in analyses

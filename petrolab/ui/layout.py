@@ -17,15 +17,15 @@ def render_page_header(
     eyebrow: str = "",
     context: str = "",
 ) -> None:
-    parts = ['<div class="petrolab-page-header">']
+    parts = ['<header class="petrolab-page-header">']
     if eyebrow:
         parts.append(f'<div class="petrolab-eyebrow">{_escape(eyebrow)}</div>')
-    parts.append(f'<div class="petrolab-page-title">{_escape(title)}</div>')
+    parts.append(f'<h1 class="petrolab-page-title">{_escape(title)}</h1>')
     if description:
         parts.append(f'<div class="petrolab-page-lead">{_escape(description)}</div>')
     if context:
         parts.append(f'<div class="petrolab-context-line">{_escape(context)}</div>')
-    parts.append("</div>")
+    parts.append("</header>")
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 
@@ -33,7 +33,7 @@ def render_section_header(title: str, note: str = "") -> None:
     note_html = f'<div class="petrolab-section-note">{_escape(note)}</div>' if note else ""
     st.markdown(
         '<div class="petrolab-section-header">'
-        f'<div class="petrolab-section-title">{_escape(title)}</div>'
+        f'<h2 class="petrolab-section-title">{_escape(title)}</h2>'
         f'{note_html}</div>',
         unsafe_allow_html=True,
     )

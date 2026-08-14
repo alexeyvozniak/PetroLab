@@ -57,6 +57,11 @@ def assert_no_exceptions(app, page: str) -> None:
         raise AssertionError(f"Streamlit page {page!r} raised exceptions:\n{details}")
 
 
+def assert_single_project_context(app, page: str) -> None:
+    duplicates = [widget for widget in app.selectbox if widget.label == "Текущий проект"]
+    assert not duplicates, f"Page {page!r} rendered a second project selector despite the sidebar context"
+
+
 def open_page(app, label: str) -> None:
     buttons = {button.label: button for button in app.sidebar.button}
     if label not in buttons:
@@ -64,6 +69,7 @@ def open_page(app, label: str) -> None:
     buttons[label].click()
     app.run(timeout=30)
     assert_no_exceptions(app, label)
+    assert_single_project_context(app, label)
 
 
 def _selectbox(app, label: str):
@@ -120,6 +126,7 @@ def main() -> None:
 
         app = AppTest.from_file("app.py", default_timeout=30).run(timeout=30)
         assert_no_exceptions(app, "Главная")
+        assert_single_project_context(app, "Главная")
         assert_recipe_delete_requires_second_click(app)
         pages = [
             "Главная", "Импорт", "База анализов", "Расчёты",

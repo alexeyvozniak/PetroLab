@@ -5,40 +5,37 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_projects
 from petrolab.services.image_service import related_images_for_row
-
-
-_ACTIVE_PROJECT_KEY = "active_project_id"
+from petrolab.ui.project_context import ACTIVE_PROJECT_KEY, active_project, set_active_project
 
 
 def _sync_active_project(widget_key: str) -> None:
     value = st.session_state.get(widget_key)
     if value is not None:
-        st.session_state[_ACTIVE_PROJECT_KEY] = int(value)
+        set_active_project(int(value))
 
 
 def render_project_selector(key: str = "project_select") -> dict | None:
-    """Render one page-local widget backed by a global active-project context."""
-    projects = list_projects()
-    if not projects:
+    """Return the global project context; render a selector only outside the normal app shell."""
+    project = active_project()
+    if project is None:
         st.info("Создайте первый проект.")
         return None
 
-    by_id = {int(project["id"]): project for project in projects}
+    if st.session_state.get("_sidebar_project_ready"):
+        return project
+
+    # Compatibility fallback for standalone page/AppTest rendering without the sidebar shell.
+    from petrolab.db import list_projects
+
+    projects = list_projects()
+    by_id = {int(item["id"]): item for item in projects}
     ids = list(by_id)
-    active = st.session_state.get(_ACTIVE_PROJECT_KEY)
-    try:
-        active_id = int(active)
-    except (TypeError, ValueError):
-        active_id = ids[0]
+    active_id = int(st.session_state.get(ACTIVE_PROJECT_KEY, int(project["id"])))
     if active_id not in by_id:
         active_id = ids[0]
-    st.session_state[_ACTIVE_PROJECT_KEY] = active_id
-
     if st.session_state.get(key) != active_id:
         st.session_state[key] = active_id
-
     selected_id = st.selectbox(
         "Текущий проект",
         ids,
@@ -47,9 +44,8 @@ def render_project_selector(key: str = "project_select") -> dict | None:
         on_change=_sync_active_project,
         args=(key,),
     )
-    selected_id = int(selected_id)
-    st.session_state[_ACTIVE_PROJECT_KEY] = selected_id
-    return by_id[selected_id]
+    set_active_project(int(selected_id))
+    return by_id[int(selected_id)]
 
 
 def collect_related_images(selected_row: pd.Series, project_id: int | None = None) -> list[dict]:

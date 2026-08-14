@@ -3,29 +3,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_datasets, list_projects
+from petrolab.db import list_datasets
 from petrolab.derived import formula_status
 from petrolab.minerals.registry import labels as mineral_labels
 from petrolab.repositories.image_repository import list_image_records
 from petrolab.services.rock_service import rock_summary
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
-
-
-def _project() -> dict | None:
-    projects = list_projects()
-    if not projects:
-        return None
-    by_id = {int(row["id"]): row for row in projects}
-    ids = list(by_id)
-    try:
-        project_id = int(st.session_state.get("active_project_id", ids[0]))
-    except (TypeError, ValueError):
-        project_id = ids[0]
-    if project_id not in by_id:
-        project_id = ids[0]
-    st.session_state["active_project_id"] = project_id
-    return by_id[project_id]
+from petrolab.ui.project_context import active_project
 
 
 def _go(route: str) -> None:
@@ -33,13 +18,8 @@ def _go(route: str) -> None:
     st.rerun()
 
 
-def _action(column, label: str, route: str, primary: bool = False) -> None:
-    if column.button(label, type="primary" if primary else "secondary", width="stretch"):
-        _go(route)
-
-
 def render_home_dashboard_page() -> None:
-    project = _project()
+    project = active_project()
     if project is None:
         render_page_header("ПетроЛаб", "Локальное научное рабочее пространство.", eyebrow="Научный дашборд")
         st.info("Создайте первый проект, затем импортируйте Excel или CSV.")
@@ -60,10 +40,25 @@ def render_home_dashboard_page() -> None:
         context=context,
     )
 
-    a, b, c = st.columns(3)
-    _action(a, "Импортировать данные", "sources", True)
-    _action(b, "Открыть базу анализов", "analyses")
-    _action(c, "Построить XY-диаграмму", "plots")
+    render_section_header("Продолжить работу", "Основной научный цикл")
+    labels = [
+        ("01 · Импорт", "Excel / CSV и обновление источников", "sources"),
+        ("02 · Расчёты", "APFU и end-members", "formulae"),
+        ("03 · Исследование", "XY, ternary, REE и статистика", "plots"),
+        ("04 · Публикация", "Таблицы и экспорт", "article_tables"),
+    ]
+    cols = st.columns(4)
+    for index, (col, (title, note, route)) in enumerate(zip(cols, labels)):
+        with col:
+            st.markdown(f"**{title}**")
+            st.caption(note)
+            if st.button(
+                "Открыть",
+                key=f"home_{route}",
+                type="primary" if index == 0 else "secondary",
+                width="stretch",
+            ):
+                _go(route)
 
     render_section_header("Состояние проекта")
     m1, m2, m3, m4 = st.columns(4)
@@ -76,21 +71,6 @@ def render_home_dashboard_page() -> None:
         (f"{len(rock_summary(project_id))} пород", "neutral"),
         ("Расчёты актуальны" if stale == 0 else "Есть устаревшие расчёты", "success" if stale == 0 else "warning"),
     ])
-
-    render_section_header("Продолжить работу", "Основной научный цикл")
-    labels = [
-        ("01 · Импорт", "Excel / CSV и обновление источников", "sources"),
-        ("02 · Расчёты", "APFU и end-members", "formulae"),
-        ("03 · Исследование", "XY, ternary, REE и статистика", "plots"),
-        ("04 · Публикация", "Таблицы и экспорт", "article_tables"),
-    ]
-    cols = st.columns(4)
-    for col, (title, note, route) in zip(cols, labels):
-        with col:
-            st.markdown(f"**{title}**")
-            st.caption(note)
-            if st.button("Открыть", key=f"home_{route}", width="stretch"):
-                _go(route)
 
     render_section_header("Последние наборы", "Активный проект")
     if not datasets:
