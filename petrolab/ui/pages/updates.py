@@ -14,6 +14,10 @@ def render_updates_page() -> None:
         eyebrow="Система",
     )
     render_badges([(f"Установлена v{__version__}", "accent")])
+    st.info(
+        "Чтобы обновить локальную копию без командной строки, закройте ПетроЛаб и дважды щёлкните "
+        "`UPDATE_PETROLAB.bat` в папке программы. Скрипт не затрагивает вашу базу, Excel и изображения."
+    )
     for index, release in enumerate(RELEASE_NOTES):
         with st.expander(f"v{release.version} · {release.title}", expanded=index == 0):
             for item in release.items:
