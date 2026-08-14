@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import gc
 import json
 import math
 import os
 import tempfile
+import time
 from pathlib import Path
 
 # PETROLAB_DATA_DIR must be fixed before importing the package because the database path
@@ -38,6 +40,24 @@ from petrolab.services.formula_service import FE2O3T_TO_FEOT, calculate_formula_
 def near(a, b, tol=1e-8):
     assert math.isfinite(float(a))
     assert abs(float(a) - float(b)) <= tol, (a, b)
+
+
+def cleanup_tempdir() -> None:
+    """Release delayed SQLite/Pandas objects before removing the Windows temp database.
+
+    The retry is deliberately bounded: a genuinely leaked connection must still fail CI.
+    """
+    last_error: PermissionError | None = None
+    for attempt in range(5):
+        gc.collect()
+        try:
+            _TMP.cleanup()
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.1 * (attempt + 1))
+    assert last_error is not None
+    raise last_error
 
 
 ensure_storage()
@@ -190,5 +210,5 @@ unchanged = refreshed[refreshed["_analysis_id"].astype(str) != first_id].iloc[0]
 assert pd.isna(changed["apfu_AlIV"])
 assert pd.notna(unchanged["apfu_AlIV"])
 
-_TMP.cleanup()
+cleanup_tempdir()
 print("new feature integration tests: OK")
