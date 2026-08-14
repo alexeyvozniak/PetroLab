@@ -9,11 +9,6 @@ on:
       - "tests_installer_contract.py"
   push:
     branches: [main]
-    paths:
-      - "installer/**"
-      - ".github/workflows/windows-installer.yml"
-      - "requirements.txt"
-      - "tests_installer_contract.py"
   workflow_dispatch:
 
 permissions:
@@ -22,7 +17,7 @@ permissions:
 jobs:
   build-installer:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -178,13 +173,13 @@ jobs:
               }
           }
 
-          $headers = @{ "User-Agent" = "PetroLab-Installer-CI"; "Accept" = "application/vnd.github+json" }
-          $remoteSha = [string](Invoke-RestMethod -Uri "https://api.github.com/repos/alexeyvozniak/PetroLab/commits/main" -Headers $headers).sha
-          if ([string]::IsNullOrWhiteSpace($remoteSha)) { throw "Could not resolve main SHA for updater smoke." }
-          Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value $remoteSha -NoNewline -Encoding ASCII
-
+          # Exercise the installed updater with Windows PowerShell 5.1 without changing
+          # the public verified channel while this commit is still a pull request.
+          $env:PETROLAB_UPDATE_TARGET_SHA = $env:GITHUB_SHA
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -NoLaunch
-          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell 5.1 updater smoke failed with exit code $LASTEXITCODE." }
+          $updaterExit = $LASTEXITCODE
+          Remove-Item Env:PETROLAB_UPDATE_TARGET_SHA -ErrorAction SilentlyContinue
+          if ($updaterExit -ne 0) { throw "Windows PowerShell 5.1 updater smoke failed with exit code $updaterExit." }
 
           $uninstaller = Join-Path $installRoot "unins000.exe"
           if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
@@ -207,6 +202,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Wait for full Windows verification
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $deadline = (Get-Date).AddMinutes(18)
+          while ((Get-Date) -lt $deadline) {
+              $json = gh run list --workflow "Windows verification" --commit $env:GITHUB_SHA --limit 10 --json status,conclusion,databaseId
+              if ($LASTEXITCODE -ne 0) { throw "Could not query Windows verification status." }
+              $runs = $json | ConvertFrom-Json
+              $run = $runs | Select-Object -First 1
+              if ($run -and $run.status -eq "completed") {
+                  if ($run.conclusion -ne "success") {
+                      throw "Full Windows verification did not pass: $($run.conclusion)."
+                  }
+                  Write-Host "Full Windows verification passed (run $($run.databaseId))."
+                  exit 0
+              }
+              Start-Sleep -Seconds 10
+          }
+          throw "Timed out waiting for full Windows verification of $env:GITHUB_SHA."
+
       - name: Publish rolling Windows installer
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
@@ -221,6 +240,6 @@ jobs:
 
           gh release view windows-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $env:GITHUB_SHA --notes "Rolling Windows installer for the current tested PetroLab build. Scientific user data are stored outside the application directory and are preserved by uninstall/update."
+            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $env:GITHUB_SHA --notes "Rolling Windows installer for the current fully verified PetroLab build. Scientific user data are stored outside the application directory and are preserved by uninstall/update."
           }
           gh release upload windows-latest dist\PetroLab-Setup-x64.exe dist\PetroLab-Setup-x64.sha256 --clobber
