@@ -22,6 +22,10 @@ from petrolab.workflow_screening import (
     attach_chemical_outlier_screen,
 )
 
+_MAJOR_PHASE_COLUMNS = {
+    "SiO2", "TiO2", "Al2O3", "FeO", "FeOt", "Fe2O3", "MgO", "CaO", "Na2O", "K2O", "P2O5",
+}
+
 
 def _jump(route: str) -> None:
     navigate(route)
@@ -58,12 +62,13 @@ def _summary_table(review: pd.DataFrame) -> pd.DataFrame:
 
 
 def _recent_split_actions(project_id: int) -> None:
-    recent = [int(value) for value in st.session_state.get("workflow_recent_split_dataset_ids", [])]
+    recent = [int(value) for value in st.session_state.pop("workflow_recent_split_dataset_ids", [])]
     datasets = {int(item["id"]): item for item in list_accessible_datasets(project_id)}
     recent = [dataset_id for dataset_id in recent if dataset_id in datasets]
     if not recent:
         return
-    st.success(f"Разбиение сохранено. Создано фазовых наборов: {len(recent)}.")
+    st.session_state["workflow_focus_dataset_id"] = recent[0]
+    st.success(f"Разбиение сохранено. Фазовых наборов в этом действии: {len(recent)}.")
     st.caption("Неразобранные, спорные и неподтверждённые точки остались в исходном наборе «Неразобранные / mixed».")
     choices = {int(dataset_id): datasets[int(dataset_id)] for dataset_id in recent}
     formula_candidates = [dataset_id for dataset_id, item in choices.items() if recommended_method(str(item["mineral_key"]))]
@@ -81,8 +86,25 @@ def _recent_split_actions(project_id: int) -> None:
         st.session_state["workflow_plot_dataset_ids"] = recent
         st.session_state.pop("quick_plot_datasets", None)
         _jump("plots")
-    if st.button("Образцы и аналитические сессии", width="stretch"):
+    if st.button("Продолжить в рабочем процессе", width="stretch"):
+        _jump("workflow")
+
+
+def _trace_only_hint(frame: pd.DataFrame) -> None:
+    measured = sorted(_MAJOR_PHASE_COLUMNS.intersection(frame.columns))
+    if len(measured) >= 3:
+        return
+    st.warning(
+        "В этом наборе мало major-element колонок для честного химического распознавания фазы. Это похоже на LA-ICP-MS / trace-only данные: минерал лучше наследовать через Sample, зерно, физическую точку/кратер или назначить вручную, а не угадывать по микроэлементам."
+    )
+    st.caption("Ниже ручное назначение остаётся доступным; автоматические предложения с низкой информативностью можно просто оставить пустыми.")
+    c1, c2, c3 = st.columns(3)
+    if c1.button("Sample и сессии", key="trace_to_sessions", width="stretch"):
         _jump("sessions")
+    if c2.button("Точки и LA-кратеры", key="trace_to_measurements", width="stretch"):
+        _jump("measurements")
+    if c3.button("Шлиф / физическая точка", key="trace_to_slides", width="stretch"):
+        _jump("slides")
 
 
 def render_mixed_minerals_page() -> None:
@@ -122,6 +144,7 @@ def render_mixed_minerals_page() -> None:
         st.info("В наборе нет точек.")
         return
 
+    _trace_only_hint(frame)
     suggested = attach_phase_suggestions(frame)
     screened = attach_chemical_outlier_screen(suggested, group_column=SUGGESTED_MINERAL_COLUMN)
     screened["Статус разбора"] = screened.apply(_review_status, axis=1)
@@ -224,7 +247,7 @@ def render_mixed_minerals_page() -> None:
     selected_phases = sorted(set(assignments.values()), key=str.casefold)
     if selected_phases:
         st.caption(
-            "Будут созданы: " + "; ".join(
+            "Будут использованы: " + "; ".join(
                 f"{phase} → модуль {mineral_key_for_phase(phase)}" for phase in selected_phases
             )
         )
@@ -249,7 +272,10 @@ def render_mixed_minerals_page() -> None:
         except Exception as exc:
             st.error(f"Разбиение остановлено: {exc}")
         else:
-            st.session_state["workflow_recent_split_dataset_ids"] = list(created.values())
+            recent = list(dict.fromkeys(int(value) for value in created.values()))
+            st.session_state["workflow_recent_split_dataset_ids"] = recent
+            if recent:
+                st.session_state["workflow_focus_dataset_id"] = recent[0]
             st.session_state["workflow_recent_mixed_dataset_id"] = int(dataset_id)
             st.success("Разбиение завершено без дублирования analysis_id. Неразобранные точки сохранены отдельно.")
             st.rerun()
