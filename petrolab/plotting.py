@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from petrolab.group_envelopes import compute_group_envelope
+from petrolab.group_styles import default_group_color, display_group_series
 
 MARKERS = ["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*", "p", "8"]
 
@@ -18,7 +19,7 @@ def _resolve_style(group_name, idx: int, style_map: dict | None, monochrome: boo
     size_multiplier = float(raw.get("size_multiplier", 1.0) or 1.0)
     alpha = float(raw.get("alpha", 0.9) or 0.9)
     filled = bool(raw.get("filled", True))
-    base_color = raw.get("color") or "black"
+    base_color = raw.get("color") or default_group_color(idx)
     outline = str(raw.get("outline_color", "black") or "black")
     outline_width = float(raw.get("outline_width", 1.0) or 0.0)
     if monochrome:
@@ -101,11 +102,7 @@ def _draw_group_field(ax, part: pd.DataFrame, x: str, y: str, name, stl: dict) -
         polygons = [manual]
     else:
         try:
-            result = compute_group_envelope(
-                part, x, y,
-                method=stl["envelope_method"],
-                level=stl["envelope_level"],
-            )
+            result = compute_group_envelope(part, x, y, method=stl["envelope_method"], level=stl["envelope_level"])
         except ValueError:
             return
         polygons = result.polygons
@@ -113,14 +110,12 @@ def _draw_group_field(ax, part: pd.DataFrame, x: str, y: str, name, stl: dict) -
     for polygon in polygons:
         if stl["envelope_fill"]:
             ax.fill(
-                polygon[:, 0], polygon[:, 1],
-                facecolor=stl["field_fill_color"], edgecolor="none",
+                polygon[:, 0], polygon[:, 1], facecolor=stl["field_fill_color"], edgecolor="none",
                 alpha=stl["envelope_alpha"], zorder=1,
             )
         if stl["envelope_line_width"] > 0:
             ax.plot(
-                polygon[:, 0], polygon[:, 1],
-                color=stl["field_line_color"], linewidth=stl["envelope_line_width"],
+                polygon[:, 0], polygon[:, 1], color=stl["field_line_color"], linewidth=stl["envelope_line_width"],
                 linestyle=_mpl_linestyle(stl["envelope_line_dash"]), zorder=2,
             )
 
@@ -162,7 +157,8 @@ def build_scatter(
     }):
         fig, ax = plt.subplots(figsize=figure_size, constrained_layout=True)
         if group and group in df.columns:
-            grouped = list(df.groupby(group, dropna=False, sort=False))
+            labels = display_group_series(df[group])
+            grouped = [(name, df[labels == name]) for name in labels.unique().tolist()]
             for i, (name, part) in enumerate(grouped):
                 stl = _resolve_style(name, i, style_map, monochrome=monochrome)
                 _draw_group_field(ax, part, x, y, name, stl)
