@@ -1,0 +1,51 @@
+name: External mineral recognition validation
+
+on:
+  push:
+    branches: ["feature/mineral-recognition-v1"]
+  workflow_dispatch:
+
+jobs:
+  georoc-holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check requests
+
+      - name: Build deterministic GEOROC holdout
+        run: |
+          python scripts/build_georoc_mineral_validation.py \
+            --output validation/mineral_recognition/georoc_holdout.csv \
+            --per-family 400 \
+            --seed 20260814
+
+      - name: Build confusion matrix and metrics
+        run: |
+          python scripts/validate_georoc_mineral_recognition.py \
+            validation/mineral_recognition/georoc_holdout.csv \
+            --output-dir validation/mineral_recognition/report \
+            --minimum-rows 3000
+
+      - name: Upload validation corpus, manifest and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mineral-recognition-georoc-validation
+          path: |
+            validation/mineral_recognition/georoc_holdout.csv
+            validation/mineral_recognition/georoc_holdout.manifest.json
+            validation/mineral_recognition/report
+          if-no-files-found: warn
