@@ -3,7 +3,9 @@ from __future__ import annotations
 import streamlit as st
 
 from petrolab.db import list_accessible_datasets, list_projects
+from petrolab.settings_service import load_settings
 from petrolab.ui.project_context import active_project_id, set_active_project
+from petrolab.update_checker import available_update
 
 
 NAV_SECTIONS = {
@@ -36,6 +38,25 @@ def navigate(route: str) -> None:
         st.session_state["nav_route"] = route
 
 
+@st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
+def _available_update(installed_version: str) -> str | None:
+    return available_update(installed_version)
+
+
+def _render_update_notice(installed_version: str) -> None:
+    if not bool(load_settings().get("check_updates_automatically", True)):
+        return
+    remote_version = _available_update(installed_version)
+    if remote_version is None:
+        return
+    st.divider()
+    st.warning(f"Доступна новая версия v{remote_version}")
+    st.caption("Закройте программу и дважды щёлкните UPDATE_PETROLAB.bat. Ваши данные не изменятся.")
+    if st.button("Как обновить", key="sidebar_open_updates", width="stretch"):
+        navigate("updates")
+        st.rerun()
+
+
 def render_sidebar(version: str) -> str:
     st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
@@ -62,6 +83,8 @@ def render_sidebar(version: str) -> str:
     else:
         st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
+
+    _render_update_notice(version)
 
     current = str(st.session_state.get("nav_route", "home"))
     if current not in ROUTE_LABELS:
