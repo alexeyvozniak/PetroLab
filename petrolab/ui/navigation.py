@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from petrolab.db import list_datasets, list_projects
+from petrolab.ui.project_context import active_project_id, set_active_project
 
 
 NAV_SECTIONS = {
@@ -29,12 +30,8 @@ def render_sidebar(version: str) -> str:
     if projects:
         by_id = {int(row["id"]): row for row in projects}
         ids = list(by_id)
-        try:
-            active_id = int(st.session_state.get("active_project_id", ids[0]))
-        except (TypeError, ValueError):
-            active_id = ids[0]
-        if active_id not in by_id:
-            active_id = ids[0]
+        current_id = active_project_id()
+        active_id = current_id if current_id in by_id else ids[0]
         if st.session_state.get("sidebar_project") != active_id:
             st.session_state["sidebar_project"] = active_id
         selected = st.selectbox(
@@ -42,7 +39,7 @@ def render_sidebar(version: str) -> str:
             format_func=lambda value: str(by_id[int(value)]["name"]),
             key="sidebar_project", label_visibility="collapsed",
         )
-        st.session_state["active_project_id"] = int(selected)
+        set_active_project(int(selected))
         datasets = list_datasets(int(selected))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
