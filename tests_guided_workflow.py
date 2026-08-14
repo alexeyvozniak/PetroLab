@@ -14,6 +14,7 @@ from petrolab.analytical_sessions import attach_datasets, create_session
 from petrolab.phase_suggestions import materialize_confirmed_phases, mineral_key_for_phase
 from petrolab.repositories.image_repository import create_image_record, list_image_records
 from petrolab.sample_registry import create_sample
+from petrolab.services.image_relink_service import relink_image_asset
 from petrolab.storage import ensure_storage
 from petrolab.workflow_screening import OUTLIER_COLUMN, attach_chemical_outlier_screen
 
@@ -142,6 +143,12 @@ class GuidedWorkflowTests(unittest.TestCase):
             child_images = list_image_records(dataset_id=child_id)
             self.assertEqual([int(item["id"]) for item in child_images], [workspace.asset_id])
             self.assertEqual(child_images[0]["analysis_ids"], ["a1"])
+
+            # The image remains editable after its point moved out of the original raw dataset.
+            relink_image_asset(workspace.asset_id, ["a1", "a2"])
+            relinked = list_image_records(project_id=workspace.project_id)
+            asset = next(item for item in relinked if int(item["id"]) == workspace.asset_id)
+            self.assertEqual(asset["analysis_ids"], ["a1", "a2"])
 
             # Resolve the last mixed point into the same phase on a later review pass.
             repeated = materialize_confirmed_phases(10, {"a2": "trioctahedral mica"})
