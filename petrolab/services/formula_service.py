@@ -139,6 +139,17 @@ def _restore_missing_semantics(result: pd.DataFrame, original: pd.DataFrame, min
         if halogen in original.columns and output in out.columns:
             out.loc[~_presence(original, halogen), output] = np.nan
 
+    halogen_hole = pd.Series(False, index=original.index, dtype=bool)
+    for halogen in ("F", "Cl"):
+        if halogen in original.columns:
+            halogen_hole |= ~_presence(original, halogen)
+    if halogen_hole.any():
+        for dependent in ("apfu_OH_max", "apfu_OH_est"):
+            if dependent in out.columns:
+                out.loc[halogen_hole, dependent] = np.nan
+        if "QC_Z_site" in out.columns:
+            out.loc[halogen_hole, "QC_Z_site"] = "не рассчитано: пропуск F/Cl"
+
     status = pd.Series("полный набор в представленных колонках", index=original.index, dtype="string")
     missing_text = pd.Series("", index=original.index, dtype="string")
     for index, columns in missing.items():
