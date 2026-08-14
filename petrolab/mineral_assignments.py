@@ -105,6 +105,9 @@ def assign_mineral(
 
     clean_reason = str(reason or "").strip()
     with connect() as con:
+        # A formula is valid only in the mineral context for which it was calculated.
+        # Keep historical result payloads, but force a new active APFU choice after reclassification.
+        con.execute("DELETE FROM analysis_formula_state WHERE analysis_id=?", (str(analysis_id),))
         if requested == dataset_key:
             con.execute("DELETE FROM analysis_mineral_assignments WHERE analysis_id=?", (str(analysis_id),))
         else:
