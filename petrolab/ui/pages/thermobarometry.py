@@ -5,6 +5,7 @@ import io
 import pandas as pd
 import streamlit as st
 
+from petrolab.advisory_policy import ADVISORY_POLICY_ID
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
@@ -193,7 +194,7 @@ def render_thermobarometry_page() -> None:
                     "applicability_confirmation": bool(confirmed),
                     "fe_policy": "FeOt only; no implicit Fe3+/Fe2+ reconstruction",
                     "qc_gate": "Cation sum (6 O) 3.99–4.02",
-                    "advisory_policy": "расчёт сохранён независимо от предупреждений о применимости",
+                    "advisory_policy": ADVISORY_POLICY_ID,
                 },
             )
         except Exception as exc:
