@@ -161,7 +161,8 @@ def preview_linked_source(
     source = validate_source_path(path)
     dataframe, column_map, _ = read_tabular_path(source, sheet_name or None, int(header_row))
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
-    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, _ = _attach_detected_method(mapped, mapped_column_map)
     return _calculate_mineral(mapped, mineral_key)
 
 
@@ -176,8 +177,37 @@ def preview_uploaded_source(
 ) -> pd.DataFrame:
     dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
-    mapped, _, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, _ = _attach_detected_method(mapped, mapped_column_map)
     return _calculate_mineral(mapped, mineral_key)
+
+
+def _attach_detected_method(dataframe: pd.DataFrame, column_map: dict) -> tuple[pd.DataFrame, dict]:
+    """Make WDS/EDS provenance filterable without guessing for ordinary tables."""
+    if "Method" in dataframe.columns or "Метод" in dataframe.columns:
+        return dataframe, column_map
+    adapter = str(column_map.get("__schema__", {}).get("adapter") or "")
+    method = ""
+    if adapter == "eds_multiblock":
+        method = "SEM-EDS"
+    elif any(bool(info.get("wds_protocol")) for info in column_map.values() if isinstance(info, dict)):
+        method = "EPMA-WDS"
+    if not method:
+        return dataframe, column_map
+    result = dataframe.copy()
+    result["Method"] = method
+    updated = dict(column_map)
+    updated["Method"] = {
+        "original": "Автоматически определено по формату протокола",
+        "column_index": None,
+        "quantity_kind": "identifier",
+        "source_unit": "",
+        "canonical_unit": "",
+        "to_canonical_factor": 1.0,
+        "to_source_factor": 1.0,
+        "warning": f"Метод автоматически распознан как {method}.",
+    }
+    return result, updated
 
 
 def _prepare_sheet(
@@ -197,6 +227,7 @@ def _prepare_sheet(
         mapped, mapped_column_map, _ = apply_measurement_overrides(
             mapped, mapped_column_map, measurement_map
         )
+        mapped, mapped_column_map = _attach_detected_method(mapped, mapped_column_map)
         calculated = _calculate_mineral(mapped, mineral_key)
     except Exception as exc:
         label = sheet_name or "CSV/активный лист"
@@ -427,6 +458,7 @@ def refresh_dataset_from_source(dataset_id: int) -> RefreshResult:
     mapped, mapped_column_map, _ = apply_measurement_overrides(
         mapped, mapped_column_map, measurement_map
     )
+    mapped, mapped_column_map = _attach_detected_method(mapped, mapped_column_map)
     calculated = _calculate_mineral(mapped, dataset.get("mineral_key") or "generic")
     persistence: RefreshPersistenceResult = replace_dataset_rows_stable(
         int(dataset_id), calculated, source_rows

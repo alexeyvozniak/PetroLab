@@ -4,7 +4,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_column_filters, apply_quick_filter, dataset_label
-from petrolab.db import list_datasets, list_plot_recipes
+from petrolab.db import list_accessible_datasets, list_datasets, list_plot_recipes
 from petrolab.derived import load_unified_with_derived
 from petrolab.minerals.registry import MINERALS
 from petrolab.ui.components import render_project_selector
@@ -26,7 +26,7 @@ def render_ternary_page() -> None:
             return
         project_id = int(project["id"])
 
-    datasets = list_datasets(project_id)
+    datasets = list_datasets(None) if scope == "Все проекты" else list_accessible_datasets(int(project_id))
     if not datasets:
         st.info("Нет данных для построения ternary-диаграммы.")
         return

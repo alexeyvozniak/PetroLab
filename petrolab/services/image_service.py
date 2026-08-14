@@ -10,7 +10,7 @@ from uuid import uuid4
 import pandas as pd
 from PIL import Image, UnidentifiedImageError
 
-from petrolab.db import ASSETS_DIR, get_analysis_record, get_dataset, load_dataset_dataframe
+from petrolab.db import ASSETS_DIR, dataset_is_accessible, get_analysis_record, get_dataset, load_dataset_dataframe
 from petrolab.repositories.image_repository import (
     create_image_record,
     delete_image_record,
@@ -194,8 +194,8 @@ def related_images_for_row(selected_row: pd.Series, project_id: int | None = Non
 
 def _validate_dataset(project_id: int, dataset_id: int) -> dict:
     dataset = get_dataset(int(dataset_id))
-    if int(dataset["project_id"]) != int(project_id):
-        raise ValueError("Набор данных не принадлежит выбранному проекту")
+    if not dataset_is_accessible(int(project_id), int(dataset_id)):
+        raise ValueError("Набор данных не добавлен в рабочий контекст выбранного проекта")
     return dataset
 
 

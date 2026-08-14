@@ -133,7 +133,7 @@ assert "PAGE_GROUPS" not in APP
 assert "Рабочая область" not in APP
 for label in ["Данные", "Исследование", "Материалы", "Публикация", "Система"]:
     assert label in NAVIGATION
-for label in ["Главная", "Импорт", "База анализов", "Расчёты", "XY-диаграммы", "Изображения", "История правок данных"]:
+for label in ["Главная", "Новые анализы", "База анализов", "Расчёты", "XY-диаграммы", "Изображения", "История правок данных"]:
     assert label in NAVIGATION
 
 # High-value dashboard pages use the shared visual hierarchy.

@@ -175,18 +175,22 @@ def _validate_reference_project(con, project_id: int, *, entity_id=None, analysi
         if not row or int(row["project_id"]) != int(project_id):
             raise ValueError("Сущность не относится к этому проекту")
     if dataset_id is not None:
-        row = con.execute("SELECT project_id FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
-        if not row or int(row["project_id"]) != int(project_id):
-            raise ValueError("Dataset не относится к этому проекту")
+        row = con.execute(
+            "SELECT 1 FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(project_id), int(dataset_id)),
+        ).fetchone()
+        if not row:
+            raise ValueError("Dataset не добавлен в рабочий контекст этого проекта")
     if analysis_id is not None:
         row = con.execute(
-            """SELECT d.project_id, a.dataset_id
-               FROM analysis_rows a JOIN datasets d ON d.id=a.dataset_id
-               WHERE a.analysis_id=?""",
-            (str(analysis_id),),
+            """SELECT a.dataset_id
+               FROM analysis_rows a
+               JOIN project_dataset_links l ON l.dataset_id=a.dataset_id
+               WHERE a.analysis_id=? AND l.project_id=?""",
+            (str(analysis_id), int(project_id)),
         ).fetchone()
-        if not row or int(row["project_id"]) != int(project_id):
-            raise ValueError("Анализ не относится к этому проекту")
+        if not row:
+            raise ValueError("Анализ не добавлен в рабочий контекст этого проекта")
         if dataset_id is not None and int(row["dataset_id"]) != int(dataset_id):
             raise ValueError("analysis_id не принадлежит указанному dataset")
     if session_id is not None:

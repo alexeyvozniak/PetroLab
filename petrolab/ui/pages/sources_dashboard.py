@@ -7,7 +7,12 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.column_schema import CANONICAL_ROLES
-from petrolab.db import get_or_create_library_project, list_datasets
+from petrolab.db import (
+    get_or_create_library_project,
+    link_dataset_to_project,
+    list_accessible_datasets,
+    list_datasets,
+)
 from petrolab.io_utils import sha256_file
 from petrolab.minerals.registry import MINERALS
 from petrolab.formula_workflow import recommended_method
@@ -47,35 +52,31 @@ FE_OPTIONS = {
 }
 
 
-def _continue_after_import(dataset_ids: list[int], target_project_id: int) -> None:
-    """Persist the next-step prompt across Streamlit's import rerun."""
+def _continue_after_import(dataset_ids: list[int], project_id: int) -> None:
+    """Attach fresh global data to this project and persist the next-step prompt."""
+    for dataset_id in dataset_ids:
+        link_dataset_to_project(
+            int(project_id), int(dataset_id),
+            "Добавлено при импорте в рабочий проект", purpose="working",
+        )
     st.session_state["workflow_recent_dataset_ids"] = [int(value) for value in dataset_ids]
-    st.session_state["workflow_recent_import_target"] = int(target_project_id)
+    st.session_state["workflow_recent_import_target"] = int(project_id)
     st.rerun()
 
 
 def _import_target(active_project_id: int, key: str) -> int:
-    target = st.segmented_control(
-        "Куда сохранить набор",
-        ["Текущий проект", "Общая библиотека"],
-        default="Текущий проект",
-        key=key,
+    """All raw imports are global; the active project receives a reference after save."""
+    del active_project_id, key
+    st.caption(
+        "Будет создан новый набор в **Общей базе** и сразу добавлен в текущий проект. "
+        "Проект хранит подборку, графики и интерпретации, а не дубликат химии."
     )
-    if target == "Общая библиотека":
-        st.caption("Набор будет долгосрочно храниться в общей базе. Позже его можно подключить к любой статье без копирования.")
-        return get_or_create_library_project()
-    return int(active_project_id)
+    return get_or_create_library_project()
 
 
 def _render_import_continue(project_id: int) -> None:
     dataset_ids = [int(value) for value in st.session_state.get("workflow_recent_dataset_ids", [])]
-    target_project_id = int(st.session_state.get("workflow_recent_import_target", project_id))
-    if dataset_ids and target_project_id != int(project_id):
-        st.success(f"Наборов сохранено в Общую библиотеку: {len(dataset_ids)}. Подключите их к проекту в «Вся база». ")
-        st.session_state.pop("workflow_recent_dataset_ids", None)
-        st.session_state.pop("workflow_recent_import_target", None)
-        return
-    datasets = {int(item["id"]): item for item in list_datasets(project_id)}
+    datasets = {int(item["id"]): item for item in list_accessible_datasets(project_id)}
     dataset_ids = [value for value in dataset_ids if value in datasets]
     if not dataset_ids:
         return
@@ -238,6 +239,31 @@ def _schema_mapping(
     return semantic_maps, measurement_maps, ready
 
 
+def _render_normalized_previews(
+    selected: list[str],
+    previewer: Callable[[str], pd.DataFrame],
+) -> bool:
+    """Show the actual future rows for every selected sheet before any write."""
+    if not selected:
+        return True
+    st.subheader("Предпросмотр перед сохранением")
+    ready = True
+    for index, sheet in enumerate(selected):
+        label = sheet or "CSV"
+        try:
+            dataframe = previewer(sheet)
+            with st.expander(f"{label} · будет создан новый набор", expanded=index == 0):
+                st.caption(
+                    f"После нормализации будет сохранено строк: {len(dataframe)}. "
+                    "Добавление в уже существующий набор сейчас не выполняется: это защищает от случайного смешивания точек."
+                )
+                st.dataframe(dataframe.head(50), width="stretch", hide_index=True)
+        except Exception as exc:
+            st.error(f"{label}: не удалось построить предпросмотр — {exc}")
+            ready = False
+    return ready
+
+
 def _render_linked_import(project_id: int) -> None:
     st.subheader("Связать локальный файл")
     path_text = st.text_input("Полный путь к Excel/CSV", key="local_source_path")
@@ -275,17 +301,13 @@ def _render_linked_import(project_id: int) -> None:
     )
 
     if selected and ready:
-        try:
-            sheet = selected[0]
-            preview = preview_linked_source(
+        ready = _render_normalized_previews(
+            selected,
+            lambda sheet: preview_linked_source(
                 source_path, sheet, headers[sheet], minerals[sheet],
                 semantic.get(sheet, {}), measurement.get(sheet, {}),
-            )
-            st.subheader("Предпросмотр после нормализации")
-            st.dataframe(preview.head(50), width="stretch", hide_index=True)
-        except Exception as exc:
-            st.error(f"Не удалось построить предпросмотр: {exc}")
-            ready = False
+            ),
+        )
 
     if st.button("Связать и импортировать", type="primary", key="link_local", disabled=not selected or not ready):
         try:
@@ -295,7 +317,7 @@ def _render_linked_import(project_id: int) -> None:
                 semantic_maps=semantic, measurement_maps=measurement,
                 header_rows=headers, mineral_keys=minerals,
             )
-            _continue_after_import(list(result.dataset_ids), target_project_id)
+            _continue_after_import(list(result.dataset_ids), project_id)
         except Exception as exc:
             st.error(f"Не удалось импортировать источник: {exc}")
 
@@ -329,17 +351,13 @@ def _render_uploaded_import(project_id: int) -> None:
         "upload", headers,
     )
     if selected and ready:
-        try:
-            sheet = selected[0]
-            preview = preview_uploaded_source(
+        ready = _render_normalized_previews(
+            selected,
+            lambda sheet: preview_uploaded_source(
                 data, uploaded.name, sheet, headers[sheet], minerals[sheet],
                 semantic.get(sheet, {}), measurement.get(sheet, {}),
-            )
-            st.subheader("Предпросмотр после нормализации")
-            st.dataframe(preview.head(50), width="stretch", hide_index=True)
-        except Exception as exc:
-            st.error(f"Не удалось построить предпросмотр: {exc}")
-            ready = False
+            ),
+        )
     if st.button("Импортировать рабочую копию", type="primary", key="upload_import", disabled=not selected or not ready):
         try:
             result = import_uploaded_sheets(
@@ -348,7 +366,7 @@ def _render_uploaded_import(project_id: int) -> None:
                 header_row=default_header, semantic_maps=semantic, measurement_maps=measurement,
                 header_rows=headers, mineral_keys=minerals,
             )
-            _continue_after_import(list(result.dataset_ids), target_project_id)
+            _continue_after_import(list(result.dataset_ids), project_id)
         except Exception as exc:
             st.error(f"Не удалось импортировать рабочую копию: {exc}")
 
@@ -368,7 +386,7 @@ def _managed_copy_status(dataset: dict) -> tuple[str, str]:
 
 
 def _render_source_statuses(project_id: int) -> None:
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.caption("Источников пока нет.")
         return
@@ -404,8 +422,8 @@ def render_sources_dashboard_page() -> None:
     project = active_project()
     context = str(project["name"]) if project else "Проект не выбран"
     render_page_header(
-        "Импорт и источники",
-        "Добавляйте Excel/CSV, настраивайте каждый лист отдельно и сохраняйте происхождение каждой аналитической колонки.",
+        "Новые анализы",
+        "Добавить файл → проверить листы → назначить сущности → preview и QC → сохранить → открыть график.",
         eyebrow="Данные",
         context=context,
     )

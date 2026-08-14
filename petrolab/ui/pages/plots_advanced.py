@@ -21,6 +21,7 @@ from petrolab.io_utils import numeric_candidates
 from petrolab.minerals.registry import MINERALS
 from petrolab.plot_presets import JOURNAL_PRESETS
 from petrolab.plotting import MARKERS, build_scatter, figure_png_bytes, figure_svg_bytes
+from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes
 from petrolab.ui.plot_actions import (
     delete_plot_recipe,
     delete_style_profile,
@@ -345,7 +346,26 @@ def _export_and_save(
     svg = figure_svg_bytes(figure)
     plt.close(figure)
 
-    d1, d2, d3 = st.columns(3)
+    manifest = build_selection_manifest(
+        kind="xy_figure",
+        dataframe=plot_dataframe,
+        dataset_ids=selected_ids,
+        filters={
+            "minerals": selected_minerals,
+            "search": query,
+            "column_filters": chosen_filters,
+            "outlier_filters": outlier_config,
+        },
+        recipe={
+            "journal_preset": preset,
+            "x": x,
+            "y": y,
+            "group_col": group_col or "",
+            **appearance,
+            "style_map": styles,
+        },
+    )
+    d1, d2, d3, d4 = st.columns(4)
     d1.download_button("PNG · 600 dpi", png, file_name="petrolab_plot.png", mime="image/png", width="stretch")
     d2.download_button("SVG", svg, file_name="petrolab_plot.svg", mime="image/svg+xml", width="stretch")
     excel = io.BytesIO()
@@ -365,11 +385,21 @@ def _export_and_save(
         if not excluded_dataframe.empty:
             excluded_dataframe.to_excel(writer, index=False, sheet_name="Исключённые точки")
         pd.DataFrame([export_settings]).to_excel(writer, index=False, sheet_name="Настройки")
+        pd.DataFrame([{"manifest_json": manifest_json_bytes(manifest).decode("utf-8")}]).to_excel(
+            writer, index=False, sheet_name="Manifest"
+        )
     d3.download_button(
-        "Данные графика · Excel",
+        "Данные графика + manifest · Excel",
         excel.getvalue(),
         file_name="petrolab_plot_data.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
+    )
+    d4.download_button(
+        "JSON manifest",
+        manifest_json_bytes(manifest),
+        file_name="petrolab_plot_manifest.json",
+        mime="application/json",
         width="stretch",
     )
 

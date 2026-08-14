@@ -11,9 +11,123 @@ from petrolab.sample_registry import (
     list_samples,
 )
 from petrolab.db import link_dataset_to_project, list_accessible_datasets, list_datasets
+from petrolab.analysis_groups import attach_work_groups
+from petrolab.derived import load_unified_with_derived
+from petrolab.generations import attach_generations
 from petrolab.unified_catalog import mineral_inventory, sample_overview, unlinked_rock_samples, whole_rock_inventory
 from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
+
+
+_SELECTION_FIELDS = {
+    "Object": ("Object", "Объект", "Locality", "Местность"),
+    "Sample": ("Sample", "Образец"),
+    "Mineral": ("Минерал", "Mineral"),
+    "Generation": ("Generation", "Генерация"),
+    "Method": ("Method", "Метод", "Technique", "Метод анализа"),
+}
+
+
+def _first_column(dataframe: pd.DataFrame, names: tuple[str, ...]) -> str | None:
+    lowered = {str(column).casefold(): str(column) for column in dataframe.columns}
+    for name in names:
+        column = lowered.get(name.casefold())
+        if column:
+            return column
+    return None
+
+
+def _render_selection_toolbar(project_id: int, scope: str, query: str) -> None:
+    """Persist one explicit row selection for plots, tables and safe Excel edits."""
+    datasets = list_accessible_datasets(project_id) if scope == "Активный проект" else list_datasets()
+    dataset_ids = [int(dataset["id"]) for dataset in datasets]
+    if not dataset_ids:
+        return
+    dataframe = attach_generations(attach_work_groups(load_unified_with_derived(None, dataset_ids)))
+    if dataframe.empty or "_analysis_id" not in dataframe.columns:
+        return
+    # Object/locality is optional for imported chemistry.  When it has been
+    # entered in the canonical Sample registry, expose it as an ordinary
+    # filterable field without duplicating it into every raw Excel row.
+    if scope == "Активный проект" and "Sample" in dataframe.columns and "Object" not in dataframe.columns:
+        object_by_sample = {
+            str(row["name"]): str(row.get("locality") or "")
+            for row in list_samples(project_id)
+            if str(row.get("locality") or "").strip()
+        }
+        if object_by_sample:
+            dataframe["Object"] = dataframe["Sample"].astype(str).map(object_by_sample).fillna("")
+
+    with st.container(border=True):
+        st.markdown("#### Текущий отбор")
+        st.caption(
+            "Поиск и фильтры работают по строкам анализов. Этот же точный отбор можно передать "
+            "в график, supplementary-таблицу или редактор исходного Excel."
+        )
+        filtered = dataframe.copy()
+        if query.strip():
+            text = query.strip()
+            filtered = filtered.loc[
+                filtered.astype(str).apply(
+                    lambda column: column.str.contains(text, case=False, na=False)
+                ).any(axis=1)
+            ].copy()
+
+        columns = st.columns(len(_SELECTION_FIELDS))
+        active_filters: dict[str, list[str]] = {}
+        for index, (widget, (label, candidates)) in enumerate(zip(columns, _SELECTION_FIELDS.items())):
+            column = _first_column(filtered, candidates)
+            if column is None:
+                widget.caption(f"{label}: нет поля")
+                continue
+            values = sorted(filtered[column].dropna().astype(str).loc[lambda value: value.str.strip().ne("")].unique())
+            selected = widget.multiselect(label, values, key=f"db_selection_{index}_{label}")
+            if selected:
+                filtered = filtered[filtered[column].astype(str).isin(selected)].copy()
+                active_filters[label] = selected
+
+        analysis_ids = filtered["_analysis_id"].astype(str).tolist()
+        selected_dataset_ids = sorted({int(value) for value in filtered["_dataset_id"].dropna().tolist()})
+        render_badges([
+            (f"{len(analysis_ids):,} точек".replace(",", " "), "accent"),
+            (f"{len(selected_dataset_ids)} наборов", "neutral"),
+        ])
+        visible = [
+            column for column in ["Sample", "Grain", "Point", "Минерал", "Generation", "Method", "QC уровень", "QC решение", "Набор"]
+            if column in filtered.columns
+        ]
+        st.dataframe(filtered[visible].head(250), width="stretch", hide_index=True, height=230)
+        if len(filtered) > 250:
+            st.caption("Показаны первые 250 строк; действия ниже применяются ко всем точкам отбора.")
+
+        plot, table, excel = st.columns(3)
+        context = {
+            "dataset_ids": selected_dataset_ids,
+            "analysis_ids": analysis_ids,
+            "filters": active_filters,
+            "query": query.strip(),
+            "scope": scope,
+        }
+        if plot.button("Построить график по текущему отбору", type="primary", disabled=not analysis_ids, width="stretch"):
+            st.session_state["workflow_plot_dataset_ids"] = selected_dataset_ids
+            st.session_state["workflow_plot_analysis_ids"] = analysis_ids
+            st.session_state["workflow_plot_context"] = context
+            st.session_state["workflow_plot_notice"] = "В график передан текущий отбор базы."
+            navigate("plots")
+            st.rerun()
+        if table.button("Таблица статьи из этого отбора", disabled=not analysis_ids, width="stretch"):
+            st.session_state["workflow_table_dataset_ids"] = selected_dataset_ids
+            st.session_state["workflow_table_analysis_ids"] = analysis_ids
+            st.session_state["workflow_table_context"] = context
+            navigate("article_tables")
+            st.rerun()
+        if excel.button("Открыть отбор для сохранения в исходный Excel", disabled=not analysis_ids, width="stretch"):
+            st.session_state["workflow_edit_dataset_ids"] = selected_dataset_ids
+            st.session_state["workflow_edit_analysis_ids"] = analysis_ids
+            st.session_state["workflow_edit_context"] = context
+            navigate("analyses")
+            st.rerun()
 
 
 def _batch_field_samples(project_id: int) -> None:
@@ -83,9 +197,8 @@ def _link_legacy_rocks(project_id: int) -> None:
 
 def _link_library_datasets(project_id: int) -> None:
     """Let an article project reuse a library/other-project dataset by reference."""
-    owned = {int(item["id"]) for item in list_datasets(project_id)}
     accessible = {int(item["id"]) for item in list_accessible_datasets(project_id)}
-    candidates = [item for item in list_datasets() if int(item["id"]) not in owned]
+    candidates = [item for item in list_datasets() if int(item["id"]) not in accessible]
     if not candidates:
         return
     with st.expander("Подключить данные из общей базы", expanded=False):
@@ -103,9 +216,8 @@ def _link_library_datasets(project_id: int) -> None:
                 link_dataset_to_project(project_id, labels[label], note)
             st.success(f"Подключено наборов: {len(selected)}. Они доступны в экране графиков.")
             st.rerun()
-        if accessible - owned:
-            st.caption(f"Уже подключено внешних наборов: {len(accessible - owned)}.")
-            st.rerun()
+        if accessible:
+            st.caption(f"Наборов в рабочем контексте: {len(accessible)}.")
 
 
 def render_database_browser_page() -> None:
@@ -122,8 +234,10 @@ def render_database_browser_page() -> None:
 
     c1, c2 = st.columns(2)
     scope = c1.segmented_control("Область", ["Активный проект", "Все проекты"], default="Активный проект", key="db_browser_scope")
-    query = c2.text_input("Поиск", key="db_browser_search", placeholder="образец, проект, минерал, местность…")
+    query = c2.text_input("Поиск", key="db_browser_search", placeholder="образец, зерно, точка, минерал, местность…")
     scope_project = project_id if scope == "Активный проект" else None
+
+    _render_selection_toolbar(project_id, scope, query)
 
     overview = sample_overview(scope_project)
     inventory = mineral_inventory(scope_project)

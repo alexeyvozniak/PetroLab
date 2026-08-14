@@ -40,6 +40,10 @@ class Workspace:
                     "INSERT INTO analysis_rows(analysis_id, dataset_id, row_index, source_row, data_json, updated_at) VALUES (?, ?, 0, 2, '{}', '2026-08-14')",
                     (f"a{dataset_id}", dataset_id),
                 )
+                con.execute(
+                    "INSERT INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose) VALUES (?, ?, '', '2026-08-14', 'working')",
+                    (project_id, dataset_id),
+                )
             con.commit()
         return self
 

@@ -6,7 +6,12 @@ import pandas as pd
 
 from petrolab.measurement_semantics import apply_measurement_overrides
 from petrolab.io_utils import _adapt_wds_report_rows, add_qc_columns
-from petrolab.services.import_service import _schema_preview, import_linked_sheets, import_uploaded_sheets
+from petrolab.services.import_service import (
+    _attach_detected_method,
+    _schema_preview,
+    import_linked_sheets,
+    import_uploaded_sheets,
+)
 
 
 # Current UI passes per-sheet settings; backend must keep this contract.
@@ -100,6 +105,20 @@ assert wds["Sample"].tolist() == ["19Tp-1", "19Tp-14"]
 assert wds["Point"].tolist() == ["13", "Amph"]
 assert wds["Comment"].tolist() == ["19Tp-1 13", "19Tp-14 Amph"]
 assert wds_map["Comment"]["wds_protocol"] is True
+
+# Protocol adapters create a real Method field used by the database toolbar;
+# the user never has to infer WDS/EDS from a filename when filtering points.
+with_method, method_map = _attach_detected_method(
+    wds,
+    {**wds_map, "__schema__": {}},
+)
+assert with_method["Method"].tolist() == ["EPMA-WDS", "EPMA-WDS"]
+assert method_map["Method"]["warning"] == "Метод автоматически распознан как EPMA-WDS."
+eds_method, _ = _attach_detected_method(
+    pd.DataFrame({"Sample": ["PG-1"]}),
+    {"__schema__": {"adapter": "eds_multiblock"}},
+)
+assert eds_method["Method"].tolist() == ["SEM-EDS"]
 
 # QC keeps imperfect analyses visible but marks the risk; it never drops the row.
 quality = add_qc_columns(pd.DataFrame({"SiO2": [50.0, 80.0], "FeO": [5.0, 4.0]}))

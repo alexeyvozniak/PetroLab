@@ -4,6 +4,10 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.article_tables import article_table_xlsx_bytes, format_dataframe_for_article
+from petrolab.analysis_groups import attach_work_groups
+from petrolab.derived import load_unified_with_derived
+from petrolab.generations import attach_generations
+from petrolab.publication_manifest import append_manifest_to_xlsx, build_selection_manifest, manifest_json_bytes
 from petrolab.repositories.rock_repository import composition_wide
 from petrolab.settings_service import load_settings
 from petrolab.ui.components import render_project_selector
@@ -25,7 +29,13 @@ def _column_selector(dataframe: pd.DataFrame, key: str) -> list[str]:
     return st.multiselect("Колонки таблицы", ordered, default=defaults, key=key)
 
 
-def _render_table(dataframe: pd.DataFrame, key_prefix: str, default_title: str) -> None:
+def _render_table(
+    dataframe: pd.DataFrame,
+    key_prefix: str,
+    default_title: str,
+    *,
+    manifest: dict | None = None,
+) -> None:
     if dataframe.empty:
         st.info("Нет данных для таблицы.")
         return
@@ -48,13 +58,23 @@ def _render_table(dataframe: pd.DataFrame, key_prefix: str, default_title: str) 
     st.dataframe(formatted, width="stretch", height=520, hide_index=True)
     st.caption(TABLE_PRESETS[preset].note or "Preset задаёт шрифт, округление и ориентацию страницы; содержимое колонок остаётся под вашим контролем.")
     data = article_table_xlsx_bytes(formatted, preset_name=preset, title=title, note=note)
+    if manifest is not None:
+        data = append_manifest_to_xlsx(manifest=manifest, workbook_bytes=data)
     st.download_button(
-        "Скачать оформленный XLSX",
+        "Скачать оформленный XLSX" + (" + manifest" if manifest is not None else ""),
         data,
         file_name=f"{key_prefix}_{preset.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key=f"{key_prefix}_download",
     )
+    if manifest is not None:
+        st.download_button(
+            "JSON manifest",
+            manifest_json_bytes(manifest),
+            file_name=f"{key_prefix}_manifest.json",
+            mime="application/json",
+            key=f"{key_prefix}_manifest_download",
+        )
 
 
 def render_article_tables_page() -> None:
@@ -63,6 +83,37 @@ def render_article_tables_page() -> None:
         "Конструктор публикационных таблиц с одинаковой логикой для минералов и валовых составов. "
         "Preset отвечает за оформление, а выбор строк и колонок остаётся полностью ручным."
     )
+    selected_analysis_ids = {
+        str(value) for value in st.session_state.pop("workflow_table_analysis_ids", [])
+    }
+    selected_dataset_ids = [
+        int(value) for value in st.session_state.pop("workflow_table_dataset_ids", [])
+    ]
+    selected_context = st.session_state.pop("workflow_table_context", {})
+    if selected_analysis_ids and selected_dataset_ids:
+        dataframe = attach_generations(
+            attach_work_groups(load_unified_with_derived(None, selected_dataset_ids))
+        )
+        dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_analysis_ids)].copy()
+        st.success(
+            f"Таблица использует тот же сохранённый отбор, что был отправлен из базы: {len(dataframe)} точек."
+        )
+        if selected_context:
+            st.caption("Фильтры исходного отбора сохранены в контексте перехода; здесь можно менять только представление таблицы.")
+        manifest = build_selection_manifest(
+            kind="supplementary_table",
+            dataframe=dataframe,
+            dataset_ids=selected_dataset_ids,
+            filters={"database_selection": selected_context},
+        )
+        _render_table(
+            dataframe,
+            "selection_table",
+            "Supplementary mineral compositions",
+            manifest=manifest,
+        )
+        return
+
     mode = st.segmented_control(
         "Данные",
         ["Минеральные анализы", "Валовые составы пород"],

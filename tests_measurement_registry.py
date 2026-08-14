@@ -4,6 +4,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
 
 def main() -> None:
     # SQLite on Windows can release a just-closed database handle slightly
@@ -12,7 +14,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="petrolab_measurements_", ignore_cleanup_errors=True) as tmp:
         os.environ["PETROLAB_DATA_DIR"] = str(Path(tmp) / "data")
 
-        from petrolab.db import connect, create_project
+        from petrolab.db import add_dataset, connect, create_project, get_or_create_library_project, link_dataset_to_project, replace_dataset_rows
         from petrolab.measurement_registry import (
             add_observation,
             create_entity,
@@ -68,6 +70,31 @@ def main() -> None:
         assert [row.method for row in titanium] == ["EPMA-WDS", "LA-ICP-MS", "TIMS"]
         assert epma.reported_form == "TiO2"
         assert la.uncertainty == 120.0
+
+        # Raw chemistry belongs to the common base, but a project may attach
+        # its own EPMA point to that same stored analysis without copying it.
+        global_base = get_or_create_library_project()
+        shared_dataset = add_dataset(
+            global_base, "shared probe", "mica", "shared.xlsx", "Data", "shared-sha", "", 1,
+        )
+        replace_dataset_rows(shared_dataset, pd.DataFrame([{"Sample": "PG-15", "TiO2": 1.15}]))
+        with connect() as con:
+            shared_analysis = str(con.execute(
+                "SELECT analysis_id FROM analysis_rows WHERE dataset_id=?", (shared_dataset,)
+            ).fetchone()[0])
+        link_dataset_to_project(project_id, shared_dataset, "используется в статье")
+        linked = add_observation(
+            project_id,
+            entity_id=probe,
+            analysis_id=shared_analysis,
+            dataset_id=shared_dataset,
+            analyte="Ti",
+            reported_form="TiO2",
+            value=1.15,
+            unit="wt.%",
+            method="EPMA-WDS",
+        )
+        assert linked.analysis_id == shared_analysis
 
         # Link validation must reject a dataset/analysis from another project.
         with connect() as con:

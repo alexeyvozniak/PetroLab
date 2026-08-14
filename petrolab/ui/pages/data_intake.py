@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.source_registry import (
     create_study,
     database_health,
@@ -105,7 +105,7 @@ def _study_label(row: dict) -> str:
 
 def _render_linking(project_id: int) -> None:
     studies = list_studies(project_id)
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not studies or not datasets:
         return
     st.subheader("Связать импортированный набор с источником")
@@ -203,8 +203,8 @@ def render_data_intake_page() -> None:
     project = active_project()
     context = str(project["name"]) if project else "Проект не выбран"
     render_page_header(
-        "Добавить данные",
-        "Один простой вход для своих анализов, чужих таблиц и полевых образцов.",
+        "Источники и литература",
+        "Происхождение литературных таблиц, данные коллег и полевые образцы. Новые файлы импортируются через «Новые анализы».",
         eyebrow="Данные",
         context=context,
     )

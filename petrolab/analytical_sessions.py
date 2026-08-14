@@ -60,6 +60,24 @@ def ensure_session_schema() -> None:
             con.execute("ALTER TABLE datasets ADD COLUMN sample_id INTEGER")
         con.execute("CREATE INDEX IF NOT EXISTS idx_datasets_session ON datasets(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_datasets_sample ON datasets(sample_id)")
+        # Session/sample interpretation is project-local.  Keeping it in a
+        # join table prevents a shared dataset from being overwritten when it
+        # is cited by a second project.
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS analytical_session_datasets (
+                session_id INTEGER NOT NULL,
+                dataset_id INTEGER NOT NULL,
+                added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(session_id, dataset_id),
+                FOREIGN KEY(session_id) REFERENCES analytical_sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            )"""
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS idx_session_datasets_dataset ON analytical_session_datasets(dataset_id)")
+        con.execute(
+            """INSERT OR IGNORE INTO analytical_session_datasets(session_id, dataset_id)
+               SELECT session_id, id FROM datasets WHERE session_id IS NOT NULL"""
+        )
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS analysis_annotations (
@@ -138,16 +156,33 @@ def attach_datasets(session_id: int, dataset_ids: Iterable[int]) -> int:
         if not session:
             raise ValueError("Сессия не найдена")
         placeholders = ",".join("?" for _ in ids)
-        datasets = con.execute(f"SELECT id, project_id, sample_id FROM datasets WHERE id IN ({placeholders})", ids).fetchall()
+        datasets = con.execute(f"SELECT id FROM datasets WHERE id IN ({placeholders})", ids).fetchall()
         found = {int(row["id"]): row for row in datasets}
         missing = [value for value in ids if value not in found]
         if missing:
             raise ValueError(f"Не найдены наборы: {missing}")
-        if any(int(row["project_id"]) != int(session["project_id"]) for row in found.values()):
-            raise ValueError("Нельзя привязать набор из другого проекта")
-        if any(row["sample_id"] is not None and int(row["sample_id"]) != int(session["sample_id"]) for row in found.values()):
+        visible = {
+            int(row["dataset_id"])
+            for row in con.execute(
+                f"SELECT dataset_id FROM project_dataset_links WHERE project_id=? AND dataset_id IN ({placeholders})",
+                [int(session["project_id"]), *ids],
+            ).fetchall()
+        }
+        if any(dataset_id not in visible for dataset_id in ids):
+            raise ValueError("Нельзя привязать набор, не добавленный в текущий проект")
+        linked = con.execute(
+            f"""SELECT sd.dataset_id, s.sample_id
+                FROM analytical_session_datasets sd
+                JOIN analytical_sessions s ON s.id=sd.session_id
+                WHERE sd.dataset_id IN ({placeholders})""",
+            ids,
+        ).fetchall()
+        if any(int(row["sample_id"]) != int(session["sample_id"]) for row in linked):
             raise ValueError("Нельзя перепривязать набор, уже относящийся к другому canonical Sample")
-        con.executemany("UPDATE datasets SET session_id=?, sample_id=? WHERE id=?", [(int(session_id), int(session["sample_id"]), dataset_id) for dataset_id in ids])
+        con.executemany(
+            "INSERT OR IGNORE INTO analytical_session_datasets(session_id, dataset_id) VALUES (?, ?)",
+            [(int(session_id), dataset_id) for dataset_id in ids],
+        )
         con.commit()
     return len(ids)
 
@@ -155,7 +190,12 @@ def attach_datasets(session_id: int, dataset_ids: Iterable[int]) -> int:
 def session_datasets(session_id: int) -> list[dict]:
     ensure_session_schema()
     with connect() as con:
-        rows = con.execute("SELECT d.* FROM datasets d WHERE d.session_id=? ORDER BY d.mineral_key, d.name", (int(session_id),)).fetchall()
+        rows = con.execute(
+            """SELECT d.* FROM analytical_session_datasets sd
+               JOIN datasets d ON d.id=sd.dataset_id
+               WHERE sd.session_id=? ORDER BY d.mineral_key, d.name""",
+            (int(session_id),),
+        ).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -166,8 +206,10 @@ def sample_history(project_id: int, sample_id: int) -> dict:
         if not sample:
             raise ValueError("Образец не найден")
         sessions = con.execute(
-            """SELECT s.*, COUNT(DISTINCT d.id) AS dataset_count, COALESCE(SUM(d.row_count),0) AS analysis_count
-               FROM analytical_sessions s LEFT JOIN datasets d ON d.session_id=s.id
+            """SELECT s.*, COUNT(DISTINCT sd.dataset_id) AS dataset_count, COALESCE(SUM(d.row_count),0) AS analysis_count
+               FROM analytical_sessions s
+               LEFT JOIN analytical_session_datasets sd ON sd.session_id=s.id
+               LEFT JOIN datasets d ON d.id=sd.dataset_id
                WHERE s.sample_id=? GROUP BY s.id
                ORDER BY COALESCE(NULLIF(s.session_date,''), s.created_at) DESC""",
             (int(sample_id),),

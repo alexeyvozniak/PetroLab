@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
-from petrolab.db import list_datasets, load_dataset_dataframe
+from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.derived import formula_status, save_formula_results
 from petrolab.formula_workflow import recommended_method
 from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
@@ -74,7 +74,7 @@ def render_formulae_page() -> None:
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("В активном проекте пока нет анализов.")
         return

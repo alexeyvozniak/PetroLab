@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_datasets, load_dataset_dataframe
+from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.minerals.registry import MINERALS
 from petrolab.phase_suggestions import (
     SUGGESTED_MINERAL_COLUMN,
@@ -26,7 +26,7 @@ def render_mixed_minerals_page() -> None:
     if project_id is None:
         st.info("Сначала выберите проект.")
         return
-    datasets = list_datasets(int(project_id))
+    datasets = list_accessible_datasets(int(project_id))
     if not datasets:
         st.info("Сначала импортируйте сырой файл.")
         return

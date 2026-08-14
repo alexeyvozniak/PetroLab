@@ -13,7 +13,7 @@ from petrolab.analysis_drafts import (
 )
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label
-from petrolab.db import META_COLUMNS, list_datasets
+from petrolab.db import META_COLUMNS, list_accessible_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
 from petrolab.ui.analysis_components import PROTECTED_ANALYSIS_COLUMNS, render_point_card
@@ -87,15 +87,33 @@ def render_analyses_dashboard_page() -> None:
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
-    datasets = list_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
         st.info("В активном проекте нет данных.")
         return
 
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
+    requested_dataset_ids = [
+        int(value) for value in st.session_state.pop("workflow_edit_dataset_ids", [])
+    ]
+    requested_analysis_ids = {
+        str(value) for value in st.session_state.pop("workflow_edit_analysis_ids", [])
+    }
+    requested_context = st.session_state.pop("workflow_edit_context", {})
+    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_dataset_ids]
+    if requested_labels:
+        st.session_state["db_datasets_dashboard"] = requested_labels
+        st.info(
+            "Открыт отбор из «Вся база». Отредактируйте поля и нажмите «Сохранить и синхронизировать Excel»; "
+            "перед записью PetroLab проверит исходный файл и создаст резервную копию."
+        )
+        if requested_context:
+            st.caption("Изменения будут применены только к строкам исходного отбора.")
     with st.container(border=True):
         c1, c2 = st.columns([2.2, 1])
-        selected_labels = c1.multiselect("Наборы", list(labels), default=list(labels), key="db_datasets_dashboard")
+        selected_labels = c1.multiselect(
+            "Наборы", list(labels), default=requested_labels or list(labels), key="db_datasets_dashboard"
+        )
         mode = c2.selectbox("Колонки", ["Основное", "Химия", "Расчёты", "QC", "Все"], key="db_column_view")
         query = st.text_input("Поиск", placeholder="Образец, зерно, поколение или значение", key="db_search_dashboard")
     selected_ids = [labels[label] for label in selected_labels]
@@ -105,6 +123,8 @@ def render_analyses_dashboard_page() -> None:
 
     dataframe = attach_work_groups(load_unified_with_derived(project_id, selected_ids))
     shown = apply_quick_filter(dataframe, query).copy()
+    if requested_analysis_ids:
+        shown = shown[shown["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
     derived = active_derived_columns(selected_ids)
     render_badges([(f"{len(shown):,} строк".replace(",", " "), "neutral"), (f"{len(selected_ids)} наборов", "accent")])
 
