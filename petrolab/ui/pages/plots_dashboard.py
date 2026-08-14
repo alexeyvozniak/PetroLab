@@ -14,6 +14,7 @@ from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.settings_service import load_settings
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.pages import plots as legacy
+from petrolab.visualization_presets import FIGURE_PRESETS
 
 
 def _project_id() -> int | None:
@@ -36,6 +37,9 @@ def _quick_workspace(project_id: int) -> None:
     if not datasets:
         st.info("В активном проекте нет данных для графика."); return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
+    settings = load_settings()
+    preset_name = str(settings.get("default_figure_preset", "Lithos"))
+    preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS["Lithos"])
 
     left, right = st.columns([1, 2.2], gap="large")
     with left:
@@ -70,7 +74,11 @@ def _quick_workspace(project_id: int) -> None:
             log_x = st.checkbox("Логарифмическая X", key="quick_log_x")
             log_y = st.checkbox("Логарифмическая Y", key="quick_log_y")
             title = st.text_input("Заголовок", key="quick_title")
-            marker_size = st.slider("Размер точек", 20, 120, 48, 2, key="quick_marker_size")
+            marker_size = st.slider(
+                "Размер точек", 20, 120,
+                int(round(preset.marker_size)), 2,
+                key="quick_marker_size",
+            )
 
         plot_source = dataframe.copy()
         plot_source[x] = pd.to_numeric(plot_source[x], errors="coerce")
@@ -95,17 +103,25 @@ def _quick_workspace(project_id: int) -> None:
 
     st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
     st.markdown("### Публикационный экспорт")
-    settings = load_settings()
     figure = build_scatter(
         plot_source, x, y, group_col,
         x_label=x, y_label=y, title=title, marker_size=marker_size,
         log_x=log_x, log_y=log_y, style_map=style_map,
-        font_family="Arial", font_size=9.0, tick_size=8.5,
+        show_grid=preset.grid,
+        monochrome=preset.monochrome,
+        figure_size=(preset.width_in, preset.height_in),
+        font_family=preset.font_family,
+        font_size=preset.font_size,
+        tick_size=preset.tick_size,
+        spine_width=preset.spine_width,
     )
     e1, e2, e3 = st.columns([1, 1, 2])
     e1.download_button("SVG", figure_svg_bytes(figure), file_name="petrolab_xy.svg", mime="image/svg+xml", width="stretch")
-    e2.download_button("PNG", figure_png_bytes(figure, 600), file_name="petrolab_xy.png", mime="image/png", width="stretch")
-    e3.caption(f"Arial · 600 dpi · шаблон по умолчанию: {settings.get('default_figure_preset', 'Lithos')}")
+    e2.download_button("PNG", figure_png_bytes(figure, preset.dpi), file_name="petrolab_xy.png", mime="image/png", width="stretch")
+    e3.caption(
+        f"{preset.title} · {preset.font_family} · {preset.dpi} dpi · "
+        f"{preset.width_in:g} × {preset.height_in:g} in"
+    )
     plt.close(figure)
 
 
