@@ -5,6 +5,8 @@ from io import BytesIO, StringIO
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from petrolab.group_envelopes import compute_group_envelope
+
 MARKERS = ["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*", "p", "8"]
 
 
@@ -15,25 +17,72 @@ def _resolve_style(group_name, idx: int, style_map: dict | None, monochrome: boo
     size_multiplier = float(raw.get("size_multiplier", 1.0) or 1.0)
     alpha = float(raw.get("alpha", 0.9) or 0.9)
     filled = bool(raw.get("filled", True))
-    base_color = raw.get("color")
-    edge_color = raw.get("edge_color")
-    face_color = raw.get("face_color")
+    base_color = raw.get("color") or "black"
+    outline = str(raw.get("outline_color", "black") or "black")
+    outline_width = float(raw.get("outline_width", 1.0) or 0.0)
     if monochrome:
         edge_color = "black"
         face_color = "black" if filled else "white"
+        field_color = "black"
     else:
-        if face_color is None:
-            face_color = base_color if filled else "none"
-        if edge_color is None:
-            edge_color = "black" if filled else base_color
+        if outline == "white":
+            edge_color = "white"
+        elif outline in {"group", "series"}:
+            edge_color = base_color
+        elif outline in {"none", "transparent"}:
+            edge_color = "none"
+        else:
+            edge_color = "black"
+        face_color = base_color if filled else "none"
+        field_color = base_color
     return {
         "marker": marker,
         "size_multiplier": size_multiplier,
         "alpha": alpha,
         "filled": filled,
         "edgecolors": edge_color,
-        "facecolors": face_color if face_color is not None else ("black" if filled else "none"),
+        "facecolors": face_color,
+        "outline_width": outline_width,
+        "field_color": field_color,
+        "display_mode": str(raw.get("display_mode", "points") or "points"),
+        "envelope_method": str(raw.get("envelope_method", "confidence_ellipse") or "confidence_ellipse"),
+        "envelope_level": float(raw.get("envelope_level", 0.90) or 0.90),
+        "envelope_alpha": float(raw.get("envelope_alpha", 0.16) or 0.16),
+        "envelope_line_width": float(raw.get("envelope_line_width", 1.5) or 1.5),
     }
+
+
+def _draw_group_field(ax, part: pd.DataFrame, x: str, y: str, name, stl: dict) -> None:
+    mode = stl["display_mode"]
+    if mode == "centroid":
+        xv = pd.to_numeric(part[x], errors="coerce")
+        yv = pd.to_numeric(part[y], errors="coerce")
+        valid = pd.DataFrame({"x": xv, "y": yv}).dropna()
+        if not valid.empty:
+            ax.scatter(
+                [valid["x"].median()], [valid["y"].median()],
+                s=90 * stl["size_multiplier"], marker=stl["marker"],
+                edgecolors=stl["edgecolors"], facecolors=stl["facecolors"],
+                linewidths=stl["outline_width"], zorder=5,
+            )
+            ax.annotate(str(name), (valid["x"].median(), valid["y"].median()), xytext=(4, 4), textcoords="offset points")
+        return
+    if mode not in {"field", "points+field"}:
+        return
+    try:
+        result = compute_group_envelope(
+            part, x, y,
+            method=stl["envelope_method"],
+            level=stl["envelope_level"],
+        )
+    except ValueError:
+        return
+    for polygon in result.polygons:
+        ax.fill(
+            polygon[:, 0], polygon[:, 1],
+            facecolor=stl["field_color"], edgecolor=stl["field_color"],
+            alpha=stl["envelope_alpha"], linewidth=stl["envelope_line_width"], zorder=1,
+        )
 
 
 def build_scatter(
@@ -76,11 +125,17 @@ def build_scatter(
             grouped = list(df.groupby(group, dropna=False, sort=False))
             for i, (name, part) in enumerate(grouped):
                 stl = _resolve_style(name, i, style_map, monochrome=monochrome)
-                ax.scatter(
-                    part[x], part[y], s=marker_size * stl["size_multiplier"], label=str(name), alpha=stl["alpha"],
-                    marker=stl["marker"], edgecolors=stl["edgecolors"], facecolors=stl["facecolors"], linewidths=0.8,
-                )
-                if annotate and label_col and label_col in part.columns:
+                _draw_group_field(ax, part, x, y, name, stl)
+                if stl["display_mode"] not in {"field", "centroid"}:
+                    ax.scatter(
+                        part[x], part[y], s=marker_size * stl["size_multiplier"], label=str(name), alpha=stl["alpha"],
+                        marker=stl["marker"], edgecolors=stl["edgecolors"], facecolors=stl["facecolors"],
+                        linewidths=stl["outline_width"], zorder=3,
+                    )
+                elif stl["display_mode"] == "field":
+                    # Invisible legend handle preserves group identification without plotting the raw points.
+                    ax.plot([], [], color=stl["field_color"], label=str(name), linewidth=max(1.0, stl["envelope_line_width"]))
+                if annotate and stl["display_mode"] not in {"field", "centroid"} and label_col and label_col in part.columns:
                     subset = part.head(annotate_top_n) if annotate_top_n else part
                     for _, row in subset.iterrows():
                         text = str(row.get(label_col, "")).strip()
