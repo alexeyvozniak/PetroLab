@@ -193,25 +193,26 @@ for marker in [
 # Destructive actions are explicit UI actions, not runtime monkeypatches (A-23 plus final audit UX closure).
 app = _read("app.py")
 destructive_actions = _read("petrolab/ui/destructive_actions.py")
-plot_facade = _read("petrolab/ui/pages/plots.py")
+plot_actions = _read("petrolab/ui/plot_actions.py")
 rocks = _read("petrolab/ui/pages/rocks.py")
-assert "install_destructive_page_policy" not in app
 for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
     assert marker in destructive_actions, marker
 for marker in [
     'confirm_then("plot_recipe"', 'confirm_then("style_profile"', 'confirm_then("work_group"',
-    "loaded_recipe = None", 'pop("style_profile_select", None)',
+    "loaded_recipe = None", 'pop("style_profile_select", None)', "render_plot_confirmations",
 ]:
-    assert marker in plot_facade, marker
+    assert marker in plot_actions, marker
 for marker in [
     'confirm_then("rock_image"', 'confirm_then("rock_links"',
     "set_mineral_links as _set_mineral_links", "delete_rock_image as _delete_rock_image",
 ]:
     assert marker in rocks, marker
+assert not (ROOT / "petrolab" / "ui" / "destructive_page_policy.py").exists()
+assert not (ROOT / "petrolab" / "ui" / "pages" / "plots.py").exists()
 
-# Plot/science safeguards now have explicit owners instead of a combined runtime plot monkeypatch
+# Plot/science safeguards now have direct owners; runtime page policies are forbidden
 # (A-10/A-13/A-20/A-30/A-32/A-36/A-57/A-73/A-78/A-91/A-99).
-assert not (ROOT / "petrolab" / "ui" / "plot_page_policy.py").exists()
+assert not list((ROOT / "petrolab" / "ui").glob("*_page_policy.py"))
 xy_components = _read("petrolab/ui/xy_components.py")
 for marker in [
     "default_outlier_method",
@@ -220,8 +221,10 @@ for marker in [
     "sanitize_xy_rows",
     'key="petrolab_quick_interactive_plot"',
     'key="petrolab_advanced_interactive_plot"',
+    "from petrolab.ui.plot_actions import clear_work_group",
 ]:
     assert marker in xy_components, marker
+assert "from petrolab.ui.pages import plots" not in xy_components
 advanced_xy = _read("petrolab/ui/pages/plots_advanced.py")
 for marker in [
     "Сохранённый рецепт ссылается на наборы",
@@ -229,21 +232,28 @@ for marker in [
     "render_outlier_controls",
     "render_advanced_interactive",
     "В график входит",
+    "from petrolab.ui.plot_actions import (",
 ]:
     assert marker in advanced_xy, marker
-science_policy = _read("petrolab/ui/science_page_policy.py")
+assert "from petrolab.ui.pages import plots" not in advanced_xy
+science = _read("petrolab/ui/pages/science_plots.py")
 for marker in [
     "require_known_units=True",
-    "strict_presets",
+    "def _mineral_filtered_presets(",
     "Grouped boxplot требует ровно один числовой параметр",
-    '"SVG"',
-    "consistent_pattern",
-    "_petrolab_science_policy_installed",
+    "def _apply_pattern_group_styles(",
+    "_PATTERN_YLABELS",
+    "def _sync_science_axis_defaults(",
+    "matches_preset",
+    'key="hist_svg"',
+    'key="box_svg"',
 ]:
-    assert marker in science_policy, marker
-assert "install_science_page_policy()" in app
-assert "install_image_page_policy" not in app
-assert "install_plot_page_policy" not in app
+    assert marker in science, marker
+for old_bootstrap in [
+    "install_science_page_policy", "install_image_page_policy", "install_plot_page_policy",
+    "install_destructive_page_policy", "install_import_page_policy",
+]:
+    assert old_bootstrap not in app, old_bootstrap
 
 # Optional hints are optional; scientific warnings/provenance are not globally hidden (A-100).
 layout = _read("petrolab/ui/layout.py")
