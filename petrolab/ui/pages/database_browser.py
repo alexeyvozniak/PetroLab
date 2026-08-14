@@ -3,8 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.sample_locations import current_sample_location, record_sample_location, sample_location_history
-from petrolab.sample_registry import (
+from petrolab.sample_locations import (\n    current_entity_location, current_sample_location, entity_location_history,\n    record_entity_location, record_sample_location, sample_location_history,\n)\nfrom petrolab.sample_registry import (
     add_sample_alias,
     create_sample,
     find_sample_matches,
@@ -13,6 +12,7 @@ from petrolab.sample_registry import (
 )
 from petrolab.db import link_dataset_to_project, list_accessible_datasets, list_datasets
 from petrolab.analysis_groups import attach_work_groups
+from petrolab.measurement_registry import list_entities
 from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
 from petrolab.unified_catalog import mineral_inventory, sample_overview, unlinked_rock_samples, whole_rock_inventory
@@ -242,22 +242,33 @@ def _render_sample_location_card(project_id: int) -> None:
         }
         selected_label = st.selectbox("Образец", list(labels), key="sample_location_selected")
         sample_id = labels[selected_label]
-        current = current_sample_location(sample_id)
+        targets: dict[str, tuple[str, int]] = {f"Образец · {selected_label}": ("sample", sample_id)}
+        for entity in list_entities(project_id, sample_id=sample_id):
+            if str(entity.get("kind")) != "thin_section":
+                continue
+            targets[f"Шлиф / препарат · {entity['name']}"] = ("entity", int(entity["id"]))
+        target_label = st.selectbox("Что сейчас находится в пути или на хранении?", list(targets), key=f"sample_location_target_{sample_id}")
+        target_kind, target_id = targets[target_label]
+        current = (
+            current_sample_location(target_id)
+            if target_kind == "sample"
+            else current_entity_location(target_id)
+        )
         if current:
             st.info(f"Сейчас: **{current.location}** · отмечено {current.recorded_at}")
         else:
             st.info("Текущее местонахождение ещё не отмечено.")
         location = st.text_input(
-            "Где сейчас находится образец / шлиф?",
+            "Где сейчас находится выбранный образец / шлиф?",
             value=current.location if current else "",
             placeholder="например, шкаф A-3; у Ивана; лаборатория МГУ",
-            key=f"sample_location_value_{sample_id}",
+            key=f"sample_location_value_{target_kind}_{target_id}",
         )
         note = st.text_input(
             "Комментарий · необязательно",
             value="",
             placeholder="выдан на анализ; коробка; дата возврата",
-            key=f"sample_location_note_{sample_id}",
+            key=f"sample_location_note_{target_kind}_{target_id}",
         )
         c1, c2 = st.columns(2)
         never_ask = c2.checkbox(
@@ -267,7 +278,11 @@ def _render_sample_location_card(project_id: int) -> None:
         )
         if c1.button("Обновить местонахождение", type="primary", key=f"sample_location_save_{sample_id}"):
             try:
-                event = record_sample_location(sample_id, location, note=note)
+                event = (
+                    record_sample_location(target_id, location, note=note)
+                    if target_kind == "sample"
+                    else record_entity_location(target_id, location, note=note)
+                )
             except (KeyError, ValueError) as exc:
                 st.error(str(exc))
             else:
@@ -280,7 +295,11 @@ def _render_sample_location_card(project_id: int) -> None:
             st.success("Напоминание скрыто. Карточка и история остаются доступны здесь.")
             st.rerun()
 
-        history = sample_location_history(sample_id)
+        history = (
+            sample_location_history(target_id)
+            if target_kind == "sample"
+            else entity_location_history(target_id)
+        )
         if history:
             st.caption("История перемещений")
             st.dataframe(
