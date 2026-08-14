@@ -21,6 +21,7 @@ from petrolab.ui.pages import (
     render_home_page,
     render_images_page,
     render_minerals_page,
+    render_mixed_minerals_page,
     render_plots_page,
     render_projects_page,
     render_rocks_page,
@@ -33,7 +34,6 @@ from petrolab.ui.pages import (
 )
 from petrolab.ui.theme import apply_theme
 
-
 st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide")
 ensure_storage()
 settings = load_settings()
@@ -45,9 +45,7 @@ st.session_state.setdefault("loaded_ternary_recipe", None)
 def _reconcile_plot_recipe_state() -> None:
     recipe = st.session_state.get("loaded_recipe")
     payload = recipe if isinstance(recipe, dict) else {}
-    token = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest() if payload else ""
+    token = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest() if payload else ""
     token_key = "_applied_plot_recipe_token"
     previous = str(st.session_state.get(token_key, ""))
     if token == previous:
@@ -58,8 +56,7 @@ def _reconcile_plot_recipe_state() -> None:
             "journal_preset", "plot_range_columns", "outlier_method", "outlier_columns",
             "outlier_threshold", "exclude_auto_outliers", "manual_outlier_exclusions",
             "outlier_scope", "outlier_scope_group", "keep_hidden_manual_exclusions",
-            "style_profile_select", "interactive_selected_point",
-            "petrolab_advanced_interactive_plot",
+            "style_profile_select", "interactive_selected_point", "petrolab_advanced_interactive_plot",
         }
         prefixes = ("filter_vals_", "range_low_", "range_high_", "style_editor_")
         for key in list(st.session_state):
@@ -78,6 +75,7 @@ _reconcile_plot_recipe_state()
 ROUTES = {
     "home": render_home_page,
     "intake": render_data_intake_page,
+    "mixed_minerals": render_mixed_minerals_page,
     "database": render_database_browser_page,
     "sources": render_sources_page,
     "analyses": render_analyses_page,
@@ -100,5 +98,4 @@ ROUTES = {
 
 with st.sidebar:
     route = render_sidebar(__version__)
-
 ROUTES.get(route, render_home_page)()
