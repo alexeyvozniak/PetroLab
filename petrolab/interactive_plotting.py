@@ -36,6 +36,17 @@ def _marker_size(style: Mapping[str, Any] | None, base_size: float = 9.0) -> flo
     return max(5.0, min(28.0, base_size * multiplier))
 
 
+def _outline_color(style: Mapping[str, Any] | None) -> str:
+    value = str((style or {}).get("outline_color", "black") or "black").lower()
+    if value in {"none", "нет", "transparent"}:
+        return "rgba(0,0,0,0)"
+    if value in {"white", "белый"}:
+        return "white"
+    if value in {"group", "series", "цвет группы"}:
+        return str((style or {}).get("color", "black"))
+    return "black"
+
+
 def build_interactive_scatter(
     dataframe: pd.DataFrame,
     x: str,
@@ -64,7 +75,7 @@ def build_interactive_scatter(
         work = work[work[y] > 0]
 
     hover_columns = [
-        column for column in ["Sample", "Grain", "Point", "Generation", "Набор", WORK_GROUP_COLUMN]
+        column for column in ["Sample", "Point", "Generation", WORK_GROUP_COLUMN]
         if column in work.columns
     ]
 
@@ -97,7 +108,10 @@ def build_interactive_scatter(
                     "symbol": _marker_symbol(style),
                     "opacity": float(style.get("alpha", 0.9) or 0.9),
                     "color": style["color"],
-                    "line": {"width": 1},
+                    "line": {
+                        "width": float(style.get("outline_width", 1.0) or 0.0),
+                        "color": _outline_color(style),
+                    },
                 },
                 hovertemplate="<br>".join(hover_lines),
                 selected={"marker": {"opacity": 1.0, "size": _marker_size(style) + 3.0}},
