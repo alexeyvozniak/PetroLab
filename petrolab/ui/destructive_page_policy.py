@@ -29,6 +29,24 @@ def _render_pending(name: str, text: str) -> None:
         st.rerun()
 
 
+def render_plot_confirmations() -> None:
+    """Render pending confirmations for XY actions independently of the legacy page renderer."""
+    _render_pending(
+        "plot_recipe",
+        "Удаление рецепта нельзя отменить. Нажмите «Удалить рецепт» ещё раз для подтверждения или отмените действие.",
+    )
+    _render_pending(
+        "style_profile",
+        "Удаление профиля стилей нельзя отменить. Нажмите «Удалить выбранный профиль» ещё раз или отмените действие.",
+    )
+    pending_group = st.session_state.get(_pending_key("work_group"))
+    if pending_group is not None:
+        _render_pending(
+            "work_group",
+            f"Рабочая группа будет снята с {len(pending_group)} точек. Нажмите кнопку очистки ещё раз или отмените действие.",
+        )
+
+
 def install() -> None:
     """Install two-click guards for destructive legacy actions once per process."""
     from petrolab.ui.pages import plots, rocks
@@ -71,20 +89,7 @@ def install() -> None:
         return result["value"]
 
     def render_plots() -> None:
-        _render_pending(
-            "plot_recipe",
-            "Удаление рецепта нельзя отменить. Нажмите «Удалить рецепт» ещё раз для подтверждения или отмените действие.",
-        )
-        _render_pending(
-            "style_profile",
-            "Удаление профиля стилей нельзя отменить. Нажмите «Удалить выбранный профиль» ещё раз или отмените действие.",
-        )
-        pending_group = st.session_state.get(_pending_key("work_group"))
-        if pending_group is not None:
-            _render_pending(
-                "work_group",
-                f"Рабочая группа будет снята с {len(pending_group)} точек. Нажмите кнопку очистки ещё раз или отмените действие.",
-            )
+        render_plot_confirmations()
         original_plot_render()
 
     plots.delete_plot_recipe = delete_recipe
