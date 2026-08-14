@@ -14,6 +14,7 @@ $RuntimePrevious = Join-Path $Root "runtime.previous"
 $BuildFile = Join-Path $Current ".petrolab_build_sha"
 $RepoApi = "https://api.github.com/repos/alexeyvozniak/PetroLab"
 $RepoZipBase = "https://github.com/alexeyvozniak/PetroLab/archive"
+$VerifiedRefUrl = "$RepoApi/git/ref/tags/windows-latest"
 $Headers = @{
     "User-Agent" = "PetroLab-Updater"
     "Accept" = "application/vnd.github+json"
@@ -35,6 +36,26 @@ function Get-FileHashText([string]$Path) {
         return ""
     }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
+function Resolve-VerifiedBuildSha {
+    # CI may supply an exact target SHA to exercise Windows PowerShell 5.1 without
+    # moving the public verified-update channel. Normal user runs never set this.
+    if (-not [string]::IsNullOrWhiteSpace($env:PETROLAB_UPDATE_TARGET_SHA)) {
+        return $env:PETROLAB_UPDATE_TARGET_SHA.Trim()
+    }
+
+    try {
+        $verifiedRef = Invoke-RestMethod -Uri $VerifiedRefUrl -Headers $Headers
+    }
+    catch {
+        throw "No verified Windows update is available yet. Try again later or reinstall from the latest PetroLab Windows release."
+    }
+    $sha = [string]$verifiedRef.object.sha
+    if ([string]::IsNullOrWhiteSpace($sha)) {
+        throw "The verified Windows update channel did not return a commit SHA."
+    }
+    return $sha.Trim()
 }
 
 function Copy-AppPayload([string]$SourceRoot, [string]$DestinationRoot, [string]$BuildSha) {
@@ -112,12 +133,8 @@ try {
         exit 2
     }
 
-    Write-Stage "Checking the current main build..."
-    $remote = Invoke-RestMethod -Uri "$RepoApi/commits/main" -Headers $Headers
-    $remoteSha = [string]$remote.sha
-    if ([string]::IsNullOrWhiteSpace($remoteSha)) {
-        throw "GitHub did not return a commit SHA."
-    }
+    Write-Stage "Checking the verified Windows build..."
+    $remoteSha = Resolve-VerifiedBuildSha
 
     $localSha = ""
     if (Test-Path -LiteralPath $BuildFile) {
@@ -137,7 +154,7 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $tempRoot, $extractRoot | Out-Null
-    Write-Stage "Downloading immutable source $($remoteSha.Substring(0, 12))..."
+    Write-Stage "Downloading verified source $($remoteSha.Substring(0, 12))..."
     Invoke-WebRequest -Uri "$RepoZipBase/$remoteSha.zip" -Headers $Headers -OutFile $zipPath
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
     $sourceRoot = (Get-ChildItem -LiteralPath $extractRoot -Directory | Select-Object -First 1).FullName
