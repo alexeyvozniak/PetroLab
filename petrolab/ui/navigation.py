@@ -7,7 +7,7 @@ from petrolab.ui.project_context import active_project_id, set_active_project
 
 
 NAV_SECTIONS = {
-    "Данные": [("home", "Главная"), ("database", "Вся база"), ("sources", "Импорт"), ("analyses", "База анализов"), ("formulae", "Расчёты")],
+    "Данные": [("home", "Главная"), ("intake", "Добавить данные"), ("database", "Вся база"), ("sources", "Импорт"), ("analyses", "База анализов"), ("formulae", "Расчёты")],
     "Исследование": [("plots", "XY-диаграммы"), ("ternary", "Треугольные"), ("science_plots", "Научные диаграммы"), ("statistics", "Статистика")],
     "Материалы": [("rocks", "Породы"), ("images", "Изображения"), ("minerals", "Минералогические модули")],
     "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
