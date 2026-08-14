@@ -40,6 +40,8 @@ def active_project_name(fallback: str = "Проект не выбран") -> str
 
 
 def set_active_project(project_id: int) -> None:
+    """Update the global context without rewriting an already-instantiated sidebar widget."""
     project_id = int(project_id)
     st.session_state[ACTIVE_PROJECT_KEY] = project_id
-    st.session_state[SIDEBAR_PROJECT_KEY] = project_id
+    if st.session_state.get(SIDEBAR_PROJECT_KEY) != project_id:
+        st.session_state[SIDEBAR_PROJECT_KEY] = project_id
