@@ -155,6 +155,10 @@ def _schema_mapping(
             continue
 
         with st.expander(f"Колонки: {label}", expanded=sheet_index == 0):
+            if preview.adapter_name:
+                st.success(f"Распознан формат: {preview.adapter_name}")
+                if preview.adapter_note:
+                    st.caption(preview.adapter_note)
             changed = [
                 {"В Excel": original, "В PetroLab": normalized}
                 for original, normalized in preview.source_headers if original != normalized
