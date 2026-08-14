@@ -202,6 +202,26 @@ def ensure_storage() -> None:
             )
             """
         )
+        con.execute("""CREATE TABLE IF NOT EXISTS composition_sets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, rock_id INTEGER,
+            name TEXT NOT NULL, kind TEXT NOT NULL, values_json TEXT NOT NULL,
+            units_json TEXT NOT NULL DEFAULT '{}', provenance_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_composition_sets_project ON composition_sets(project_id)")
+        con.execute("""CREATE TABLE IF NOT EXISTS assemblages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, name TEXT NOT NULL,
+            equilibrium_status TEXT NOT NULL DEFAULT 'unreviewed', note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS assemblage_members (
+            assemblage_id INTEGER NOT NULL, analysis_id TEXT NOT NULL, phase TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT '', generation TEXT NOT NULL DEFAULT '',
+            pair_group TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(assemblage_id, analysis_id),
+            FOREIGN KEY(assemblage_id) REFERENCES assemblages(id) ON DELETE CASCADE,
+            FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE)""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_assemblage_members_analysis ON assemblage_members(analysis_id)")
         con.commit()
 
 
