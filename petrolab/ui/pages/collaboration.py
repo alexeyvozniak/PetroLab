@@ -11,7 +11,7 @@ import streamlit as st
 
 from petrolab.collaboration_merge import apply_collaboration_merge, plan_collaboration_merge
 from petrolab.dataframe_utils import dataset_label
-from petrolab.db import connect, list_datasets, list_projects
+from petrolab.db import connect, list_accessible_datasets, list_projects
 from petrolab.exchange_identity import get_exchange_workspace_uuid
 from petrolab.exchange_package import ExchangeSelection, create_exchange_package, preview_exchange_package
 from petrolab.measurement_registry import list_entities
@@ -53,9 +53,10 @@ def _analysis_candidates(project_id: int, dataset_ids: list[int]) -> list[dict]:
             f"""
             SELECT a.analysis_id,a.source_row,a.row_index,d.id AS dataset_id,d.name AS dataset_name,
                    d.mineral_key,d.source_sheet
-            FROM analysis_rows a
-            JOIN datasets d ON d.id=a.dataset_id
-            WHERE d.project_id=? AND d.id IN ({marks})
+            FROM project_dataset_links l
+            JOIN datasets d ON d.id=l.dataset_id
+            JOIN analysis_rows a ON a.dataset_id=d.id
+            WHERE l.project_id=? AND d.id IN ({marks})
             ORDER BY d.name,a.row_index,a.analysis_id
             """,
             [int(project_id), *[int(value) for value in dataset_ids]],
@@ -103,7 +104,7 @@ def _render_send_package(project_id: int) -> None:
     )
     selected_entity_ids = [entity_labels[label] for label in selected_entity_labels]
 
-    datasets = list_datasets(int(project_id))
+    datasets = list_accessible_datasets(int(project_id))
     dataset_labels = {dataset_label(row): int(row["id"]) for row in datasets}
     selected_dataset_labels = st.multiselect(
         "Datasets целиком",
