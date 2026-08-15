@@ -28,8 +28,6 @@ class GrainProfileResult:
     reversed_direction: bool
 
 
-# A hyphen in labels such as P-5 is a separator, not a minus sign. Grain point
-# numbers are therefore parsed as unsigned numeric tokens from display labels.
 _LABEL_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
 
@@ -59,7 +57,11 @@ def _numeric_series(dataframe: pd.DataFrame, column: str, label: str) -> pd.Seri
     if values.isna().any():
         bad = int(values.isna().sum())
         raise ValueError(f"В колонке «{column}» нечисловых/пустых значений: {bad}")
-    return values.astype(float)
+    numeric = values.astype(float)
+    finite = np.isfinite(numeric.to_numpy(dtype=float))
+    if not bool(np.all(finite)):
+        raise ValueError(f"В колонке «{column}» есть бесконечные/некорректные числовые значения")
+    return numeric
 
 
 def _unique_order(values: pd.Series, label: str) -> None:
@@ -88,11 +90,14 @@ def _numbers_from_labels(dataframe: pd.DataFrame, column: str) -> pd.Series:
 
 
 def _normalized_x(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
     if len(values) == 0:
-        return values.astype(float)
-    minimum = float(np.nanmin(values))
-    shifted = values.astype(float) - minimum
-    maximum = float(np.nanmax(shifted))
+        return values
+    if not bool(np.all(np.isfinite(values))):
+        raise ValueError("Координата профиля содержит бесконечное/некорректное значение")
+    minimum = float(np.min(values))
+    shifted = values - minimum
+    maximum = float(np.max(shifted))
     if maximum <= 0:
         return np.zeros(len(values), dtype=float)
     return shifted / maximum
@@ -112,12 +117,7 @@ def prepare_grain_profile(
     normalize_distance: bool = False,
     reverse: bool = False,
 ) -> GrainProfileResult:
-    """Prepare one scientifically explicit traverse through a grain.
-
-    Physical ordering is never inferred from unrelated image coordinates. Geometry
-    mode therefore requires one non-empty coordinate-frame value and an explicit
-    point-order column; only then is cumulative Euclidean distance calculated.
-    """
+    """Prepare one scientifically explicit traverse through a grain."""
     if dataframe.empty:
         raise ValueError("Нет точек для профиля")
     if order_mode not in ORDER_MODES:
@@ -131,21 +131,18 @@ def prepare_grain_profile(
     if order_mode == "selection":
         ordered = work.reset_index(drop=True)
         raw_x = np.arange(len(ordered), dtype=float)
-
     elif order_mode == "explicit":
         order = _numeric_series(work, order_column, "порядок точек")
         _unique_order(order, order_column)
         ordered = work.assign(_profile_sort=order).sort_values("_profile_sort", kind="mergesort").reset_index(drop=True)
         raw_x = np.arange(len(ordered), dtype=float)
         x_label = str(order_column)
-
     elif order_mode == "label_number":
         order = _numbers_from_labels(work, label_column)
         _unique_order(order, label_column)
         ordered = work.assign(_profile_sort=order).sort_values("_profile_sort", kind="mergesort").reset_index(drop=True)
         raw_x = np.arange(len(ordered), dtype=float)
         x_label = f"Порядок по {label_column}"
-
     elif order_mode == "distance":
         distance = _numeric_series(work, distance_column, "расстояние")
         _unique_order(distance, distance_column)
@@ -153,8 +150,7 @@ def prepare_grain_profile(
         sorted_distance = pd.to_numeric(ordered[distance_column], errors="raise").to_numpy(dtype=float)
         raw_x = sorted_distance - float(np.min(sorted_distance))
         x_label = str(distance_column)
-
-    else:  # geometry
+    else:
         if not coordinate_frame_column or coordinate_frame_column not in work.columns:
             raise ValueError("Для геометрического профиля укажите колонку системы координат/изображения")
         frame_values = work[coordinate_frame_column].fillna("").astype(str).str.strip()
@@ -178,6 +174,8 @@ def prepare_grain_profile(
         x_label = "Расстояние по профилю"
 
     raw_x = np.asarray(raw_x, dtype=float)
+    if not bool(np.all(np.isfinite(raw_x))):
+        raise ValueError("Расстояние профиля содержит бесконечное/некорректное значение")
     if reverse:
         ordered = ordered.iloc[::-1].reset_index(drop=True)
         reversed_x = raw_x[::-1]
@@ -221,7 +219,7 @@ def build_grain_profile_figure(
     if not selected:
         raise ValueError("Не выбрана ни одна величина Y для профиля")
     x = pd.to_numeric(dataframe["_profile_x"], errors="coerce")
-    if x.isna().any():
+    if x.isna().any() or not bool(np.all(np.isfinite(x.to_numpy(dtype=float)))):
         raise ValueError("Внутренняя координата профиля повреждена")
 
     with plt.rc_context({"font.family": font_family, "font.size": font_size}):
@@ -232,6 +230,8 @@ def build_grain_profile_figure(
                 end = float(zone.get("end"))
             except (TypeError, ValueError):
                 continue
+            if not (np.isfinite(start) and np.isfinite(end)):
+                continue
             if end < start:
                 start, end = end, start
             axis.axvspan(start, end, alpha=0.08, zorder=0)
@@ -240,9 +240,10 @@ def build_grain_profile_figure(
                 axis.text((start + end) / 2.0, 0.98, label, transform=axis.get_xaxis_transform(), ha="center", va="top", fontsize=max(6.0, font_size - 1.0))
 
         for column in selected:
-            y = pd.to_numeric(dataframe[column], errors="coerce")
-            # Matplotlib naturally leaves a gap at NaN; missing chemistry is never
-            # converted to zero for visual continuity.
+            y = pd.to_numeric(dataframe[column], errors="coerce").astype(float)
+            y = y.where(np.isfinite(y), np.nan)
+            if y.notna().sum() == 0:
+                raise ValueError(f"В серии «{column}» нет конечных числовых значений")
             axis.plot(
                 x.to_numpy(dtype=float),
                 y.to_numpy(dtype=float),
