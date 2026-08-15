@@ -20,6 +20,14 @@ CSS = r"""
  * margin могут схлопываться на границе markdown-контейнера. Пространство между
  * строками задаётся внешним stElementContainer ниже.
  */
+.petrolab-sidebar-brand-block {
+    display: block !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+    min-height: 2.75rem !important;
+    margin: 0 !important;
+    padding: .06rem 0 .14rem !important;
+}
 .petrolab-sidebar-brand {
     display: block !important;
     position: relative !important;
@@ -38,7 +46,7 @@ CSS = r"""
     font-size: .76rem !important;
     line-height: 1.3 !important;
     min-height: 1rem !important;
-    margin: 0 !important;
+    margin: .10rem 0 0 !important;
     padding: 0 !important;
 }
 .petrolab-nav-section {
@@ -64,17 +72,10 @@ CSS = r"""
     flex-shrink: 0 !important;
     min-width: 0 !important;
 }
-[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-sidebar-brand),
-[data-testid="stSidebar"] .stElementContainer:has(.petrolab-sidebar-brand) {
-    min-height: 1.72rem !important;
-    padding: .10rem 0 .12rem !important;
-    margin: 0 !important;
-    overflow: visible !important;
-}
-[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-sidebar-version),
-[data-testid="stSidebar"] .stElementContainer:has(.petrolab-sidebar-version) {
-    min-height: 1.45rem !important;
-    padding: .05rem 0 .32rem !important;
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-sidebar-brand-block),
+[data-testid="stSidebar"] .stElementContainer:has(.petrolab-sidebar-brand-block) {
+    min-height: 3.05rem !important;
+    padding: .08rem 0 .18rem !important;
     margin: 0 !important;
     overflow: visible !important;
 }
