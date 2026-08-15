@@ -38,6 +38,19 @@ def install() -> None:
                     values.append(clean)
         return " | ".join(values)
 
+    def has_import_metadata_value(value) -> bool:
+        """Blank bulk-import metadata means 'not supplied', never 'erase existing'."""
+        if value is None:
+            return False
+        try:
+            if pd.isna(value):
+                return False
+        except (TypeError, ValueError):
+            pass
+        if isinstance(value, str) and not value.strip():
+            return False
+        return True
+
     def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = None):
         excluded = excluded_columns or set()
         composition: dict[str, float] = {}
@@ -182,8 +195,9 @@ def install() -> None:
             if not name:
                 continue
             metadata = {
-                key: row.get(column, "") for key, column in metadata_columns.items()
-                if column in dataframe.columns
+                key: row.get(column)
+                for key, column in metadata_columns.items()
+                if column in dataframe.columns and has_import_metadata_value(row.get(column))
             }
             metadata["chemistry_method"] = chemistry_method
             metadata["laboratory"] = laboratory
