@@ -24,10 +24,27 @@ jobs:
           petrolab/ui/project_context.py
           petrolab/ui/pages/projects.py
           petrolab/ui/pages/v0156_audit_wrappers.py
+          petrolab/ui/pages/generations.py
+          petrolab/ui/pages/export.py
+          petrolab/ui/pages/equilibrium.py
+          petrolab/ui/pages/distribution.py
+          petrolab/ui/pages/change_log.py
           petrolab/ui/pages/__init__.py
           tests_v0156_full_audit.py
-      - name: Run full-audit regressions
+          tests_v0156_generation_scope.py
+          tests_v0156_export_membership.py
+          tests_v0156_dataset_label_scope.py
+          tests_v0156_change_log_scope.py
+      - name: Run full-audit routing and state regressions
         run: python tests_v0156_full_audit.py
+      - name: Run project-scoped Generation regression
+        run: python tests_v0156_generation_scope.py
+      - name: Run export membership regression
+        run: python tests_v0156_export_membership.py
+      - name: Run duplicate dataset selector regression
+        run: python tests_v0156_dataset_label_scope.py
+      - name: Run cross-project change-history regression
+        run: python tests_v0156_change_log_scope.py
       - name: Re-run prior exact-selection regressions
         run: python tests_v0151_ui_selection.py
       - name: Re-run project-context regressions
