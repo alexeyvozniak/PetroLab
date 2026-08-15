@@ -90,6 +90,14 @@ def _formula_token(column: str) -> str:
     return f"`{text}`"
 
 
+def _append_formula_token(expression_key: str, column: str) -> None:
+    if column == "—":
+        return
+    current = str(st.session_state.get(expression_key, "")).rstrip()
+    token = _formula_token(column)
+    st.session_state[expression_key] = f"{current} {token}".strip()
+
+
 def _saved_fields(target_kind: str, target_id: int):
     if target_kind == TARGET_DATASET:
         return list_dataset_fields(target_id)
@@ -173,6 +181,7 @@ def _render_user_field_builder(
     existing_fields = _saved_fields(target_kind, target_id)
     existing_names = {field.name for field in existing_fields}
     visible_columns = [str(column) for column in dataframe.columns if not str(column).startswith("_")]
+    expression_key = f"{key_prefix}_expression"
 
     with st.expander("Создать или изменить вычисляемое поле", expanded=not existing_fields):
         preset_map = {preset["label"]: preset for preset in FORMULA_PRESETS}
@@ -188,13 +197,13 @@ def _render_user_field_builder(
         ):
             preset = preset_map[preset_label]
             st.session_state[f"{key_prefix}_name"] = preset["name"]
-            st.session_state[f"{key_prefix}_expression"] = preset["expression"]
+            st.session_state[expression_key] = preset["expression"]
             st.rerun()
 
         name = st.text_input("Название новой колонки", key=f"{key_prefix}_name")
         expression = st.text_area(
             "Формула",
-            key=f"{key_prefix}_expression",
+            key=expression_key,
             height=90,
             help=(
                 "Разрешены +, -, *, /, ** и скобки. Простые имена можно писать напрямую: La / Yb. "
@@ -208,11 +217,14 @@ def _render_user_field_builder(
             ["—", *visible_columns],
             key=f"{key_prefix}_insert_column",
         )
-        if c2.button("Добавить", key=f"{key_prefix}_insert_button", width="stretch") and insert_column != "—":
-            current = str(st.session_state.get(f"{key_prefix}_expression", "")).rstrip()
-            token = _formula_token(insert_column)
-            st.session_state[f"{key_prefix}_expression"] = f"{current} {token}".strip()
-            st.rerun()
+        c2.button(
+            "Добавить",
+            key=f"{key_prefix}_insert_button",
+            width="stretch",
+            disabled=insert_column == "—",
+            on_click=_append_formula_token,
+            args=(expression_key, insert_column),
+        )
 
         description = st.text_input(
             "Комментарий / смысл показателя",
