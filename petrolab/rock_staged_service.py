@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 import pandas as pd
 
@@ -20,7 +19,7 @@ from petrolab.sample_registry import link_rock_record_to_sample, list_samples
 
 CANONICAL_ROCK_FIELDS = {
     "Sample", "Lithology", "Source", "Method", "Laboratory", "Locality", "Massif",
-    "Age", "Age uncertainty", "Age method",
+    "Latitude", "Longitude", "Age", "Age uncertainty", "Age method",
 }
 
 
@@ -92,6 +91,8 @@ def _metadata_from_row(row: pd.Series) -> dict:
         "lithology": _text(row.get("Lithology")),
         "massif": _text(row.get("Massif")),
         "locality": _text(row.get("Locality")),
+        "latitude": _float(row.get("Latitude")),
+        "longitude": _float(row.get("Longitude")),
         "age_ma": _float(row.get("Age")),
         "age_uncertainty_ma": _float(row.get("Age uncertainty")),
         "age_method": _text(row.get("Age method")),
@@ -158,7 +159,8 @@ def import_staged_rocks(
     source_confirm = {str(key): int(value) for key, value in (confirmed_sources or {}).items()}
     excluded = {column for column in dataframe.columns if str(column) in CANONICAL_ROCK_FIELDS}
 
-    # Preflight chemistry before creating any new physical objects.
+    # Preflight every row before creating physical objects. Chemistry conflicts therefore
+    # fail before the first rock or determination is persisted.
     prepared: list[dict] = []
     warnings: list[str] = []
     from petrolab.services.rock_service import canonicalize_rock_row
@@ -235,18 +237,26 @@ def import_staged_rocks(
         )
         attribute_count += _save_attributes(int(determination_id), item["attributes"])
 
-        # Preserve current plots and legacy views: only the first composition becomes
-        # the default rock composition. Later determinations remain separate until the
-        # user explicitly marks another one preferred.
+        # Preserve existing single-composition views: the first determination becomes
+        # the legacy/default composition. Later determinations remain separate and are
+        # available to the comparison workspaces without overwriting it.
         if get_composition(int(rock_id)).empty and item["composition"]:
             replace_composition(
-                int(rock_id), item["composition"], units=item["units"],
-                method=method, source=source_label or source_file,
+                int(rock_id),
+                item["composition"],
+                units=item["units"],
+                method=method,
+                source=source_label or source_file,
             )
         rock_ids.append(int(rock_id))
         determination_ids.append(int(determination_id))
 
     return RockStagedImportResult(
-        tuple(dict.fromkeys(rock_ids)), tuple(determination_ids), created, reused,
-        linked_sources, attribute_count, tuple(warnings),
+        tuple(dict.fromkeys(rock_ids)),
+        tuple(determination_ids),
+        created,
+        reused,
+        linked_sources,
+        attribute_count,
+        tuple(warnings),
     )
