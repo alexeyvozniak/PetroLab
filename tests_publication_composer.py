@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -16,6 +18,7 @@ from petrolab.publication_composer import (
     publication_recipe,
     recipe_json_bytes,
 )
+from petrolab.publication_sources import source_bytes
 
 
 def _png_bytes(value: int) -> bytes:
@@ -48,6 +51,19 @@ def main() -> None:
     assert panel_label_sequence(6, "cyrillic_upper") == ["А", "Б", "В", "Г", "Д", "Е"]
     assert panel_label_sequence(4, "latin_lower") == ["a", "b", "c", "d"]
     assert panel_label_sequence(3, "none") == ["", "", ""]
+
+    with tempfile.TemporaryDirectory(prefix="petrolab_publication_source_") as tmp:
+        path = Path(tmp) / "source.png"
+        expected = _png_bytes(80)
+        path.write_bytes(expected)
+        assert source_bytes({"path": str(path), "source_name": "source"}) == expected
+        path.unlink()
+        try:
+            source_bytes({"path": str(path), "source_name": "missing"})
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("A missing project source must fail explicitly")
 
     labels = [default_panel_label(text) for text in panel_label_sequence(6, "latin_upper")]
     figure = build_publication_figure([_panel(index, label) for index, label in enumerate(labels)], columns=3)
