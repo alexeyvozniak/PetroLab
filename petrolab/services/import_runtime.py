@@ -55,6 +55,10 @@ def _prepare(
             frame, column_map, _ = apply_measurement_overrides(
                 frame, column_map, (measurement_maps or {}).get(sheet, {})
             )
+            # Import service knows how to infer WDS/EDS provenance from a protocol.
+            # The runtime path must keep that field too; otherwise preview and persisted
+            # data disagree and Method filters silently miss freshly imported rows.
+            frame, column_map = svc._attach_detected_method(frame, column_map)
             frame = svc._calculate_mineral(frame, mineral)
         except Exception as exc:
             raise ValueError(f"Лист «{sheet or 'CSV'}» не прошёл preflight: {exc}") from exc

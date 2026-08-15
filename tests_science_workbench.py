@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import io
 import os
 import sqlite3
@@ -286,6 +287,11 @@ def main() -> None:
         for figure in [fig, mono_tas, mono_pattern, mono_hist, mono_fig]:
             plt = __import__("matplotlib.pyplot", fromlist=["close"])
             plt.close(figure)
+
+        # Every explicit SQLite connection above is closed. On Windows, short-lived
+        # cursor/row objects can keep a file handle until cyclic GC; collect only after
+        # all scientific assertions and figures have completed so temp cleanup is deterministic.
+        gc.collect()
 
     print("science workbench tests: OK")
 
