@@ -22,6 +22,7 @@ DAILY_NAV = [
 
 TOOL_SECTIONS = {
     "Данные": [
+        ("search", "Глобальный поиск"),
         ("quick_import", "Быстрый импорт"),
         ("workflow", "Рабочий процесс"),
         ("analyses", "База анализов"),
@@ -123,10 +124,15 @@ def render_sidebar(version: str) -> str:
         st.session_state["_sidebar_project_ready"] = True
 
         st.markdown('<div class="petrolab-nav-section">Поиск</div>', unsafe_allow_html=True)
-        search = st.text_input("Найти Sample или массив", key="sidebar_object_search", label_visibility="collapsed")
-        if st.button("Найти в рабочем столе", key="sidebar_object_search_go", width="stretch"):
-            st.session_state["workspace_query_pending"] = str(search or "").strip()
-            st.session_state["nav_route"] = "workspace"
+        search = st.text_input(
+            "Найти Sample, минерал, статью или массив",
+            key="sidebar_object_search",
+            label_visibility="collapsed",
+            placeholder="Sample, минерал, статья…",
+        )
+        if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
+            st.session_state["global_search_query_pending"] = str(search or "").strip()
+            st.session_state["nav_route"] = "search"
             st.rerun()
     else:
         st.session_state.pop("_sidebar_project_ready", None)
