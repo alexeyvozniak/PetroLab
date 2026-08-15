@@ -12,12 +12,24 @@ from petrolab.column_schema import describe_header
 from petrolab.import_staging import detect_role_columns
 from petrolab.io_utils import normalize_columns_with_map
 from petrolab.rock_staged_service import import_staged_rocks
-from petrolab.sample_registry import list_samples
+from petrolab.sample_registry import add_sample_alias, list_samples
 from petrolab.source_registry import list_studies
 from petrolab.ui.layout import render_badges, render_hint
 from petrolab.ui.staging_editor import render_staging_editor
 
 from . import rocks as _rocks
+
+
+_IRON_CHOICES = {
+    "FeO": {
+        "Всё железо, выраженное как FeO total": "FeOt",
+        "Отдельно измеренное Fe²⁺ как FeO": "FeO",
+    },
+    "Fe2O3": {
+        "Всё железо, выраженное как Fe₂O₃ total": "Fe2O3t",
+        "Отдельно измеренное Fe³⁺ как Fe₂O₃": "Fe2O3",
+    },
+}
 
 
 def _read_table(uploaded) -> tuple[pd.DataFrame, str]:
@@ -58,6 +70,50 @@ def _canonicalize_roles(frame: pd.DataFrame, role_map: dict[str, str]) -> pd.Dat
     return result
 
 
+def _replace_confirmed_names(frame: pd.DataFrame, sample_names: dict[str, str], source_names: dict[str, str]) -> pd.DataFrame:
+    result = frame.copy()
+    for field, mapping in (("Sample", sample_names), ("Source", source_names)):
+        if field not in result.columns or not mapping:
+            continue
+        original = result[field].copy()
+        mapped = original.map(
+            lambda value: mapping.get(str(value).strip(), value)
+            if pd.notna(value) and str(value).strip() else value
+        )
+        changed = original.astype("string").fillna("") != mapped.astype("string").fillna("")
+        if bool(changed.any()):
+            original_field = f"{field} (source)"
+            if original_field not in result.columns:
+                result[original_field] = original
+            result[field] = mapped
+    return result
+
+
+def _apply_iron_semantics(frame: pd.DataFrame, token: str) -> tuple[pd.DataFrame, bool]:
+    result = frame.copy()
+    ready = True
+    for source, choices in _IRON_CHOICES.items():
+        if source not in result.columns:
+            continue
+        choice = st.radio(
+            f"Что означает {source} в whole-rock таблице?",
+            list(choices),
+            index=None,
+            key=f"rock_v0154_iron_{token}_{source}",
+        )
+        if choice is None:
+            ready = False
+            continue
+        target = choices[choice]
+        if target != source:
+            if target in result.columns:
+                st.error(f"Нельзя преобразовать {source} → {target}: колонка {target} уже существует.")
+                ready = False
+                continue
+            result = result.rename(columns={source: target})
+    return result, ready
+
+
 def _existing_source_labels(project_id: int) -> list[str]:
     labels: list[str] = []
     for study in list_studies(int(project_id)):
@@ -78,6 +134,16 @@ def _confirmation_ids(project_id: int, sample_names: dict[str, str], source_name
         {incoming: sample_by_name[canonical] for incoming, canonical in sample_names.items() if canonical in sample_by_name},
         {incoming: source_by_name[canonical] for incoming, canonical in source_names.items() if canonical in source_by_name},
     )
+
+
+def _persist_sample_aliases(project_id: int, mappings: dict[str, str]) -> None:
+    if not mappings:
+        return
+    by_name = {str(item["name"]): int(item["id"]) for item in list_samples(int(project_id))}
+    for alias, canonical in mappings.items():
+        sample_id = by_name.get(str(canonical))
+        if sample_id is not None and str(alias).strip() and str(alias).strip() != str(canonical).strip():
+            add_sample_alias(int(sample_id), str(alias).strip(), source="staging_confirmed")
 
 
 def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -> None:
@@ -115,6 +181,11 @@ def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -
             st.warning("Таблица пуста.")
             return
 
+        frame, iron_ready = _apply_iron_semantics(frame, f"{uploaded.name}_{sheet}")
+        if not iron_ready:
+            st.info("Перед импортом нужно подтвердить форму представления железа.")
+            return
+
         chemistry = [
             str(column) for column in frame.columns
             if describe_header(column).quantity_kind in {
@@ -136,6 +207,7 @@ def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -
             existing_sources=existing_sources,
         )
         staged = _canonicalize_roles(result.dataframe, result.role_columns)
+        staged = _replace_confirmed_names(staged, sample_names, source_names)
         if "Sample" not in staged.columns:
             st.warning("Назначьте колонку Sample или создайте поле Sample массовым действием — без физического образца импорт пород не выполняется.")
             return
@@ -163,6 +235,7 @@ def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -
                     confirmed_samples=confirmed_samples,
                     confirmed_sources=confirmed_sources,
                 )
+                _persist_sample_aliases(int(project_id), sample_names)
             except Exception as exc:
                 st.error(f"Импорт пород остановлен: {exc}")
                 return
