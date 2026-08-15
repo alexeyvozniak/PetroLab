@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from petrolab.auto_pipeline import auto_process_imported_datasets
 from petrolab.column_schema import CANONICAL_ROLES
 from petrolab.db import get_or_create_library_project, link_dataset_to_project
 from petrolab.services.import_service import (
@@ -71,9 +72,24 @@ def _finish_import(project_id: int, dataset_ids: list[int]) -> None:
             "Добавлено через безопасный быстрый импорт",
             purpose="working",
         )
-    st.session_state["workflow_recent_dataset_ids"] = [int(value) for value in dataset_ids]
+
+    # The automatic pass is intentionally conservative: only chemically high-confidence,
+    # non-outlier probe rows are materialized into phases. Ambiguous/trace-only rows remain
+    # unresolved, and formula/APFU values are stored as derived results with provenance.
+    report = auto_process_imported_datasets(int(project_id), dataset_ids)
+    working = list(report.working_dataset_ids) or [int(value) for value in dataset_ids]
+    warnings = [warning for item in report.datasets for warning in item.warnings]
+    invalid_formula_rows = sum(item.formula_invalid_rows for item in report.datasets)
+    st.session_state["workflow_recent_dataset_ids"] = working
     st.session_state["workflow_recent_import_target"] = int(project_id)
-    st.session_state["quick_import_done_ids"] = [int(value) for value in dataset_ids]
+    st.session_state["quick_import_done_ids"] = working
+    st.session_state["quick_import_report"] = {
+        "auto_assigned": int(report.auto_assigned_rows),
+        "unresolved": int(report.unresolved_rows),
+        "formula_datasets": int(report.formula_datasets),
+        "formula_invalid_rows": int(invalid_formula_rows),
+        "warnings": warnings,
+    }
     st.rerun()
 
 
@@ -81,7 +97,7 @@ def render_quick_import_page() -> None:
     project = active_project()
     render_page_header(
         "Быстрый импорт",
-        "Однозначные файлы проходят короткий путь; научная неоднозначность переводит импорт в полный мастер.",
+        "Однозначный зондовый файл проходит от нормализации до фаз и APFU автоматически; PetroLab спрашивает только там, где научно нельзя угадывать.",
         eyebrow="Добавить данные",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -92,13 +108,27 @@ def render_quick_import_page() -> None:
 
     completed = [int(value) for value in st.session_state.get("quick_import_done_ids", [])]
     if completed:
-        st.success(f"Импортировано наборов: {len(completed)}.")
+        report = dict(st.session_state.get("quick_import_report", {}) or {})
+        st.success(f"Данные сохранены в базе. Рабочих наборов после разбора: {len(completed)}.")
+        render_badges([
+            (f"авторазобрано строк · {int(report.get('auto_assigned', 0))}", "success"),
+            (f"требуют решения · {int(report.get('unresolved', 0))}", "warning" if int(report.get("unresolved", 0)) else "neutral"),
+            (f"APFU наборов · {int(report.get('formula_datasets', 0))}", "accent"),
+        ])
+        invalid_formula_rows = int(report.get("formula_invalid_rows", 0))
+        if invalid_formula_rows:
+            st.warning(
+                f"У {invalid_formula_rows} строк формула не прошла входные условия. Исходная химия сохранена; такие строки отмечены как нерассчитанные."
+            )
+        for warning in list(report.get("warnings", []))[:12]:
+            st.caption("• " + str(warning))
         c1, c2, c3 = st.columns(3)
         if c1.button("Открыть рабочий стол", type="primary", width="stretch", key="quick_done_workspace"):
             st.session_state["workspace_mode"] = "Массив данных"
             navigate("workspace")
             st.rerun()
-        if c2.button("Разобрать фазы", width="stretch", key="quick_done_phases"):
+        phase_label = "Разобрать оставшиеся" if int(report.get("unresolved", 0)) else "Проверить фазы"
+        if c2.button(phase_label, width="stretch", key="quick_done_phases"):
             if len(completed) == 1:
                 st.session_state["workflow_mixed_dataset_id"] = completed[0]
             navigate("mixed_minerals")
@@ -109,12 +139,14 @@ def render_quick_import_page() -> None:
             st.rerun()
         if st.button("Импортировать ещё файл", width="stretch", key="quick_done_again"):
             st.session_state.pop("quick_import_done_ids", None)
+            st.session_state.pop("quick_import_report", None)
             st.rerun()
         return
 
     render_badges([
         ("Preview до записи", "neutral"),
         ("Fe не угадывается", "warning"),
+        ("High-confidence фазы → автоматически", "success"),
     ])
 
     uploaded = st.file_uploader(
@@ -123,7 +155,10 @@ def render_quick_import_page() -> None:
         key="quick_import_file",
     )
     if uploaded is None:
-        render_hint("Быстрый импорт создаёт внутреннюю рабочую копию. Для двусторонней синхронизации с XLSX/XLSM используйте расширенный импорт.")
+        render_hint(
+            "После записи PetroLab автоматически разберёт только уверенные mineral phases и сразу сохранит рекомендуемый APFU-пересчёт. "
+            "Спорные точки останутся в mixed. Для двусторонней синхронизации с XLSX/XLSM используйте расширенный импорт."
+        )
         if st.button("Расширенный импорт", width="stretch", key="quick_to_advanced_empty", help="Связать исходный файл на компьютере и пройти полный контроль схемы."):
             navigate("sources")
             st.rerun()
@@ -221,8 +256,10 @@ def render_quick_import_page() -> None:
             if len(frame) > 40:
                 render_hint(f"В preview показаны первые 40 из {len(frame)} строк.")
 
-    render_hint("Минерал сохраняется как «Смешанный / определить автоматически»: быстрый режим не делает минералогическое предположение по имени файла или листа.")
-    if st.button("Импортировать", type="primary", width="stretch", key="quick_import_commit"):
+    render_hint(
+        "Сначала файл сохраняется как mixed без минералогической догадки по имени. После записи химически high-confidence точки автоматически переходят в фазовые наборы и получают рекомендуемый APFU; всё неоднозначное остаётся mixed."
+    )
+    if st.button("Импортировать и подготовить к работе", type="primary", width="stretch", key="quick_import_commit"):
         try:
             result = import_uploaded_sheets(
                 project_id=get_or_create_library_project(),
