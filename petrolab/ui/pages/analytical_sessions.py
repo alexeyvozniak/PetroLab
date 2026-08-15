@@ -18,6 +18,7 @@ from petrolab.analytical_sessions import (
     set_annotations,
     update_session_status,
 )
+from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.sample_registry import create_sample, find_sample_matches, list_samples
@@ -27,6 +28,7 @@ from petrolab.ui.project_context import active_project_id
 ZONE_OPTIONS = ["", "core", "intermediate", "rim", "overgrowth", "inclusion", "unknown"]
 SIZE_OPTIONS = ["", "small", "medium", "large", "unknown"]
 TEXTURE_OPTIONS = ["", "phenocryst", "antecryst", "xenocryst", "groundmass", "inclusion", "reaction zone", "unknown"]
+_MORPHOLOGY_SELECTOR_LIMIT = 5000
 
 
 def _jump(route: str) -> None:
@@ -132,6 +134,10 @@ def _session_header(session: dict) -> None:
         _jump("statistics")
 
 
+def _session_dataset_map(candidates: list[dict]) -> dict[str, int]:
+    return {dataset_label(item): int(item["id"]) for item in candidates}
+
+
 def _dataset_step(project_id: int, session_id: int) -> list[dict]:
     st.markdown("### 3 · Данные сессии")
     linked = session_datasets(session_id)
@@ -145,7 +151,7 @@ def _dataset_step(project_id: int, session_id: int) -> list[dict]:
     else:
         st.info("Импортируйте файл, затем привяжите созданные mineral datasets к этой сессии.")
     if candidates:
-        labels = {f"{item['name']} · {item['mineral_key']} · {item['source_filename']} · {item['row_count']} анализов": int(item["id"]) for item in candidates}
+        labels = _session_dataset_map(candidates)
         selected = st.multiselect("Добавить импортированные наборы", list(labels), key=f"session_attach_{session_id}")
         if st.button("Привязать выбранные наборы", disabled=not selected, key=f"session_attach_btn_{session_id}"):
             try:
@@ -169,11 +175,28 @@ def _morphology_step(project_id: int, session_id: int, linked: list[dict]) -> No
     if dataframe.empty or "_analysis_id" not in dataframe.columns:
         return
     st.caption("Morphology хранится отдельно от Generation: сначала фиксируем наблюдение, интерпретировать его можно позже.")
+    query = st.text_input(
+        "Найти точки для морфологической разметки",
+        placeholder="Sample, Grain, Point, Generation, analysis ID…",
+        key=f"session_morph_search_{session_id}",
+    )
+    candidate_frame = apply_quick_filter(dataframe, query) if query.strip() else dataframe
+    visible_frame = candidate_frame.head(_MORPHOLOGY_SELECTOR_LIMIT)
+    if len(candidate_frame) > _MORPHOLOGY_SELECTOR_LIMIT:
+        st.warning(
+            f"Найдено {len(candidate_frame)} точек; селектор показывает первые {_MORPHOLOGY_SELECTOR_LIMIT}. "
+            "Уточните поиск, чтобы выбрать любую точку за пределами этого списка."
+        )
+    else:
+        st.caption(f"Доступно для выбора: {len(candidate_frame)} точек.")
+
     label_columns = [column for column in ["Sample", "Grain", "Point", "Минерал", "Generation"] if column in dataframe.columns]
+
     def point_label(row: pd.Series) -> str:
         bits = [str(row.get(column, "")).strip() for column in label_columns if str(row.get(column, "")).strip()]
         return " · ".join(bits) + f" · {str(row['_analysis_id'])[:8]}"
-    point_map = {point_label(row): str(row["_analysis_id"]) for _, row in dataframe.head(5000).iterrows()}
+
+    point_map = {point_label(row): str(row["_analysis_id"]) for _, row in visible_frame.iterrows()}
     selected_labels = st.multiselect("Точки для разметки", list(point_map), key=f"session_morph_points_{session_id}")
     if selected_labels:
         c1, c2, c3 = st.columns(3)
