@@ -1,0 +1,50 @@
+name: v0.15.1 silent-error regression
+
+on:
+  push:
+    branches:
+      - "main"
+      - "fix/**"
+      - "feature/**"
+      - "refactor/**"
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  silent-error-and-intake:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install PetroLab dependencies
+        shell: cmd
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile v0.15.1 changed paths
+        shell: cmd
+        run: python -m compileall -q petrolab/physical_point_safety.py petrolab/services/import_runtime.py petrolab/auto_pipeline.py petrolab/ui/work_context.py petrolab/ui/pages/v0151_wrappers.py petrolab/ui/universal_intake.py petrolab/ui/pages/v0151_intake_wrappers.py tests_v0151_silent_errors.py tests_v0151_ui_selection.py tests_v0151_universal_intake.py
+
+      - name: Run silent data-link regressions
+        shell: cmd
+        run: python tests_v0151_silent_errors.py
+
+      - name: Run exact-selection/search regressions
+        shell: cmd
+        run: python tests_v0151_ui_selection.py
+
+      - name: Run universal intake regressions
+        shell: cmd
+        run: python tests_v0151_universal_intake.py
