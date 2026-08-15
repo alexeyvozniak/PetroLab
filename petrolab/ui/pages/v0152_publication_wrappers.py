@@ -13,7 +13,8 @@ from .v0151_wrappers import render_multi_panel_page as _render_v0151_multi_panel
 
 
 def _panel_label_controls(panel_count: int) -> list[dict]:
-    panel_count = max(2, min(6, int(panel_count)))
+    # Публикационная мультипанель поддерживает тот же предел, что и исследовательская: до 10 графиков.
+    panel_count = max(2, min(10, int(panel_count)))
     mode_by_title = {title: key for key, title in LABEL_MODE_TITLES.items()}
     with st.expander("Метки панелей A/B/C · А/Б/В", expanded=False):
         c1, c2, c3 = st.columns([1.4, 1, 1.2])
