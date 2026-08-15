@@ -60,7 +60,11 @@ from .rocks_v0154 import render_rocks_page
 from petrolab.ui.workflow_continuity_v0154 import (
     render_add_data_page_v0154 as render_add_data_page,
     render_multi_panel_page_v0154 as render_multi_panel_page,
-    render_plots_page_v0154 as render_plots_page,
+)
+# Кластеризация и сравнение остаются продолжением того же химического маршрута,
+# а не отдельными спрятанными инструментами.
+from petrolab.ui.workflow_cluster_bridge_v0154 import (
+    render_plots_page_v0154_bridge as render_plots_page,
 )
 
 __all__ = [
