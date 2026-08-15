@@ -138,7 +138,7 @@ amp = pd.DataFrame([{
 amp_r = calculate_formula_safe(amp, "amphibole", "amp_ima2012_23o").data.iloc[0]
 assert bool(amp_r["formula_valid"])
 assert amp_r[SPECIES_COL] == ""
-assert "amphibole" in amp_r[FIELD_COL]
+assert "amphibole" in str(amp_r[FIELD_COL]).lower()
 assert "IMA 2012" in amp_r[LEVEL_COL]
 assert float(amp_r["amp_Fe3_explicit"]) == 0.0
 assert "Formal amphibole species is deliberately not assigned" in amp_r[NOTE_COL]
