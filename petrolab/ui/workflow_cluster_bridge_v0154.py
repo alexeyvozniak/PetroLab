@@ -1,4 +1,4 @@
-"""Переходы из химической разметки к кластеризации и сравнению."""
+"""Переходы между мультипанельным обзором, лассо, кластеризацией и Generation."""
 from __future__ import annotations
 
 import streamlit as st
@@ -7,7 +7,10 @@ from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
-from petrolab.ui.workflow_continuity_v0154 import render_plots_page_v0154 as _render_base_plots
+from petrolab.ui import workflow_continuity_v0154 as _flow
+
+
+_CHEMICAL_MARKUP_MODE = "v0154_chemical_markup_mode"
 
 
 def _current_chemical_dataset_ids() -> list[int]:
@@ -43,9 +46,80 @@ def _prepare_statistics_scope(dataset_ids: list[int]) -> None:
         st.session_state["statistics_datasets"] = labels
 
 
+def _reset_multi_panel_state() -> None:
+    """Не переносить фильтры и оси старой мультипанели на только что импортированные данные."""
+    for key in list(st.session_state):
+        if str(key).startswith("multi_panel_"):
+            st.session_state.pop(key, None)
+
+
+def _chemistry_entry_route(route: str, chemical_mode: bool) -> str:
+    """После импорта начинать исследование химии с мультипанельного обзора."""
+    return "multi_panel" if route == "plots" and chemical_mode else route
+
+
+def render_add_data_page_v0154_bridge() -> None:
+    """Перенаправить кнопку «Исследовать химию» с одиночного XY сразу на мультипанель."""
+    original_navigate = _flow.navigate
+
+    def navigate_from_import(route: str) -> None:
+        target = _chemistry_entry_route(
+            str(route),
+            bool(st.session_state.get(_CHEMICAL_MARKUP_MODE, False)),
+        )
+        if target == "multi_panel":
+            _reset_multi_panel_state()
+            st.session_state["workflow_plot_notice"] = (
+                "Открыты только что импортированные наборы сразу в нескольких химических проекциях. "
+                "Textural zone доступна как наблюдаемая группировка; для точного ручного отбора ниже есть переход к лассо."
+            )
+        original_navigate(target)
+
+    _flow.navigate = navigate_from_import
+    try:
+        _flow.render_add_data_page_v0154()
+    finally:
+        _flow.navigate = original_navigate
+
+
+def render_multi_panel_page_v0154_bridge() -> None:
+    """Сделать мультипанель первым экраном химического исследования и сохранить пути к точной разметке."""
+    chemical_mode = bool(st.session_state.get(_CHEMICAL_MARKUP_MODE, False))
+    notice = st.session_state.pop("workflow_plot_notice", "") if chemical_mode else ""
+    if notice:
+        st.success(str(notice))
+
+    _flow.render_multi_panel_page_v0154()
+
+    if not chemical_mode:
+        return
+
+    dataset_ids = _current_chemical_dataset_ids()
+    st.divider()
+    st.markdown("### Продолжить разметку")
+    st.caption(
+        "Мультипанель нужна для одновременной проверки одной и той же выборки в нескольких проекциях. "
+        "Если границу группы нужно провести вручную, откройте точную разметку лассо; для независимой проверки — PCA и кластеризацию."
+    )
+    c1, c2, c3 = st.columns(3)
+    if c1.button("Точная разметка лассо", type="primary", width="stretch", key="v0154_multi_to_lasso"):
+        if dataset_ids:
+            st.session_state["workflow_plot_dataset_ids"] = dataset_ids
+        navigate("plots")
+        st.rerun()
+    if c2.button("PCA и кластеризация", width="stretch", key="v0154_multi_to_clustering"):
+        _prepare_statistics_scope(dataset_ids)
+        navigate("statistics")
+        st.rerun()
+    if c3.button("Утвердить Generation", width="stretch", key="v0154_multi_to_generation"):
+        st.session_state.pop(_CHEMICAL_MARKUP_MODE, None)
+        navigate("generations")
+        st.rerun()
+
+
 def render_plots_page_v0154_bridge() -> None:
     """Оставить лассо на месте и дать рядом явные пути к кластеризации и сравнению."""
-    _render_base_plots()
+    _flow.render_plots_page_v0154()
 
     st.markdown("### Другие способы выделить и проверить группы")
     st.caption(
