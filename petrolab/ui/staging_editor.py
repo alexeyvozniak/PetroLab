@@ -20,8 +20,6 @@ from petrolab.import_staging import (
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
 
 
-# One canonical vocabulary powers automatic detection and manual assignment. Adding a
-# role to ROLE_ALIASES therefore makes it available everywhere in staging.
 CANONICAL_STAGE_FIELDS = tuple(ROLE_ALIASES)
 
 
@@ -122,11 +120,7 @@ def _row_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
     )
     if len(frame) > 3000:
         st.warning("Для ручного выбора показаны первые 3000 строк; для длинных таблиц используйте диапазон.")
-    return [
-        position
-        for position, selected in enumerate(edited["Выбрать"].fillna(False).astype(bool).tolist())
-        if selected
-    ]
+    return [position for position, selected in enumerate(edited["Выбрать"].fillna(False).astype(bool).tolist()) if selected]
 
 
 def _mass_assignment(frame: pd.DataFrame, token: str, sheet: str) -> pd.DataFrame:
@@ -162,13 +156,14 @@ def _block_assistant(frame: pd.DataFrame, token: str, sheet: str, chemistry_colu
     if not suggestions:
         return frame
     with st.expander(f"Похожие на заголовки блоков строки · {len(suggestions)}", expanded=False):
-        st.caption(
-            "Например, строка `19KL23` перед серией анализов. Ничего не протягивается вниз без подтверждения."
-        )
+        st.caption("Например, строка `19KL23` перед серией анализов. Ничего не протягивается вниз без подтверждения.")
         preview = pd.DataFrame([{"Строка": pos + 1, "Значение": value} for pos, value in suggestions[:100]])
         st.dataframe(preview, hide_index=True, width="stretch", height=min(300, 44 + 34 * len(preview)))
-        options = ["Sample", "Lithology", "Source", "Locality", "Massif", "Generation", "Игнорировать"]
-        field = st.selectbox("Что означают эти заголовки", options, key=f"staging_block_field_{token}_{sheet}")
+        field = st.selectbox(
+            "Что означают эти заголовки",
+            ["Sample", "Lithology", "Source", "Locality", "Massif", "Generation", "Игнорировать"],
+            key=f"staging_block_field_{token}_{sheet}",
+        )
         if field != "Игнорировать" and st.button(
             "Протянуть заголовки вниз до следующего блока",
             key=f"staging_block_apply_{token}_{sheet}",
@@ -189,18 +184,14 @@ def _similarity_reason(left: str, right: str) -> str:
     return "похожее написание"
 
 
-def _intra_file_candidates(values: list[str], threshold: float = 0.82) -> list[SimilarName]:
+def _intra_file_candidates(values: list[str], threshold: float = 0.90) -> list[SimilarName]:
     ordered: list[str] = []
     for value in values:
         if value and value not in ordered:
             ordered.append(value)
     result: list[SimilarName] = []
     for index, incoming in enumerate(ordered):
-        scored = [
-            (name_similarity(incoming, previous), previous)
-            for previous in ordered[:index]
-            if previous != incoming
-        ]
+        scored = [(name_similarity(incoming, previous), previous) for previous in ordered[:index] if previous != incoming]
         if not scored:
             continue
         score, canonical = max(scored)
@@ -273,17 +264,9 @@ def render_staging_editor(
     sample_column = role_columns.get("Sample") or ("Sample" if "Sample" in frame.columns else None)
     source_column = role_columns.get("Source") or ("Source" if "Source" in frame.columns else None)
     sample_confirmations = _duplicate_reconciliation(
-        frame,
-        field=sample_column or "Sample",
-        existing_names=existing_samples,
-        token=token,
-        sheet=sheet,
+        frame, field=sample_column or "Sample", existing_names=existing_samples, token=token, sheet=sheet,
     )
     source_confirmations = _duplicate_reconciliation(
-        frame,
-        field=source_column or "Source",
-        existing_names=existing_sources,
-        token=token,
-        sheet=sheet,
+        frame, field=source_column or "Source", existing_names=existing_sources, token=token, sheet=sheet,
     )
     return StagingResult(frame, role_columns, sample_column, source_column), sample_confirmations, source_confirmations
