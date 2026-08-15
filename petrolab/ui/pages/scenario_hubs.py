@@ -24,20 +24,43 @@ def render_compare_page() -> None:
     project = active_project()
     render_page_header(
         "Сравнить данные",
-        "Выберите массивы, которые хотите видеть вместе. Дальше PetroLab передаст их в один график как отдельные группы, которые можно включать и выключать.",
+        "Один вход для обычного XY, нескольких синхронных графиков, совмещённых EDS/LA точек и whole-rock литературы.",
         eyebrow="Сценарий",
         context=str(project["name"]) if project else "Проект не выбран",
     )
     if project is None:
         st.info("Сначала создайте или выберите проект.")
         return
+
+    render_section_header("Что сравниваем", "Выберите рабочий режим, а не инструмент из длинного списка")
+    cards = [
+        ("Один XY", "Быстро сравнить свои и литературные минералогические анализы на одной диаграмме.", "plots"),
+        ("Несколько графиков", "Одна выборка и одна легенда для 2–6 панелей; выключение статьи действует сразу везде.", "multi_panel"),
+        ("EDS / EPMA + LA", "Собрать разные методы одной физической точки и сравнивать их как одну логическую строку.", "composite_points"),
+        ("Породы + литература", "Whole-rock XY, REE/Spider, изотопы и проверенные tectonic presets с общими источниками.", "whole_rock_compare"),
+    ]
+    cols = st.columns(4)
+    for index, (col, (title, note, route)) in enumerate(zip(cols, cards)):
+        with col:
+            with st.container(border=True):
+                st.markdown(f"**{title}**")
+                st.caption(note)
+                if st.button(
+                    "Открыть",
+                    key=f"compare_mode_{route}",
+                    width="stretch",
+                    type="primary" if index == 1 else "secondary",
+                ):
+                    _go(route)
+
     datasets = list_accessible_datasets(int(project["id"]))
     if not datasets:
-        st.info("В проекте пока нет данных для сравнения.")
+        st.info("В проекте пока нет минералогических наборов для сравнения.")
         if st.button("Добавить данные", type="primary", width="stretch"):
             _go("add_data")
         return
 
+    render_section_header("Быстрый отбор минералогических массивов", "Можно сразу передать одинаковую выборку в один или несколько графиков")
     by_id = {int(item["id"]): item for item in datasets}
     selected = st.multiselect(
         "Что сравниваем",
@@ -48,9 +71,12 @@ def render_compare_page() -> None:
     )
     if selected:
         render_badges([(f"выбрано массивов · {len(selected)}", "accent")])
-    st.caption("На XY-диаграмме источники, поколения и другие группы остаются отдельными сериями; ненужную серию можно скрыть без удаления данных.")
-    c1, c2 = st.columns(2)
-    if c1.button("Сравнить на XY", type="primary", disabled=len(selected) < 2, width="stretch"):
+    st.caption(
+        "Источники, поколения и рабочие группы остаются отдельными сериями; их можно выключать или показывать как полупрозрачные точки/поля без удаления данных."
+    )
+    c1, c2, c3 = st.columns(3)
+    disabled = len(selected) < 1
+    if c1.button("Один XY", type="primary", disabled=disabled, width="stretch", key="compare_to_xy"):
         st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in selected]
         st.session_state["workflow_plot_context"] = {
             "scope": "Сравнение",
@@ -58,11 +84,16 @@ def render_compare_page() -> None:
         }
         st.session_state["workflow_plot_notice"] = "В график переданы выбранные массивы для сравнения."
         _go("plots")
-    if c2.button("Сначала найти конкретные группы", width="stretch"):
+    if c2.button("Несколько графиков", disabled=disabled, width="stretch", key="compare_to_multi"):
+        st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in selected]
+        st.session_state["multi_panel_data_mode"] = "Обычные анализы"
+        _go("multi_panel")
+    if c3.button("Сначала найти точную группу", width="stretch", key="compare_to_search"):
         _go("search")
 
-    render_section_header("Если вы уже знаете, что сравнивать")
-    st.caption("Например: апатиты из двух статей, K-HF против N-HF, отдельные Sample или поколения. Для такого отбора удобнее сначала воспользоваться поиском, а затем передать найденное в график.")
+    st.caption(
+        "Например: K-HF против N-HF, апатиты из двух статей или несколько Sample. Для точечного отбора найдите группу лупой, затем передайте найденное в график."
+    )
 
 
 def render_calculate_page() -> None:
@@ -96,7 +127,7 @@ def render_publish_page() -> None:
     project = active_project()
     render_page_header(
         "Подготовить рисунок или таблицу",
-        "Один вход для публикационной работы: график, треугольная диаграмма, таблица или финальный экспорт.",
+        "Один вход для публикационной работы: одиночный или multi-panel график, треугольная диаграмма, таблица или финальный экспорт.",
         eyebrow="Сценарий",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -106,11 +137,12 @@ def render_publish_page() -> None:
 
     cards = [
         ("XY-рисунок", "Собрать выборку, настроить серии и экспортировать рисунок.", "plots"),
+        ("Multi-panel", "Собрать несколько диаграмм с общей выборкой, легендой и стилями.", "multi_panel"),
         ("Треугольная диаграмма", "Построить и сохранить треугольную классификационную диаграмму.", "ternary"),
         ("Таблица для статьи", "Собрать точный отбор анализов в публикационную таблицу.", "article_tables"),
         ("Экспорт", "Скачать подготовленные результаты и файлы.", "export"),
     ]
-    cols = st.columns(4)
+    cols = st.columns(5)
     for index, (col, (title, note, route)) in enumerate(zip(cols, cards)):
         with col:
             with st.container(border=True):
