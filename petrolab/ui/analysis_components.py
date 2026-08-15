@@ -8,7 +8,9 @@ from petrolab.dataframe_utils import display_value, row_identity
 from petrolab.db import META_COLUMNS
 from petrolab.mineral_assignments import assign_mineral, assignment_history
 from petrolab.minerals.registry import MINERALS
+from petrolab.thermodynamics import thermodynamic_records_for_analysis
 from petrolab.ui.components import collect_related_images, render_asset_gallery
+from petrolab.ui.navigation import navigate
 
 
 PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {
@@ -18,6 +20,59 @@ PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {
     "QC железа",
     WORK_GROUP_COLUMN,
 }
+
+
+def render_thermodynamic_panel(analysis_id: str, project_id: int | None, *, expanded: bool = False) -> None:
+    """Render the small per-analysis '+' view requested for calculated thermodynamic parameters."""
+    if project_id is None:
+        return
+    with st.expander("＋ Термодинамические параметры", expanded=expanded):
+        records = thermodynamic_records_for_analysis(int(project_id), str(analysis_id))
+        if not records:
+            st.caption("Для этой точки ещё нет сохранённых T / P / fO₂ расчётов.")
+            if st.button("Рассчитать", key=f"point_thermo_open_{analysis_id}"):
+                st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
+                navigate("thermobarometry")
+                st.rerun()
+            return
+
+        rows = []
+        for record in records:
+            status = record.get("Thermodynamic status", record.get("Thermobarometry status", ""))
+            rows.append({
+                "Метод": record.get("Метод", ""),
+                "Статус": status,
+                "T, °C": record.get("T (°C)"),
+                "P, kbar": record.get("P (kbar)", record.get("P assumption (kbar)")),
+                "ΔFMQ": record.get("ΔFMQ"),
+                "Актуальность": record.get("Актуальность", ""),
+                "Run": record.get("run_id", ""),
+                "Рассчитано": record.get("Рассчитано", ""),
+            })
+        view = pd.DataFrame(rows)
+        st.dataframe(view, width="stretch", hide_index=True, height=min(300, 45 + 36 * len(view)))
+
+        newest = records[0]
+        details = {
+            key: value for key, value in newest.items()
+            if key not in {
+                "_analysis_id", "Метод", "Тип", "Режим", "Актуальность", "Рассчитано",
+                "run_id", "method_id",
+            }
+            and value not in (None, "")
+        }
+        if details:
+            st.caption("Последний сохранённый расчёт")
+            st.dataframe(
+                pd.DataFrame({"Параметр": list(details), "Значение": [display_value(value) for value in details.values()]}),
+                width="stretch", hide_index=True, height=min(360, 45 + 34 * len(details)),
+            )
+        if any(str(record.get("Актуальность")) == "Требует пересчёта" for record in records):
+            st.warning("Есть расчёты, входная химия которых после сохранения изменилась. Они оставлены как история и помечены как требующие пересчёта.")
+        if st.button("Открыть термодинамику", key=f"point_thermo_recalc_{analysis_id}"):
+            st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
+            navigate("thermobarometry")
+            st.rerun()
 
 
 def render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
@@ -45,6 +100,8 @@ def render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
         }
     )
     st.dataframe(properties, width="stretch", hide_index=True, height=360)
+
+    render_thermodynamic_panel(analysis_id, project_id)
 
     with st.expander("Проверить минерал / исправить отнесение", expanded=False):
         dataset_mineral = str(selected_row.get("Минерал исходного набора") or selected_row.get("Минерал") or "")
