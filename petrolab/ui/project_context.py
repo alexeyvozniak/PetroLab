@@ -37,6 +37,7 @@ _PROJECT_TRANSIENT_EXACT = {
     "analysis_table_thermodynamic_point",
     "active_analytical_session",
     "analytical_session_selector",
+    "loaded_ternary_recipe",
     "workflow_recent_import_target",
     "workflow_image_dataset_id",
     "whole_rock_workspace_context",
@@ -74,6 +75,10 @@ _PROJECT_TRANSIENT_PREFIXES = (
     "generation_",
     "grain_profile_",
     "thermodynamics_",
+    "equilibrium_",
+    "ratio_",
+    "ternary_",
+    "exchange_",
     # Destructive confirmation must never carry into a different project.
     "_pending_destructive_",
     # Import wizards contain dataset/project identities.
