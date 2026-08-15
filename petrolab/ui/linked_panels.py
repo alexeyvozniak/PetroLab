@@ -101,6 +101,12 @@ def _group_colors(dataframe: pd.DataFrame, group_column: str | None) -> dict[str
     return {name: qualitative.Plotly[index % len(qualitative.Plotly)] for index, name in enumerate(names)}
 
 
+def _available_ids(dataframe: pd.DataFrame, id_column: str) -> set[str]:
+    if id_column not in dataframe.columns:
+        return set()
+    return {_clean_id(value) for value in dataframe[id_column].tolist() if _clean_id(value)}
+
+
 def build_linked_panel_figure(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -126,8 +132,7 @@ def build_linked_panel_figure(
     titles = [str(panel.get("title") or f"{panel['y']} vs {panel['x']}") for panel in valid]
     figure = make_subplots(rows=nrows, cols=ncols, subplot_titles=titles)
 
-    available_ids = {_clean_id(value) for value in dataframe[id_column].tolist() if _clean_id(value)}
-    selected = {_clean_id(value) for value in selected_ids if _clean_id(value)} & available_ids
+    selected = {_clean_id(value) for value in selected_ids if _clean_id(value)} & _available_ids(dataframe, id_column)
     colors = _group_colors(dataframe, group_column)
     legend_seen: set[str] = set()
 
@@ -203,22 +208,26 @@ def render_linked_panel_selection(
     group_column: str | None = None,
     columns: int = 2,
 ) -> list[str]:
-    """Показать связанные панели и вернуть текущий click/box/lasso отбор.
+    """Показать связанные панели и вернуть видимую часть текущего click/box/lasso отбора.
 
-    Любое новое выделение заменяет предыдущее. Это делает поведение предсказуемым:
-    если пользователь захватил на одну точку меньше, на всех панелях сразу
-    подсветится на одну точку меньше.
+    Любое новое выделение заменяет предыдущее. Если фильтр временно скрывает часть
+    выбранных ID, они могут снова появиться после снятия фильтра, но действия над
+    классом/Generation получают только точки, которые видимы сейчас.
     """
     state_key = f"{key}{LINKED_SELECTION_SUFFIX}"
-    selected = [
+    ignore_key = f"{key}_ignore_selection_once"
+    stored = [
         _clean_id(value) for value in st.session_state.get(state_key, []) or []
         if _clean_id(value)
     ]
+    available = _available_ids(dataframe, id_column)
+    visible_selected = [value for value in stored if value in available]
+
     figure = build_linked_panel_figure(
         dataframe,
         panels,
         id_column=id_column,
-        selected_ids=selected,
+        selected_ids=visible_selected,
         group_column=group_column,
         columns=columns,
     )
@@ -230,24 +239,44 @@ def render_linked_panel_selection(
         selection_mode=("points", "box", "lasso"),
         config={"scrollZoom": True, "displaylogo": False},
     )
-    incoming = selection_ids_from_event(event)
-    if incoming is not None and incoming != selected:
+    if st.session_state.pop(ignore_key, False):
+        incoming = None
+    else:
+        incoming = selection_ids_from_event(event)
+    if incoming is not None and incoming != stored:
         st.session_state[state_key] = incoming
         st.rerun()
 
-    selected = [
+    stored = [
         _clean_id(value) for value in st.session_state.get(state_key, []) or []
         if _clean_id(value)
     ]
-    if selected:
+    visible_selected = [value for value in stored if value in available]
+    hidden_count = len(stored) - len(visible_selected)
+    if visible_selected:
         c1, c2 = st.columns([4, 1])
-        c1.info(
-            f"Текущий связанный отбор: {len(selected)}. Клик, рамка или лассо на любой панели заменят его; "
+        message = (
+            f"Текущий связанный отбор: {len(visible_selected)} видимых точек. Клик, рамка или лассо на любой панели заменят его; "
             "те же ID подсвечиваются на всех остальных панелях."
         )
+        if hidden_count:
+            message += f" Ещё {hidden_count} выбранных ID сейчас скрыты фильтрами и не будут изменены действиями ниже."
+        c1.info(message)
         if c2.button("Снять выделение", key=f"{key}_clear", width="stretch"):
             st.session_state[state_key] = []
+            st.session_state[ignore_key] = True
+            st.session_state.pop(f"{key}_plotly", None)
+            st.rerun()
+    elif stored and hidden_count:
+        st.info(
+            f"Все {hidden_count} выбранных точек сейчас скрыты фильтрами. Они не участвуют в действиях; "
+            "снимите фильтр, чтобы снова увидеть их, или очистите selection."
+        )
+        if st.button("Очистить скрытый selection", key=f"{key}_clear_hidden", width="stretch"):
+            st.session_state[state_key] = []
+            st.session_state[ignore_key] = True
+            st.session_state.pop(f"{key}_plotly", None)
             st.rerun()
     else:
         st.caption("Кликните точку или выделите точки рамкой/лассо на любой панели — выбор появится на всех панелях.")
-    return selected
+    return visible_selected
