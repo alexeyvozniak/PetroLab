@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import streamlit as st
@@ -30,6 +31,23 @@ def _go(route: str) -> None:
     st.rerun()
 
 
+def _age_label(rock: dict) -> str:
+    try:
+        age_value = float(rock.get("age_ma"))
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(age_value):
+        return ""
+    text = f"{age_value:g} Ma"
+    try:
+        uncertainty = float(rock.get("age_uncertainty_ma"))
+    except (TypeError, ValueError):
+        uncertainty = float("nan")
+    if math.isfinite(uncertainty):
+        text += f" ± {uncertainty:g}"
+    return text
+
+
 def render_rock_workspace_page() -> None:
     project = active_project()
     if project is None:
@@ -52,7 +70,7 @@ def render_rock_workspace_page() -> None:
             context=str(project["name"]),
         )
         st.info("В проекте пока нет пород. Добавьте первую вручную или импортируйте whole-rock таблицу.")
-        if st.button("Открыть редактор / импорт пород", type="primary", width="stretch"):
+        if st.button("Открыть редактор / импорт пород", type="primary", width="stretch", key=f"rock_workspace_empty_edit_{project_id}"):
             _go("rocks")
         return
 
@@ -64,7 +82,7 @@ def render_rock_workspace_page() -> None:
         list(by_id),
         index=list(by_id).index(default_id),
         format_func=lambda value: _rock_label(by_id[int(value)]),
-        key="rock_workspace_select",
+        key=f"rock_workspace_select_{project_id}",
     )
     try:
         snapshot = rock_workspace_snapshot(project_id, int(rock_id))
@@ -73,11 +91,7 @@ def render_rock_workspace_page() -> None:
         return
     rock = snapshot.rock
 
-    age = ""
-    if rock.get("age_ma") is not None:
-        age = f"{float(rock['age_ma']):g} Ma"
-        if rock.get("age_uncertainty_ma") is not None:
-            age += f" ± {float(rock['age_uncertainty_ma']):g}"
+    age = _age_label(rock)
     subtitle_parts = [
         str(rock.get("lithology") or "").strip(),
         str(rock.get("massif") or "").strip(),
@@ -101,10 +115,15 @@ def render_rock_workspace_page() -> None:
     render_badges(badges)
 
     q1, q2 = st.columns(2)
-    if q1.button("Сравнить / построить whole-rock диаграммы", type="primary", width="stretch", key="rock_workspace_compare"):
+    if q1.button("Сравнить / построить whole-rock диаграммы", type="primary", width="stretch", key=f"rock_workspace_compare_{project_id}"):
+        st.session_state["whole_rock_workspace_context"] = {
+            "project_id": project_id,
+            "rock_ids": [int(rock_id)],
+            "label": str(rock.get("name") or rock_id),
+        }
         st.session_state["whole_rock_workspace_rock_ids"] = [int(rock_id)]
         _go("whole_rock_compare")
-    if q2.button("Редактировать / добавить данные", width="stretch", key="rock_workspace_edit"):
+    if q2.button("Редактировать / добавить данные", width="stretch", key=f"rock_workspace_edit_{project_id}"):
         st.session_state["rock_workspace_edit_id"] = int(rock_id)
         _go("rocks")
 
@@ -174,11 +193,12 @@ def render_rock_workspace_page() -> None:
             st.info("С этой породой пока не связаны минералогические datasets.")
         else:
             for dataset in snapshot.linked_datasets:
+                membership = " · из общей базы" if bool(dataset.get("linked_to_project")) else ""
                 st.markdown(
                     f"**{dataset['name']}** · {dataset.get('mineral_key') or 'generic'} · "
-                    f"{int(dataset.get('row_count') or 0)} анализов · {dataset.get('source_filename') or ''}"
+                    f"{int(dataset.get('row_count') or 0)} анализов · {dataset.get('source_filename') or ''}{membership}"
                 )
-        if st.button("Изменить связи минерал–порода", key="rock_workspace_edit_links"):
+        if st.button("Изменить связи минерал–порода", key=f"rock_workspace_edit_links_{project_id}"):
             st.session_state["rock_workspace_edit_id"] = int(rock_id)
             _go("rocks")
 
