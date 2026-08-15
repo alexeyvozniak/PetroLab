@@ -30,12 +30,23 @@ class ImportStagingTests(unittest.TestCase):
         self.assertIn(("Кандалакша", "Kandalaksha"), pairs)
         self.assertIn(("Por'ya Guba", "Porya Guba"), pairs)
 
-    def test_role_detection_handles_russian_and_english_headers(self):
-        roles = detect_role_columns(["SAMPLE ID", "Rock Type", "REFERENCE", "Метод анализа"])
+    def test_neighbouring_sample_ids_are_not_duplicate_candidates(self):
+        candidates = similar_name_candidates(["19KL24"], ["19KL23"])
+        self.assertEqual(candidates, [])
+
+    def test_role_detection_handles_russian_english_and_passport_headers(self):
+        roles = detect_role_columns([
+            "SAMPLE ID", "Rock Type", "REFERENCE", "Метод анализа",
+            "Лаборатория", "Возраст, млн лет", "широта", "Longitude",
+        ])
         self.assertEqual(roles["Sample"], "SAMPLE ID")
         self.assertEqual(roles["Lithology"], "Rock Type")
         self.assertEqual(roles["Source"], "REFERENCE")
         self.assertEqual(roles["Method"], "Метод анализа")
+        self.assertEqual(roles["Laboratory"], "Лаборатория")
+        self.assertEqual(roles["Age"], "Возраст, млн лет")
+        self.assertEqual(roles["Latitude"], "широта")
+        self.assertEqual(roles["Longitude"], "Longitude")
 
         russian = detect_role_columns(["образец", "ПОРОДА", "Источник"])
         self.assertEqual(russian["Sample"], "образец")
