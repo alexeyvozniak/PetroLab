@@ -115,20 +115,15 @@ def _remove_moved_marker_analysis_links(
     old_entity_id: int,
     moved_analysis_ids: list[str],
 ) -> None:
-    """Remove only moved marker analyses from the old physical point.
+    """Delete only links belonging exclusively to the marker that moved.
 
-    Existing manually-added links are preserved. If another marker that still belongs
-    to the old entity references the same analysis, that analysis also remains there.
+    Existing links keep their original ``link_role``, ``note`` and ``created_at``.
+    If another marker that still belongs to the old entity references the same
+    analysis, that analysis remains linked there as well.
     """
     if not moved_analysis_ids:
         return
-    from petrolab.composite_points import set_physical_point_links
-
     with connect() as con:
-        existing_rows = con.execute(
-            "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id",
-            (int(old_entity_id),),
-        ).fetchall()
         remaining_marker_rows = con.execute(
             """SELECT DISTINCT ml.analysis_id
                FROM slide_markers m
@@ -136,21 +131,17 @@ def _remove_moved_marker_analysis_links(
                WHERE m.project_id=? AND m.entity_id=?""",
             (int(project_id), int(old_entity_id)),
         ).fetchall()
-    existing = [str(row["analysis_id"]) for row in existing_rows]
-    remaining_marker_ids = {str(row["analysis_id"]) for row in remaining_marker_rows}
-    removable = set(str(value) for value in moved_analysis_ids) - remaining_marker_ids
-    if not removable:
-        return
-    kept = [analysis_id for analysis_id in existing if analysis_id not in removable]
-    if kept == existing:
-        return
-    set_physical_point_links(
-        int(project_id),
-        int(old_entity_id),
-        kept,
-        link_role="legacy_resolution",
-        note="Пересобрано после явного разрешения неоднозначной связи маркеров",
-    )
+        remaining_marker_ids = {str(row["analysis_id"]) for row in remaining_marker_rows}
+        removable = {
+            str(value) for value in moved_analysis_ids if str(value) not in remaining_marker_ids
+        }
+        if not removable:
+            return
+        con.executemany(
+            "DELETE FROM physical_point_analysis_links WHERE entity_id=? AND analysis_id=?",
+            [(int(old_entity_id), analysis_id) for analysis_id in sorted(removable)],
+        )
+        con.commit()
 
 
 def set_slide_marker_entity(project_id: int, marker_id: int, entity_id: int) -> None:
