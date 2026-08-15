@@ -22,6 +22,7 @@ PAGES = (
     ("home", "Главная"),
     ("workspace", "Рабочий стол"),
     ("graphs", "XY-диаграммы"),
+    ("thermodynamics", "Термодинамика"),
     ("rocks", "Породы"),
     ("publication", "Таблицы для статьи"),
 )
@@ -45,13 +46,10 @@ def _seed_test_data(root: Path) -> None:
     os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
     from petrolab.db import add_dataset, create_project, replace_dataset_rows
     from petrolab.repositories.rock_repository import create_rock, replace_composition, replace_isotopes
-    from petrolab.sample_registry import create_sample
     from petrolab.storage import ensure_storage
 
     ensure_storage()
     project_id = create_project("Viewport project", "Synthetic CI-only UI data")
-    for sample_name in ("V1", "V2", "V3"):
-        create_sample(project_id, sample_name, locality="Viewport locality")
     frame = pd.DataFrame({
         "Sample": ["V1", "V2", "V3"], "Generation": ["core", "rim", "core"],
         "SiO2": [39.2, 40.1, 38.8], "Al2O3": [14.1, 13.7, 15.0],
