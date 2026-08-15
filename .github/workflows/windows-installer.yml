@@ -1,0 +1,266 @@
+name: Windows installer
+
+on:
+  pull_request:
+    paths:
+      - "installer/**"
+      - ".github/workflows/windows-installer.yml"
+      - "requirements.txt"
+      - "tests_installer_contract.py"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up build Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify installer contract
+        shell: pwsh
+        run: python tests_installer_contract.py
+
+      - name: Build portable Python runtime and app payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+
+          $dist = Join-Path $PWD "dist"
+          $payload = Join-Path $dist "payload"
+          $current = Join-Path $payload "current"
+          $runtime = Join-Path $payload "runtime"
+          New-Item -ItemType Directory -Force -Path $current, $runtime | Out-Null
+
+          Copy-Item app.py, requirements.txt, README.md -Destination $current
+          Copy-Item petrolab, .streamlit, docs -Destination $current -Recurse
+          Set-Content -LiteralPath (Join-Path $current ".petrolab_build_sha") -Value $env:GITHUB_SHA -NoNewline -Encoding ASCII
+
+          $pythonZip = Join-Path $dist "python-embed.zip"
+          $pythonUrl = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonZip
+          Expand-Archive -LiteralPath $pythonZip -DestinationPath $runtime -Force
+
+          $pth = Get-ChildItem -LiteralPath $runtime -Filter "python*._pth" | Select-Object -First 1
+          if (-not $pth) { throw "Embedded Python _pth file was not found." }
+          $lines = Get-Content -LiteralPath $pth.FullName
+          $lines = $lines | ForEach-Object { if ($_ -eq "#import site") { "import site" } else { $_ } }
+          if ($lines -notcontains "Lib\site-packages") { $lines += "Lib\site-packages" }
+          Set-Content -LiteralPath $pth.FullName -Value $lines -Encoding ASCII
+          New-Item -ItemType Directory -Force -Path (Join-Path $runtime "Lib\site-packages") | Out-Null
+
+          python -m pip install --disable-pip-version-check --target (Join-Path $runtime "Lib\site-packages") pip
+          python -m pip install --disable-pip-version-check --target (Join-Path $runtime "Lib\site-packages") -r requirements.txt
+
+          $runtimePython = Join-Path $runtime "python.exe"
+          & $runtimePython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Embedded runtime pip check failed." }
+          & $runtimePython -c "import streamlit,pandas,numpy,matplotlib,plotly,openpyxl,sklearn; print('portable runtime OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Embedded runtime import smoke failed." }
+
+          $env:PETROLAB_DATA_DIR = Join-Path $env:TEMP "petrolab-installer-smoke-data"
+          if (Test-Path $env:PETROLAB_DATA_DIR) { Remove-Item $env:PETROLAB_DATA_DIR -Recurse -Force }
+          & $runtimePython -c "import sys; sys.path.insert(0, r'$current'); import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('PetroLab', petrolab.__version__, 'installer smoke OK')"
+          if ($LASTEXITCODE -ne 0) { throw "PetroLab installer payload smoke failed." }
+
+          $versionLine = Select-String -Path petrolab\__init__.py -Pattern '^__version__\s*=\s*"([^"]+)"'
+          if (-not $versionLine.Matches.Count) { throw "Could not determine PetroLab version." }
+          $version = $versionLine.Matches[0].Groups[1].Value
+          "PETROLAB_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile PetroLab installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          iscc "/DMyAppVersion=$env:PETROLAB_VERSION" installer\PetroLab.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
+          $installer = Join-Path $PWD "dist\PetroLab-Setup-x64.exe"
+          if (-not (Test-Path $installer)) { throw "Installer output was not created." }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  PetroLab-Setup-x64.exe" | Set-Content -LiteralPath "dist\PetroLab-Setup-x64.sha256" -Encoding ASCII
+
+      - name: Smoke-test installed EXE, Streamlit and Windows PowerShell updater
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $installer = Join-Path $PWD "dist\PetroLab-Setup-x64.exe"
+          $installRoot = Join-Path $env:RUNNER_TEMP "PetroLabInstallSmoke"
+          $smokeData = Join-Path $env:RUNNER_TEMP "PetroLabInstalledData"
+
+          # Windows GitHub runners do not always expose MyDocuments through .NET.
+          # Fall back to the conventional per-user Documents folder so the uninstall
+          # preservation check still exercises a real user-data location outside {app}.
+          $documents = [Environment]::GetFolderPath("MyDocuments")
+          if ([string]::IsNullOrWhiteSpace($documents)) {
+              $documents = Join-Path $env:USERPROFILE "Documents"
+          }
+          New-Item -ItemType Directory -Force -Path $documents | Out-Null
+          $preservedData = Join-Path $documents "PetroLab Data"
+          $marker = Join-Path $preservedData ("installer-preservation-marker-" + $env:GITHUB_RUN_ID + ".txt")
+
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $preservedData | Out-Null
+          Set-Content -LiteralPath $marker -Value "must survive uninstall" -Encoding ASCII
+
+          # Inno Setup is a GUI executable. Start-Process -Wait prevents a race where
+          # PowerShell continues before the installed files have reached disk.
+          $installProcess = Start-Process -FilePath $installer -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$installRoot"
+          ) -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) { throw "Silent installer returned exit code $($installProcess.ExitCode)." }
+
+          $python = Join-Path $installRoot "runtime\python.exe"
+          $app = Join-Path $installRoot "current\app.py"
+          $updater = Join-Path $installRoot "update_petrolab.ps1"
+          foreach ($required in @(
+              $python,
+              (Join-Path $installRoot "runtime\pythonw.exe"),
+              $app,
+              (Join-Path $installRoot "launch_petrolab.vbs"),
+              $updater,
+              (Join-Path $installRoot "update_petrolab.cmd"),
+              (Join-Path $installRoot "diagnose_petrolab.cmd")
+          )) {
+              if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+                  throw "Installed file is missing: $required"
+              }
+          }
+
+          $env:PETROLAB_DATA_DIR = $smokeData
+          New-Item -ItemType Directory -Force -Path $smokeData | Out-Null
+          & $python -c "import sys; sys.path.insert(0, r'$($installRoot)\current'); import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('installed payload OK', petrolab.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw "Installed payload smoke failed." }
+
+          $port = 8765
+          $server = $null
+          try {
+              $server = Start-Process -FilePath $python -ArgumentList @(
+                  "-m", "streamlit", "run", $app,
+                  "--server.headless=true",
+                  "--server.port=$port",
+                  "--browser.gatherUsageStats=false"
+              ) -WindowStyle Hidden -PassThru
+
+              $healthy = $false
+              for ($attempt = 0; $attempt -lt 60; $attempt++) {
+                  Start-Sleep -Seconds 1
+                  if ($server.HasExited) {
+                      throw "Installed Streamlit process exited before becoming healthy (code $($server.ExitCode))."
+                  }
+                  try {
+                      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/_stcore/health" -UseBasicParsing -TimeoutSec 2
+                      if ($response.StatusCode -eq 200) {
+                          $healthy = $true
+                          break
+                      }
+                  }
+                  catch {
+                      # Retry until the bounded startup deadline.
+                  }
+              }
+              if (-not $healthy) { throw "Installed PetroLab did not become healthy on Streamlit." }
+          }
+          finally {
+              if ($server -and -not $server.HasExited) {
+                  Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+                  $server.WaitForExit(10000) | Out-Null
+              }
+          }
+
+          # Force one actual transactional app update rather than accepting the
+          # already-up-to-date fast path. The target is still this exact PR SHA,
+          # so the public windows-latest channel remains untouched.
+          Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value ("0" * 40) -NoNewline -Encoding ASCII
+          $env:PETROLAB_UPDATE_TARGET_SHA = $env:GITHUB_SHA
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -NoLaunch
+          $updaterExit = $LASTEXITCODE
+          Remove-Item Env:PETROLAB_UPDATE_TARGET_SHA -ErrorAction SilentlyContinue
+          if ($updaterExit -ne 0) { throw "Windows PowerShell 5.1 updater smoke failed with exit code $updaterExit." }
+          $updatedSha = (Get-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Raw).Trim()
+          if ($updatedSha -ne $env:GITHUB_SHA) { throw "Transactional updater did not activate the requested build." }
+          if (-not (Test-Path -LiteralPath (Join-Path $installRoot "previous\app.py") -PathType Leaf)) {
+              throw "Transactional updater did not retain a rollback application copy."
+          }
+
+          $uninstaller = Join-Path $installRoot "unins000.exe"
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          ) -Wait -PassThru
+          if ($uninstallProcess.ExitCode -ne 0) { throw "Silent uninstall failed with exit code $($uninstallProcess.ExitCode)." }
+          if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+              throw "Uninstall removed user scientific data marker."
+          }
+
+          Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PetroLab-Windows-Installer
+          path: |
+            dist/PetroLab-Setup-x64.exe
+            dist/PetroLab-Setup-x64.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Wait for full Windows verification
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $deadline = (Get-Date).AddMinutes(18)
+          while ((Get-Date) -lt $deadline) {
+              $json = gh run list --workflow "Windows verification" --commit $env:GITHUB_SHA --limit 10 --json status,conclusion,databaseId
+              if ($LASTEXITCODE -ne 0) { throw "Could not query Windows verification status." }
+              $runs = $json | ConvertFrom-Json
+              $run = $runs | Select-Object -First 1
+              if ($run -and $run.status -eq "completed") {
+                  if ($run.conclusion -ne "success") {
+                      throw "Full Windows verification did not pass: $($run.conclusion)."
+                  }
+                  Write-Host "Full Windows verification passed (run $($run.databaseId))."
+                  exit 0
+              }
+              Start-Sleep -Seconds 10
+          }
+          throw "Timed out waiting for full Windows verification of $env:GITHUB_SHA."
+
+      - name: Publish rolling Windows installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f windows-latest $env:GITHUB_SHA
+          git push origin refs/tags/windows-latest --force
+
+          gh release view windows-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $env:GITHUB_SHA --notes "Rolling Windows installer for the current fully verified PetroLab build. Scientific user data are stored outside the application directory and are preserved by uninstall/update."
+          }
+          gh release upload windows-latest dist\PetroLab-Setup-x64.exe dist\PetroLab-Setup-x64.sha256 --clobber
