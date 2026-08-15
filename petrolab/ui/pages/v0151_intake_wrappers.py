@@ -14,6 +14,13 @@ from . import add_data as _add_data
 from . import quick_import as _quick_import
 
 
+# Публичная точка расширения для последующих workflow-обёрток. Важно, чтобы
+# render_add_data_page использовал именно этот alias: тогда внешний bridge может
+# временно подменить wizard (например, добавить Textural zone), не лезя во
+# внутренности universal_intake_extensions и не расходясь по версиям модулей.
+render_image_wizard_multi_dataset = _extensions.render_image_wizard_multi_dataset
+
+
 def _project_session_token(project_id: int, token: str) -> str:
     """Разделять transient-state импорта между проектами, не меняя identity сохранённых данных."""
     return f"p{int(project_id)}_{str(token)}"
@@ -85,7 +92,7 @@ def render_add_data_page() -> None:
     _universal._file_token = scoped_file_token
     _extensions._batch_token = scoped_batch_token
     _universal._render_table_import = table_with_staging
-    _universal._render_image_wizard = _extensions.render_image_wizard_multi_dataset
+    _universal._render_image_wizard = render_image_wizard_multi_dataset
     try:
         _universal.render_universal_intake(project_id)
     finally:
