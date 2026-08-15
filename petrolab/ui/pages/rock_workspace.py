@@ -5,7 +5,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from petrolab.repositories.rock_repository import list_rocks
+from petrolab.repositories.rock_repository import list_rocks, update_rock
+from petrolab.rock_workspace_export import rock_sample_card_json_bytes, rock_sample_card_xlsx_bytes
 from petrolab.rock_workspace_model import (
     major_composition_table,
     rock_workspace_snapshot,
@@ -114,7 +115,7 @@ def render_rock_workspace_page() -> None:
     ]
     render_badges(badges)
 
-    q1, q2 = st.columns(2)
+    q1, q2, q3 = st.columns([2, 2, 1])
     if q1.button("Сравнить / построить whole-rock диаграммы", type="primary", width="stretch", key=f"rock_workspace_compare_{project_id}"):
         st.session_state["whole_rock_workspace_context"] = {
             "project_id": project_id,
@@ -126,10 +127,29 @@ def render_rock_workspace_page() -> None:
     if q2.button("Редактировать / добавить данные", width="stretch", key=f"rock_workspace_edit_{project_id}"):
         st.session_state["rock_workspace_edit_id"] = int(rock_id)
         _go("rocks")
+    with q3.popover("Экспорт карточки", width="stretch"):
+        safe_name = str(rock.get("name") or f"rock-{rock_id}").replace("/", "_").replace("\\", "_")
+        st.download_button(
+            "XLSX",
+            rock_sample_card_xlsx_bytes(snapshot),
+            file_name=f"{safe_name}_PetroLab.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+            key=f"rock_workspace_export_xlsx_{project_id}_{rock_id}",
+        )
+        st.download_button(
+            "JSON",
+            rock_sample_card_json_bytes(snapshot),
+            file_name=f"{safe_name}_PetroLab.json",
+            mime="application/json",
+            width="stretch",
+            key=f"rock_workspace_export_json_{project_id}_{rock_id}",
+        )
+        st.caption("Экспорт содержит паспорт, chemistry с per-analyte provenance, isotopes, data health, mineral links и список изображений.")
 
     tab_names = [
         "Обзор", "Валовая химия", "Trace elements", "Изотопия",
-        "Минералы", "Фото", "Диаграммы", "Происхождение",
+        "Минералы", "Фото", "Диаграммы", "Интерпретация", "Происхождение",
     ]
     tabs = st.tabs(tab_names)
 
@@ -186,11 +206,11 @@ def render_rock_workspace_page() -> None:
         else:
             st.dataframe(snapshot.isotopes, width="stretch", hide_index=True)
             if snapshot.isotope_systems:
-                st.caption("Системы: " + ", ".join(snapshot.isotope_systems))
+                st.caption("Системы с конечными определениями: " + ", ".join(snapshot.isotope_systems))
 
     with tabs[4]:
         if not snapshot.linked_datasets:
-            st.info("С этой породой пока не связаны минералогические datasets.")
+            st.info("С этой породой пока не связаны доступные минералогические datasets.")
         else:
             for dataset in snapshot.linked_datasets:
                 membership = " · из общей базы" if bool(dataset.get("linked_to_project")) else ""
@@ -223,10 +243,34 @@ def render_rock_workspace_page() -> None:
         render_rock_plots(project_id, rock)
 
     with tabs[7]:
+        render_section_header("Интерпретация", "Рабочий геологический текст, отделённый от исходных измерений")
+        with st.form(f"rock_workspace_interpretation_{project_id}_{rock_id}"):
+            description = st.text_area(
+                "Описание образца / петрография",
+                value=str(rock.get("description") or ""),
+                height=150,
+            )
+            notes = st.text_area(
+                "Интерпретация и рабочие заметки",
+                value=str(rock.get("notes") or ""),
+                height=220,
+                help="Здесь хранится интерпретационный текст. Химические и изотопные строки при сохранении не изменяются.",
+            )
+            if st.form_submit_button("Сохранить интерпретацию", type="primary"):
+                try:
+                    update_rock(int(rock_id), description=description, notes=notes)
+                except Exception as exc:
+                    st.error(f"Не удалось сохранить интерпретацию: {exc}")
+                else:
+                    st.success("Интерпретация сохранена.")
+                    st.rerun()
+        st.caption("Измеренные значения, units, methods и sources редактируются отдельно и не переписываются этой вкладкой.")
+
+    with tabs[8]:
         render_section_header("Методы и источники", "Provenance whole-rock данных")
         st.markdown("**Методы химии:** " + (", ".join(snapshot.chemistry_methods) if snapshot.chemistry_methods else "—"))
         st.markdown("**Источники химии:** " + (", ".join(snapshot.chemistry_sources) if snapshot.chemistry_sources else "—"))
         st.markdown(f"**Метод изотопии в паспорте:** {rock.get('isotope_method') or '—'}")
         st.markdown(f"**Лаборатория:** {rock.get('laboratory') or '—'}")
         notes = str(rock.get("notes") or "").strip()
-        st.markdown("**Заметки:** " + (notes if notes else "—"))
+        st.markdown("**Рабочие заметки:** " + (notes if notes else "—"))
