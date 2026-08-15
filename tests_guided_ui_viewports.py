@@ -147,7 +147,9 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, slug: st
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_") as tmp:
+    # Windows may retain the SQLite handle briefly after the Streamlit process exits.
+    # Ignore only cleanup races; all browser assertions and process shutdown still run normally.
+    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         _seed(root)
         output = Path(os.environ.get("PETROLAB_GUIDED_VIEWPORT_ARTIFACTS", "guided_viewport_artifacts"))
