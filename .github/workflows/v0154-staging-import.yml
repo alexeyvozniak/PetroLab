@@ -33,7 +33,7 @@ jobs:
         shell: cmd
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Compile staging and provenance paths
+      - name: Compile staging, provenance and linked-panel paths
         shell: cmd
         run: >-
           python -m compileall -q
@@ -45,13 +45,20 @@ jobs:
           petrolab/rock_determinations.py
           petrolab/rock_staged_service.py
           petrolab/rock_comparison.py
+          petrolab/rock_work_groups.py
           petrolab/ui/staging_editor.py
           petrolab/ui/staged_intake.py
           petrolab/ui/source_controls.py
+          petrolab/ui/linked_panels.py
+          petrolab/ui/rock_linked_panels.py
           petrolab/ui/workflow_continuity_v0154.py
           petrolab/ui/workflow_cluster_bridge_v0154.py
           petrolab/ui/pages/__init__.py
+          petrolab/ui/pages/multi_panel.py
+          petrolab/ui/pages/v0152_publication_wrappers.py
           petrolab/ui/pages/rocks_v0154.py
+          petrolab/ui/pages/rocks_staging_bridge_v0154.py
+          petrolab/ui/pages/whole_rock_compare_linked_v0154.py
           petrolab/ui/pages/v0151_intake_wrappers.py
           tests_import_staging.py
           tests_row_provenance_v0154.py
@@ -59,8 +66,9 @@ jobs:
           tests_rock_staging_v0154.py
           tests_source_visibility_v0154.py
           tests_v0154_workflow_continuity.py
+          tests_linked_multi_panel_v0154.py
 
-      - name: Run staging regressions
+      - name: Run staging and linked-panel regressions
         shell: cmd
         run: |
           python tests_import_staging.py
@@ -69,6 +77,7 @@ jobs:
           python tests_rock_staging_v0154.py
           python tests_source_visibility_v0154.py
           python tests_v0154_workflow_continuity.py
+          python tests_linked_multi_panel_v0154.py
 
       - name: Run existing import and provenance regressions
         shell: cmd
@@ -82,4 +91,6 @@ jobs:
         shell: cmd
         run: |
           python tests_rock_semantics.py
+          python tests_rock_workspace.py
+          python tests_rock_workspace_hardening.py
           python tests_core_workflows_v015.py
