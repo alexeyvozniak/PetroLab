@@ -42,9 +42,8 @@ from .thin_section_workspace import render_thin_section_workspace_page
 from .updates import render_updates_page
 from .whole_rock_compare import render_whole_rock_compare_page
 
-# v0.15.1 wrappers keep exact selections persistent across Streamlit reruns and
-# expose explicit marker↔physical-point identity controls. They wrap, rather than
-# fork, the established page implementations above.
+# Обёртки v0.15.1 сохраняют точные выборки между перерисовками Streamlit
+# и дают явное управление связью маркера с физической точкой.
 from .v0151_wrappers import (
     render_composite_points_page,
     render_global_search_page,
@@ -52,9 +51,17 @@ from .v0151_wrappers import (
     render_plots_page,
     render_thin_section_workspace_page,
 )
-# The intake wrapper is extended by v0.15.4 staging while preserving the same page API.
+# Импорт v0.15.4 добавляет staging, не меняя внешний API страниц.
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 from .rocks_v0154 import render_rocks_page
+
+# Финальный слой v0.15.4 связывает импорт, фото, текстурную разметку,
+# химический отбор и последующее утверждение Generation в один сценарий.
+from petrolab.ui.workflow_continuity_v0154 import (
+    render_add_data_page_v0154 as render_add_data_page,
+    render_multi_panel_page_v0154 as render_multi_panel_page,
+    render_plots_page_v0154 as render_plots_page,
+)
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
