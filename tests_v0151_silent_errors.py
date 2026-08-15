@@ -112,6 +112,49 @@ def test_explicit_marker_link_can_share_one_physical_point():
         assert not ambiguous_marker_entity_ids(ws.project_id)
 
 
+def test_resolving_legacy_collision_removes_moved_analysis_from_old_point():
+    with tempfile.TemporaryDirectory() as tmp, Workspace(Path(tmp)) as ws:
+        ws.add_dataset(15, [("f1", {"Sample": "S1", "MgO": 20.0}), ("f2", {"Sample": "S1", "Rb [µg/g]": 700.0})])
+        section = create_entity(ws.project_id, kind="thin_section", name="TS")
+        old_point = create_entity(
+            ws.project_id,
+            kind="probe_point",
+            name="P-1",
+            parent_id=section,
+            description="Создано из разметки шлифа для composite analysis",
+        )
+        image1 = _add_fake_image(ws.project_id, section, "PPL")
+        image2 = _add_fake_image(ws.project_id, section, "BSE")
+        m1 = create_slide_marker(ws.project_id, slide_image_id=image1, x_norm=.1, y_norm=.1, label="P-1", analysis_ids=("f1",))
+        m2 = create_slide_marker(ws.project_id, slide_image_id=image2, x_norm=.9, y_norm=.9, label="P-1", analysis_ids=("f2",))
+        set_physical_point_links(ws.project_id, old_point, ["f1", "f2"])
+        # Recreate the exact legacy v0.15 state: same auto-created entity, no provenance.
+        from petrolab.physical_point_safety import _ensure_marker_link_source_schema
+        _ensure_marker_link_source_schema()
+        with db.connect() as con:
+            con.execute(
+                "UPDATE slide_markers SET entity_id=?, entity_link_source='' WHERE id IN (?,?)",
+                (old_point, m1, m2),
+            )
+            con.commit()
+        assert ambiguous_marker_entity_ids(ws.project_id) == {old_point}
+
+        new_point = create_entity(ws.project_id, kind="probe_point", name="P-1 moved", parent_id=section)
+        set_slide_marker_entity(ws.project_id, m2, new_point)
+        with db.connect() as con:
+            old_links = [str(row["analysis_id"]) for row in con.execute(
+                "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id", (old_point,)
+            ).fetchall()]
+            new_links = [str(row["analysis_id"]) for row in con.execute(
+                "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id", (new_point,)
+            ).fetchall()]
+        assert old_links == ["f1"]
+        assert new_links == ["f2"]
+        # Confirming the remaining marker on its original point finishes the migration.
+        set_slide_marker_entity(ws.project_id, m1, old_point)
+        assert not ambiguous_marker_entity_ids(ws.project_id)
+
+
 def test_composite_sample_comes_from_physical_registry_not_conflicting_rows():
     with tempfile.TemporaryDirectory() as tmp, Workspace(Path(tmp)) as ws:
         from petrolab.sample_registry import create_sample
@@ -184,6 +227,7 @@ def test_runtime_prepare_persists_detected_method():
 if __name__ == "__main__":
     test_same_label_on_two_images_is_not_physical_identity()
     test_explicit_marker_link_can_share_one_physical_point()
+    test_resolving_legacy_collision_removes_moved_analysis_from_old_point()
     test_composite_sample_comes_from_physical_registry_not_conflicting_rows()
     test_thin_section_context_intersects_and_empty_links_do_not_broaden_to_sample()
     test_auto_pipeline_rejects_cross_project_dataset_before_processing()

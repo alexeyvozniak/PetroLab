@@ -1,14 +1,12 @@
 """v0.15.1 safety rules for slide markers and composite physical points.
 
-A label is presentation metadata, not physical identity.  Two markers named P-1
+A label is presentation metadata, not physical identity. Two markers named P-1
 on different images remain different physical points unless the user explicitly
-links them to the same entity.  Composite metadata is restored from the physical
+links them to the same entity. Composite metadata is restored from the physical
 registry after analytical values are merged so chemistry can never overwrite the
 Sample/thin-section identity of a target.
 """
 from __future__ import annotations
-
-from collections import defaultdict
 
 import pandas as pd
 
@@ -112,6 +110,49 @@ def ambiguous_marker_entity_ids(project_id: int) -> set[int]:
     return {int(row["entity_id"]) for row in rows}
 
 
+def _remove_moved_marker_analysis_links(
+    project_id: int,
+    old_entity_id: int,
+    moved_analysis_ids: list[str],
+) -> None:
+    """Remove only moved marker analyses from the old physical point.
+
+    Existing manually-added links are preserved. If another marker that still belongs
+    to the old entity references the same analysis, that analysis also remains there.
+    """
+    if not moved_analysis_ids:
+        return
+    from petrolab.composite_points import set_physical_point_links
+
+    with connect() as con:
+        existing_rows = con.execute(
+            "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id",
+            (int(old_entity_id),),
+        ).fetchall()
+        remaining_marker_rows = con.execute(
+            """SELECT DISTINCT ml.analysis_id
+               FROM slide_markers m
+               JOIN slide_marker_analysis_links ml ON ml.marker_id=m.id
+               WHERE m.project_id=? AND m.entity_id=?""",
+            (int(project_id), int(old_entity_id)),
+        ).fetchall()
+    existing = [str(row["analysis_id"]) for row in existing_rows]
+    remaining_marker_ids = {str(row["analysis_id"]) for row in remaining_marker_rows}
+    removable = set(str(value) for value in moved_analysis_ids) - remaining_marker_ids
+    if not removable:
+        return
+    kept = [analysis_id for analysis_id in existing if analysis_id not in removable]
+    if kept == existing:
+        return
+    set_physical_point_links(
+        int(project_id),
+        int(old_entity_id),
+        kept,
+        link_role="legacy_resolution",
+        note="Пересобрано после явного разрешения неоднозначной связи маркеров",
+    )
+
+
 def set_slide_marker_entity(project_id: int, marker_id: int, entity_id: int) -> None:
     """Explicitly declare that one image marker represents an existing physical point."""
     _ensure_marker_link_source_schema()
@@ -120,10 +161,12 @@ def set_slide_marker_entity(project_id: int, marker_id: int, entity_id: int) -> 
     ensure_composite_schema()
     with connect() as con:
         marker = con.execute(
-            "SELECT project_id,slide_image_id FROM slide_markers WHERE id=?", (int(marker_id),)
+            "SELECT project_id,slide_image_id,entity_id,entity_link_source FROM slide_markers WHERE id=?",
+            (int(marker_id),),
         ).fetchone()
         if not marker or int(marker["project_id"]) != int(project_id):
             raise ValueError("Маркер не относится к этому проекту")
+        old_entity_id = int(marker["entity_id"]) if marker["entity_id"] is not None else None
         _validate_marker_entity(con, int(project_id), int(marker["slide_image_id"]), int(entity_id))
         links = con.execute(
             "SELECT analysis_id FROM slide_marker_analysis_links WHERE marker_id=? ORDER BY analysis_id",
@@ -135,6 +178,11 @@ def set_slide_marker_entity(project_id: int, marker_id: int, entity_id: int) -> 
             (int(entity_id), _LINK_SOURCE_EXPLICIT, int(marker_id)),
         )
         con.commit()
+
+    if old_entity_id is not None and old_entity_id != int(entity_id):
+        _remove_moved_marker_analysis_links(
+            int(project_id), int(old_entity_id), analysis_ids
+        )
     if analysis_ids:
         add_physical_point_links(
             int(project_id), int(entity_id), analysis_ids,
@@ -148,7 +196,6 @@ def install() -> None:
 
     if getattr(composite, "_v0151_physical_point_safety_installed", False):
         return
-    _ensure_marker_link_source_schema()
 
     original_create_slide_marker = slides.create_slide_marker
     original_sync = composite.sync_slide_markers_to_physical_points
@@ -160,6 +207,9 @@ def install() -> None:
         entity_id: int | None = None, analysis_ids: tuple[str, ...] = (),
     ) -> int:
         if entity_id is not None:
+            # Tests/recovery may switch the active database after package import.
+            # Ensure the additive provenance column in the current database lazily.
+            _ensure_marker_link_source_schema()
             with connect() as con:
                 _validate_marker_entity(con, int(project_id), int(slide_image_id), int(entity_id))
         marker_id = original_create_slide_marker(
@@ -198,8 +248,6 @@ def install() -> None:
     def sync_slide_markers_safe(project_id: int) -> int:
         _mark_legacy_ambiguous_links(int(project_id))
         changed = int(original_sync(int(project_id)))
-        # New points created by the legacy sync body have blank provenance; now that
-        # identity creation is safe, mark those links as automatic one-marker links.
         with connect() as con:
             con.execute(
                 """UPDATE slide_markers SET entity_link_source=?
