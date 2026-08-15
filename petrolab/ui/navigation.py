@@ -38,6 +38,7 @@ TOOL_SECTIONS = {
     "Материалы": [
         ("images", "Изображения"),
         ("slides", "Шлифы и поля"),
+        ("composite_points", "Совместить EDS / EPMA / LA"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
         ("batch_edit", "Массовые действия"),
@@ -47,6 +48,8 @@ TOOL_SECTIONS = {
         ("rocks", "Породы"),
     ],
     "Исследование": [
+        ("multi_panel", "Несколько графиков сразу"),
+        ("whole_rock_compare", "Породы + литература"),
         ("thermobarometry", "Термодинамика"),
         ("ternary", "Треугольные"),
         ("science_plots", "Научные диаграммы"),
