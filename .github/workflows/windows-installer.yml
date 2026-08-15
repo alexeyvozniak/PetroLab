@@ -11,6 +11,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -104,9 +108,6 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP "PetroLabInstallSmoke"
           $smokeData = Join-Path $env:RUNNER_TEMP "PetroLabInstalledData"
 
-          # Windows GitHub runners do not always expose MyDocuments through .NET.
-          # Fall back to the conventional per-user Documents folder so the uninstall
-          # preservation check still exercises a real user-data location outside {app}.
           $documents = [Environment]::GetFolderPath("MyDocuments")
           if ([string]::IsNullOrWhiteSpace($documents)) {
               $documents = Join-Path $env:USERPROFILE "Documents"
@@ -120,8 +121,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $preservedData | Out-Null
           Set-Content -LiteralPath $marker -Value "must survive uninstall" -Encoding ASCII
 
-          # Inno Setup is a GUI executable. Start-Process -Wait prevents a race where
-          # PowerShell continues before the installed files have reached disk.
           $installProcess = Start-Process -FilePath $installer -ArgumentList @(
               "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$installRoot"
           ) -Wait -PassThru
@@ -173,7 +172,6 @@ jobs:
                       }
                   }
                   catch {
-                      # Retry until the bounded startup deadline.
                   }
               }
               if (-not $healthy) { throw "Installed PetroLab did not become healthy on Streamlit." }
@@ -185,9 +183,6 @@ jobs:
               }
           }
 
-          # Force one actual transactional app update rather than accepting the
-          # already-up-to-date fast path. The target is still this exact PR SHA,
-          # so the public windows-latest channel remains untouched.
           Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value ("0" * 40) -NoNewline -Encoding ASCII
           $env:PETROLAB_UPDATE_TARGET_SHA = $env:GITHUB_SHA
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -NoLaunch

@@ -45,6 +45,10 @@ on:
       - "tests_guided_ui_viewports.py"
       - ".github/workflows/guided-workflow.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   guided-workflow-windows:
     runs-on: windows-latest
