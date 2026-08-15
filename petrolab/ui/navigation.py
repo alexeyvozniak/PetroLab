@@ -21,19 +21,19 @@ DAILY_NAV = [
 ]
 
 TOOL_SECTIONS = {
-    "Работа с данными": [
+    "Данные": [
         ("workflow", "Рабочий процесс"),
         ("analyses", "База анализов"),
         ("sources", "Новые анализы"),
         ("sessions", "Аналитические сессии"),
         ("intake", "Источники и литература"),
     ],
-    "Материалы и интерпретация": [
+    "Материалы": [
         ("slides", "Шлифы и поля"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
         ("batch_edit", "Массовые действия"),
-        ("formulae", "Расчёты минералов"),
+        ("formulae", "Расчёты"),
         ("generations", "Поколения"),
         ("minerals", "Минералогические модули"),
     ],
@@ -45,8 +45,10 @@ TOOL_SECTIONS = {
         ("equilibrium", "Равновесные пары"),
         ("distribution", "Распределение элементов"),
     ],
-    "Публикация и система": [
+    "Публикация": [
         ("export", "Экспорт"),
+    ],
+    "Система": [
         ("projects", "Проекты"),
         ("collaboration", "Совместная работа"),
         ("change_log", "История правок данных"),
@@ -140,7 +142,8 @@ def render_sidebar(version: str) -> str:
     for route, label in DAILY_NAV:
         _nav_button(route, label, current, prefix="daily_nav")
 
-    with st.expander("Все инструменты", expanded=current not in {route for route, _ in DAILY_NAV}):
+    daily_routes = {route for route, _ in DAILY_NAV}
+    with st.expander("Все инструменты", expanded=current not in daily_routes):
         for section, entries in TOOL_SECTIONS.items():
             st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
             for route, label in entries:
