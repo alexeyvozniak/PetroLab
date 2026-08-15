@@ -5,7 +5,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
 from petrolab.dataframe_utils import display_value, row_identity
-from petrolab.db import META_COLUMNS
+from petrolab.db import META_COLUMNS, connect
 from petrolab.mineral_assignments import assign_mineral, assignment_history
 from petrolab.minerals.registry import MINERALS
 from petrolab.thermodynamics import thermodynamic_records_for_analysis
@@ -22,9 +22,22 @@ PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {
 }
 
 
+def _analysis_dataset_id(analysis_id: str) -> int | None:
+    with connect() as con:
+        row = con.execute(
+            "SELECT dataset_id FROM analysis_rows WHERE analysis_id=?",
+            (str(analysis_id),),
+        ).fetchone()
+    return int(row["dataset_id"]) if row is not None else None
+
+
 def _open_thermodynamics(analysis_id: str, dataset_ids: list[int] | None = None) -> None:
     st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
     clean_ids = [int(value) for value in (dataset_ids or []) if value is not None]
+    if not clean_ids:
+        resolved = _analysis_dataset_id(str(analysis_id))
+        if resolved is not None:
+            clean_ids = [resolved]
     if clean_ids:
         st.session_state["thermodynamics_workspace_dataset_ids"] = list(dict.fromkeys(clean_ids))
     navigate("thermobarometry")
