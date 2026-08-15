@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 
 import matplotlib.pyplot as plt
@@ -65,6 +66,17 @@ def _quick_filter(dataframe: pd.DataFrame, query: str) -> pd.DataFrame:
     return dataframe.loc[mask].copy()
 
 
+def _exact_order(dataframe: pd.DataFrame, analysis_ids: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    ids = dataframe["_analysis_id"].astype(str)
+    duplicate_ids = ids[ids.duplicated(keep=False)]
+    if not duplicate_ids.empty:
+        raise ValueError("В выбранной таблице один analysis_id встречается несколько раз")
+    by_id = {str(row["_analysis_id"]): row for _, row in dataframe.iterrows()}
+    missing = [analysis_id for analysis_id in analysis_ids if analysis_id not in by_id]
+    ordered = [by_id[analysis_id] for analysis_id in analysis_ids if analysis_id in by_id]
+    return pd.DataFrame(ordered).reset_index(drop=True), missing
+
+
 def _xlsx_bytes(dataframe: pd.DataFrame) -> bytes:
     buffer = io.BytesIO()
     visible = [column for column in dataframe.columns if not str(column).startswith("_")]
@@ -92,16 +104,27 @@ def render_grain_profile_page() -> None:
         st.info("В проекте пока нет аналитических наборов.")
         return
     by_id = {int(item["id"]): item for item in datasets}
-    routed_dataset_ids = [
-        int(value) for value in st.session_state.get("grain_profile_dataset_ids", [])
-        if int(value) in by_id
-    ]
+
+    route_context = st.session_state.get("grain_profile_context")
+    route_context = route_context if isinstance(route_context, dict) else {}
+    try:
+        route_project_id = int(route_context.get("project_id"))
+    except (TypeError, ValueError):
+        route_project_id = None
+    route_active = route_project_id == project_id
+    raw_routed_dataset_ids = list(st.session_state.get("grain_profile_dataset_ids", [])) if route_active else []
+    routed_dataset_ids = [int(value) for value in raw_routed_dataset_ids if int(value) in by_id]
+    missing_routed_datasets = [int(value) for value in raw_routed_dataset_ids if int(value) not in by_id]
+    if missing_routed_datasets:
+        st.error("Точный отбор ссылается на dataset, недоступный в текущем проекте: " + ", ".join(map(str, missing_routed_datasets[:8])))
+        return
+
     selected_dataset_ids = st.multiselect(
         "Наборы данных",
         list(by_id),
         default=routed_dataset_ids,
         format_func=lambda value: dataset_label(by_id[int(value)]),
-        key="grain_profile_datasets",
+        key=f"grain_profile_datasets_{project_id}",
         placeholder="Выберите набор с точками профиля",
     )
     if not selected_dataset_ids:
@@ -115,15 +138,27 @@ def render_grain_profile_page() -> None:
     q1, q2 = st.columns([2, 1])
     query = q1.text_input(
         "Быстро сузить точки",
-        key="grain_profile_search",
+        key=f"grain_profile_search_{project_id}",
         placeholder="Например: KIV-2 phlogopite core",
     )
     filtered = _quick_filter(dataframe, query)
-    routed_ids = [str(value) for value in st.session_state.get("grain_profile_analysis_ids", []) if str(value)]
+    routed_ids = [str(value) for value in st.session_state.get("grain_profile_analysis_ids", []) if str(value)] if route_active else []
     if routed_ids:
-        wanted = set(routed_ids)
-        filtered = filtered[filtered["_analysis_id"].astype(str).isin(wanted)].copy()
+        try:
+            filtered, missing_ids = _exact_order(filtered, routed_ids)
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        if missing_ids and not str(query or "").strip():
+            st.error("Точный отбор потерял analysis_id: " + ", ".join(missing_ids[:8]))
+            return
+        if missing_ids:
+            q2.caption(f"Быстрый фильтр исключил {len(missing_ids)} точек из точного отбора")
         q2.metric("Точный отбор", len(filtered))
+        if q2.button("Снять точный отбор", key=f"grain_profile_clear_exact_{project_id}"):
+            for key in ("grain_profile_dataset_ids", "grain_profile_analysis_ids", "grain_profile_context"):
+                st.session_state.pop(key, None)
+            st.rerun()
     else:
         q2.metric("Найдено точек", len(filtered))
     if filtered.empty:
@@ -131,18 +166,24 @@ def render_grain_profile_page() -> None:
         return
 
     render_section_header("Точки профиля", "Выберите физически относящиеся к одному traverse точки")
-    label_map = {
-        str(row["_analysis_id"]): _point_label(row)
-        for _, row in filtered.iterrows()
-    }
+    label_map = {str(row["_analysis_id"]): _point_label(row) for _, row in filtered.iterrows()}
     options = list(label_map)
-    default_ids = options if len(options) <= 120 else options[:120]
+    selection_token = hashlib.sha1(
+        (f"{project_id}|" + ",".join(map(str, selected_dataset_ids)) + "|" + ",".join(routed_ids)).encode("utf-8")
+    ).hexdigest()[:12]
+    selection_key = f"grain_profile_selected_ids_{selection_token}"
+    default_ids = options if routed_ids or len(options) <= 120 else []
+    if not routed_ids and len(options) > 120:
+        st.caption(f"Найдено {len(options)} точек. PetroLab больше не выбирает первые 120 молча — выберите нужный traverse явно.")
+        if st.button(f"Выбрать все {len(options)} точек", key=f"grain_profile_select_all_{selection_token}"):
+            st.session_state[selection_key] = options
+            st.rerun()
     selected_ids = st.multiselect(
         "Точки",
         options,
         default=default_ids,
         format_func=lambda value: label_map[str(value)],
-        key="grain_profile_selected_ids",
+        key=selection_key,
     )
     if len(selected_ids) < 2:
         st.info("Для профиля выберите хотя бы две точки.")
@@ -156,10 +197,11 @@ def render_grain_profile_page() -> None:
         "Как задать порядок",
         list(mode_by_title),
         index=list(mode_by_title).index(default_title) if default_title in mode_by_title else 0,
-        key="grain_profile_order_mode",
+        key=f"grain_profile_order_mode_{project_id}",
     )
     order_mode = mode_by_title[mode_title]
     columns = [str(column) for column in filtered.columns if not str(column).startswith("_")]
+    numeric_columns = _numeric_candidates(filtered)
     order_column = ""
     label_column = ""
     distance_column = ""
@@ -168,32 +210,37 @@ def render_grain_profile_page() -> None:
     frame_column = ""
 
     if order_mode == "explicit":
-        order_column = st.selectbox("Колонка порядка", columns, key="grain_profile_order_column")
+        if not numeric_columns:
+            st.error("Нет числовой колонки для порядка точек.")
+            return
+        order_column = st.selectbox("Колонка порядка", numeric_columns, key=f"grain_profile_order_column_{project_id}")
     elif order_mode == "label_number":
         suggested = "Point" if "Point" in columns else ("Точка" if "Точка" in columns else columns[0])
         label_column = st.selectbox(
             "Колонка с подписями точек",
             columns,
             index=columns.index(suggested),
-            key="grain_profile_label_column",
+            key=f"grain_profile_label_column_{project_id}",
         )
     elif order_mode == "distance":
-        distance_column = st.selectbox("Колонка расстояния", columns, key="grain_profile_distance_column")
+        if not numeric_columns:
+            st.error("Нет числовой колонки расстояния.")
+            return
+        distance_column = st.selectbox("Колонка расстояния", numeric_columns, key=f"grain_profile_distance_column_{project_id}")
     elif order_mode == "geometry":
+        if not numeric_columns:
+            st.error("Нет числовых координат для геометрического профиля.")
+            return
         g1, g2, g3, g4 = st.columns(4)
-        order_column = g1.selectbox("Порядок", columns, key="grain_profile_geometry_order")
-        x_column = g2.selectbox("X", columns, key="grain_profile_geometry_x")
-        y_column = g3.selectbox("Y", columns, key="grain_profile_geometry_y")
-        frame_column = g4.selectbox(
-            "Система координат / image id",
-            columns,
-            key="grain_profile_geometry_frame",
-        )
-        st.caption("Geometry используется только если все точки находятся в одной системе координат и порядок traverse уже известен.")
+        order_column = g1.selectbox("Порядок", numeric_columns, key=f"grain_profile_geometry_order_{project_id}")
+        x_column = g2.selectbox("X", numeric_columns, key=f"grain_profile_geometry_x_{project_id}")
+        y_column = g3.selectbox("Y", numeric_columns, key=f"grain_profile_geometry_y_{project_id}")
+        frame_column = g4.selectbox("Система координат / image id", columns, key=f"grain_profile_geometry_frame_{project_id}")
+        st.caption("Geometry разрешён только в одной системе координат и при уже известном порядке traverse. Расстояние наследует единицы X/Y; это µm только для калиброванных координат в µm.")
 
     b1, b2 = st.columns(2)
-    normalize = b1.checkbox("Нормировать расстояние 0–1", value=False, key="grain_profile_normalize")
-    reverse = b2.checkbox("Развернуть направление профиля", value=False, key="grain_profile_reverse")
+    normalize = b1.checkbox("Нормировать расстояние 0–1", value=False, key=f"grain_profile_normalize_{project_id}")
+    reverse = b2.checkbox("Развернуть направление профиля", value=False, key=f"grain_profile_reverse_{project_id}")
 
     try:
         result = prepare_grain_profile(
@@ -213,14 +260,14 @@ def render_grain_profile_page() -> None:
         st.error(f"Профиль не построен: {exc}")
         return
 
-    render_section_header("Что показать", "Пропуски остаются разрывами, а не нулями")
+    render_section_header("Что показать", "Пропуски и бесконечные derived-значения остаются разрывами, а не нулями")
     numeric = _numeric_candidates(result.dataframe)
     default_y = [column for column in ["MgO", "FeO", "TiO2", "Cr2O3"] if column in numeric][:2]
     y_columns = st.multiselect(
         "Величины Y",
         numeric,
         default=default_y,
-        key="grain_profile_y_columns",
+        key=f"grain_profile_y_columns_{project_id}",
     )
     if not y_columns:
         return
@@ -236,7 +283,7 @@ def render_grain_profile_page() -> None:
                 "start": st.column_config.NumberColumn("От"),
                 "end": st.column_config.NumberColumn("До"),
             },
-            key="grain_profile_zones",
+            key=f"grain_profile_zones_{project_id}",
         ).to_dict("records")
 
     try:
@@ -256,32 +303,8 @@ def render_grain_profile_page() -> None:
     render_section_header("Экспорт", "Рисунок, точки в точном порядке и воспроизводимый рецепт")
     recipe = grain_profile_recipe(result, y_columns=y_columns, zones=zones)
     e1, e2, e3, e4 = st.columns(4)
-    e1.download_button(
-        "SVG",
-        figure_bytes(figure, "svg", 600),
-        file_name="petrolab_grain_profile.svg",
-        mime="image/svg+xml",
-        width="stretch",
-    )
-    e2.download_button(
-        "PNG 600 dpi",
-        figure_bytes(figure, "png", 600),
-        file_name="petrolab_grain_profile.png",
-        mime="image/png",
-        width="stretch",
-    )
-    e3.download_button(
-        "XLSX точек",
-        _xlsx_bytes(ordered),
-        file_name="petrolab_grain_profile.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        width="stretch",
-    )
-    e4.download_button(
-        "Recipe JSON",
-        recipe_json_bytes(recipe),
-        file_name="petrolab_grain_profile.recipe.json",
-        mime="application/json",
-        width="stretch",
-    )
+    e1.download_button("SVG", figure_bytes(figure, "svg", 600), file_name="petrolab_grain_profile.svg", mime="image/svg+xml", width="stretch")
+    e2.download_button("PNG 600 dpi", figure_bytes(figure, "png", 600), file_name="petrolab_grain_profile.png", mime="image/png", width="stretch")
+    e3.download_button("XLSX точек", _xlsx_bytes(ordered), file_name="petrolab_grain_profile.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
+    e4.download_button("Recipe JSON", recipe_json_bytes(recipe), file_name="petrolab_grain_profile.recipe.json", mime="application/json", width="stretch")
     plt.close(figure)
