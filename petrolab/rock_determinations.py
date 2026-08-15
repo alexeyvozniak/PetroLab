@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from petrolab.repositories.rock_repository import rock_connection
+from petrolab.source_registry import ensure_source_registry_schema
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,9 @@ class RockDetermination:
 
 
 def ensure_rock_determination_schema() -> None:
+    # The optional study_id foreign key and joins below must be valid even in a fresh
+    # project that has never opened the literature page before.
+    ensure_source_registry_schema()
     with rock_connection() as con:
         con.execute(
             """
