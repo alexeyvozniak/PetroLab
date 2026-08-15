@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Iterable
 import unicodedata
 
+import pandas as pd
+
 from petrolab.db import connect
 
 
@@ -75,6 +77,60 @@ def list_terms(project_id: int, domain: str) -> list[dict]:
 
 def term_values(project_id: int, domain: str) -> list[str]:
     return [str(item["canonical_value"]) for item in list_terms(int(project_id), str(domain))]
+
+
+def term_comparison_values(project_id: int, domain: str) -> list[str]:
+    """Canonical values plus already-confirmed aliases for duplicate suggestions.
+
+    Exact known aliases then stop generating the same question on every import, while
+    a new case/spelling variant can still be surfaced as a fresh candidate.
+    """
+    values: list[str] = []
+    for item in list_terms(int(project_id), str(domain)):
+        for value in [str(item["canonical_value"]), *[str(alias) for alias in item.get("aliases", [])]]:
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
+def term_alias_map(project_id: int, domain: str) -> dict[str, str]:
+    """Return exact, previously-confirmed alias -> canonical value mappings."""
+    mapping: dict[str, str] = {}
+    for item in list_terms(int(project_id), str(domain)):
+        canonical = str(item["canonical_value"])
+        for alias in item.get("aliases", []):
+            clean = str(alias).strip()
+            if clean:
+                mapping[clean] = canonical
+    return mapping
+
+
+def apply_known_term_aliases(project_id: int, dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Apply only exact aliases the user confirmed on an earlier import.
+
+    New fuzzy/case/transliteration variants are intentionally left untouched for the
+    staging reconciliation question. Whenever a known alias is canonicalized, the
+    author's original spelling is retained in ``<Field> (source)``.
+    """
+    result = dataframe.copy()
+    for domain in DEFAULT_TERM_DOMAINS:
+        if domain not in result.columns:
+            continue
+        mapping = term_alias_map(int(project_id), domain)
+        if not mapping:
+            continue
+        original = result[domain].copy()
+        mapped = original.map(
+            lambda value: mapping.get(str(value).strip(), value)
+            if pd.notna(value) and str(value).strip() else value
+        )
+        changed = original.astype("string").fillna("") != mapped.astype("string").fillna("")
+        if bool(changed.any()):
+            source_field = f"{domain} (source)"
+            if source_field not in result.columns:
+                result[source_field] = original
+            result[domain] = mapped
+    return result
 
 
 def find_exact_term(project_id: int, domain: str, value: str) -> dict | None:
