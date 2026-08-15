@@ -82,6 +82,26 @@ from petrolab.ui.workflow_cluster_bridge_v0154 import (
     render_plots_page_v0154_bridge as render_plots_page,
 )
 
+# Full UI/silent-error audit: exact routed identities must survive reruns, stale
+# project state must not win over a new route, and irreversible UI deletes need
+# a second confirmation.  These wrappers sit last so they preserve every prior
+# release wrapper while enforcing the cross-page safety contract.
+from .v0156_audit_wrappers import (
+    render_analyses_page,
+    render_article_tables_page,
+    render_batch_edit_page,
+    render_formulae_page,
+    render_global_search_page,
+    render_guided_workflow_page,
+    render_home_page,
+    render_images_page,
+    render_mixed_minerals_page,
+    render_multi_panel_page,
+    render_object_workspace_page,
+    render_slides_page,
+    render_thin_section_workspace_page,
+)
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",

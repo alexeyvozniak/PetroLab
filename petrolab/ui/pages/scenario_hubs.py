@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
@@ -14,10 +15,7 @@ def _go(route: str) -> None:
 
 
 def _dataset_label(dataset: dict) -> str:
-    name = str(dataset.get("name") or f"Набор {dataset['id']}")
-    mineral = str(dataset.get("mineral_key") or "generic")
-    rows = int(dataset.get("row_count") or 0)
-    return f"{name} · {mineral} · {rows} строк"
+    return dataset_label(dataset)
 
 
 def render_compare_page() -> None:

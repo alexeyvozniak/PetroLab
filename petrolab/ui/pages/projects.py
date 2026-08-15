@@ -9,6 +9,7 @@ from petrolab.db import create_project, list_datasets, list_projects
 from petrolab.project_archive import create_project_archive, restore_project_archive
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
+from petrolab.ui.project_context import set_active_project
 
 
 def _portable_archive_controls(project: dict) -> None:
@@ -95,8 +96,7 @@ def _restore_controls(projects_exist: bool) -> None:
                     path = Path(tmp) / Path(uploaded.name).name
                     path.write_bytes(uploaded.getvalue())
                     result = restore_project_archive(path, allow_replace_workspace=replace)
-                st.session_state["active_project_id"] = int(result.project_id)
-                st.session_state["sidebar_project"] = int(result.project_id)
+                set_active_project(int(result.project_id))
                 if result.backup_path:
                     st.success(f"Проект «{result.project_name}» восстановлен. Предыдущая база сохранена: {result.backup_path.name}")
                 else:
@@ -121,7 +121,7 @@ def render_projects_page() -> None:
             if st.form_submit_button("Создать проект", type="primary"):
                 try:
                     project_id = create_project(name, description)
-                    st.session_state["active_project_id"] = int(project_id)
+                    set_active_project(int(project_id))
                     st.success(f"Проект «{name.strip()}» создан.")
                     st.rerun()
                 except Exception as exc:
@@ -153,8 +153,7 @@ def render_projects_page() -> None:
                     "Открыть", key=f"open_project_{project_id}", disabled=active,
                     type="primary" if not active else "secondary", width="stretch",
                 ):
-                    st.session_state["active_project_id"] = project_id
-                    st.session_state["sidebar_project"] = project_id
+                    set_active_project(project_id)
                     navigate("home")
                     st.rerun()
             _portable_archive_controls(project)
