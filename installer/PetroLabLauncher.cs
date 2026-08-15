@@ -21,6 +21,8 @@ internal static class Program
         string app = Path.Combine(current, "app.py");
         string logDir = Path.Combine(root, "logs");
         string stateFile = Path.Combine(root, "petrolab-server.state");
+        Mutex launchMutex = null;
+        bool ownsMutex = false;
 
         try
         {
@@ -43,6 +45,43 @@ internal static class Program
             if (TryExistingServer(stateFile, out existingPort))
             {
                 WriteLog("Existing healthy server found on port " + existingPort + ".");
+                OpenBrowser(existingPort);
+                return;
+            }
+
+            launchMutex = new Mutex(false, @"Local\PetroLab-Native-Launcher");
+            try
+            {
+                ownsMutex = launchMutex.WaitOne(0, false);
+            }
+            catch (AbandonedMutexException)
+            {
+                ownsMutex = true;
+                WriteLog("Recovered abandoned launcher mutex.");
+            }
+
+            if (!ownsMutex)
+            {
+                WriteLog("Another PetroLab launcher is starting; waiting for its server state.");
+                for (int attempt = 0; attempt < 120; attempt++)
+                {
+                    if (TryExistingServer(stateFile, out existingPort))
+                    {
+                        WriteLog("Startup completed in another launcher on port " + existingPort + ".");
+                        OpenBrowser(existingPort);
+                        return;
+                    }
+                    Thread.Sleep(250);
+                }
+                Fail("PetroLab is already starting, but it did not become ready in time. Try again in a moment or run Diagnostics.");
+                return;
+            }
+
+            // Re-check after acquiring the startup mutex in case another process
+            // published a healthy server between our first check and lock acquisition.
+            if (TryExistingServer(stateFile, out existingPort))
+            {
+                WriteLog("Healthy server appeared before startup lock acquisition on port " + existingPort + ".");
                 OpenBrowser(existingPort);
                 return;
             }
@@ -123,7 +162,6 @@ internal static class Program
 
             File.WriteAllText(stateFile, server.Id + "|" + port, Encoding.ASCII);
             WriteLog("Server healthy. PID " + server.Id + ", port " + port + ".");
-
             OpenBrowser(port);
 
             server.WaitForExit();
@@ -134,6 +172,14 @@ internal static class Program
         {
             WriteLog("FATAL " + ex);
             Fail("PetroLab could not start: " + ex.Message);
+        }
+        finally
+        {
+            if (ownsMutex && launchMutex != null)
+            {
+                try { launchMutex.ReleaseMutex(); } catch { }
+            }
+            if (launchMutex != null) launchMutex.Dispose();
         }
     }
 
