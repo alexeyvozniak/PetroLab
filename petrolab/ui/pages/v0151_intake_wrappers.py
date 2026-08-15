@@ -16,6 +16,30 @@ from . import add_data as _add_data
 from . import quick_import as _quick_import
 
 
+def _render_table_with_locked_provenance(original_table, project_id: int, name: str, data: bytes, token: str):
+    """Do not let an already-linked external provenance silently change in the same intake session."""
+    source_widget_key = f"universal_source_kind_{token}"
+    study_key = f"universal_study_id_{token}"
+    lock_key = f"universal_locked_source_kind_{token}"
+    locked_kind = st.session_state.get(lock_key)
+    if locked_kind:
+        st.session_state[source_widget_key] = str(locked_kind)
+
+    result = render_table_import_with_provenance(
+        original_table, project_id, name, data, token
+    )
+
+    if st.session_state.get(study_key) is not None:
+        current_kind = str(st.session_state.get(source_widget_key) or "")
+        if current_kind:
+            st.session_state[lock_key] = current_kind
+            st.caption(
+                "Provenance внешнего источника уже записан и зафиксирован для этой импортированной пачки. "
+                "Если источник указан неверно, исправьте его явно в «Источники и литература», а не переключателем импорта."
+            )
+    return result
+
+
 def render_add_data_page() -> None:
     _add_data.render_add_data_page()
     project = active_project()
@@ -26,7 +50,7 @@ def render_add_data_page() -> None:
     original_images = _universal._render_image_wizard
 
     def table_with_source(project_id: int, name: str, data: bytes, token: str):
-        return render_table_import_with_provenance(
+        return _render_table_with_locked_provenance(
             original_table, project_id, name, data, token
         )
 
