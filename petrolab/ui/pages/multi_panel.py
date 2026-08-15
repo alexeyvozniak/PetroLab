@@ -6,17 +6,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
+from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups, list_work_groups, set_work_group
 from petrolab.composite_points import composite_points_dataframe
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
+from petrolab.generations import assign_generation, attach_generations
 from petrolab.io_utils import numeric_candidates
 from petrolab.measurement_registry import list_entities
 from petrolab.multi_panel_plotting import build_multi_panel_scatter
 from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
+from petrolab.ui.linked_panels import render_linked_panel_selection
 from petrolab.ui.project_context import active_project
 from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import style_dataframe, style_map
@@ -38,14 +40,17 @@ def _panel_defaults(numeric: list[str]) -> list[tuple[str, str]]:
     pairs = [(x, y) for x, y in preferred if x in numeric and y in numeric]
     if not pairs and len(numeric) >= 2:
         pairs = [(numeric[0], numeric[1])]
-    while pairs and len(pairs) < 6:
-        x = numeric[len(pairs) % len(numeric)]
-        y = numeric[(len(pairs) + 1) % len(numeric)]
-        if x != y:
-            pairs.append((x, y))
-        else:
-            break
-    return pairs
+    if len(numeric) >= 2:
+        cursor = 0
+        attempts = 0
+        while len(pairs) < 10 and attempts < max(20, len(numeric) * len(numeric)):
+            x = numeric[cursor % len(numeric)]
+            y = numeric[(cursor + 1 + cursor // max(1, len(numeric))) % len(numeric)]
+            cursor += 1
+            attempts += 1
+            if x != y and (x, y) not in pairs:
+                pairs.append((x, y))
+    return pairs[:10]
 
 
 def _raw_dataframe(project_id: int) -> tuple[pd.DataFrame, list[int]]:
@@ -63,7 +68,9 @@ def _raw_dataframe(project_id: int) -> tuple[pd.DataFrame, list[int]]:
     if not selected_ids:
         return pd.DataFrame(), []
     dataframe = attach_study_metadata(
-        attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        attach_generations(
+            attach_work_groups(load_unified_with_derived(project_id, selected_ids))
+        )
     )
     minerals = sorted(dataframe.get("Минерал", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
     if minerals:
@@ -109,11 +116,74 @@ def _composite_dataframe(project_id: int) -> tuple[pd.DataFrame, list[int]]:
     return dataframe, []
 
 
+def _render_selection_actions(selected_ids: list[str], project_id: int) -> None:
+    """Дать текущему связанному отбору научно явный следующий шаг."""
+    if not selected_ids:
+        return
+    with st.container(border=True):
+        st.markdown("#### Что сделать с текущим выделением")
+        st.caption(
+            "Рабочая группа остаётся обратимой гипотезой. Generation — уже интерпретация; "
+            "она пишется отдельно от исходной Generation и сохраняет историю изменений."
+        )
+        c1, c2 = st.columns(2)
+        existing = list_work_groups()
+        group_name = c1.text_input(
+            "Рабочая группа",
+            placeholder="например, N-LF candidate или выбросы Ti",
+            key=f"multi_linked_group_name_{project_id}",
+        ).strip()
+        if c1.button(
+            "Сохранить как рабочую группу",
+            width="stretch",
+            disabled=not group_name,
+            key=f"multi_linked_save_group_{project_id}",
+        ):
+            try:
+                count = set_work_group(selected_ids, group_name)
+            except Exception as exc:
+                st.error(f"Рабочую группу не удалось сохранить: {exc}")
+            else:
+                st.success(f"Рабочая группа «{group_name}» сохранена для {count} анализов.")
+                st.rerun()
+
+        generation_name = c2.text_input(
+            "Generation",
+            placeholder="например, N-LF, core-1, rim-2",
+            key=f"multi_linked_generation_name_{project_id}",
+        ).strip()
+        rationale = c2.text_input(
+            "Основание (необязательно)",
+            placeholder="Ti–Al + Mg# + текстурная зона",
+            key=f"multi_linked_generation_rationale_{project_id}",
+        ).strip()
+        if c2.button(
+            "Утвердить как Generation",
+            type="primary",
+            width="stretch",
+            disabled=not generation_name,
+            key=f"multi_linked_save_generation_{project_id}",
+        ):
+            try:
+                count = assign_generation(
+                    selected_ids,
+                    generation_name,
+                    rationale=rationale,
+                    source_kind="linked_multi_panel",
+                    source_value=group_name if group_name in existing else "interactive selection",
+                )
+            except Exception as exc:
+                st.error(f"Generation не удалось сохранить: {exc}")
+            else:
+                st.success(f"Generation «{generation_name}» утверждена для {count} анализов.")
+                st.rerun()
+
+
 def render_multi_panel_page() -> None:
     project = active_project()
     render_page_header(
         "Несколько графиков сразу",
-        "Одна выборка, одна легенда и один набор стилей для нескольких диаграмм. Выключение статьи или изменение прозрачности применяется ко всем панелям одновременно.",
+        "Одна выборка и до десяти связанных диаграмм. Клик, рамка или лассо могут выделить точки на одной панели и подсветить те же анализы на всех остальных.",
         eyebrow="Сравнение",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -150,12 +220,12 @@ def render_multi_panel_page() -> None:
         ("composite" if mode != "Обычные анализы" else "analysis rows", "success" if mode != "Обычные анализы" else "neutral"),
     ])
 
-    render_section_header("Панели", "Выберите до шести пар осей")
+    render_section_header("Панели", "Выберите от двух до десяти пар осей")
     defaults = _panel_defaults(numeric)
     panel_count = st.slider(
         "Количество графиков",
         2,
-        6,
+        10,
         min(4, max(2, len(defaults))) if defaults else 2,
         key="multi_panel_count",
     )
@@ -203,7 +273,7 @@ def render_multi_panel_page() -> None:
         and dataframe[column].nunique(dropna=True) <= 100
     ]
     preferred = [
-        column for column in [SOURCE_LABEL_COLUMN, "Источник", WORK_GROUP_COLUMN, "PetroLab Generation", "Generation", "Sample", "Набор", "Минерал", "Physical Point"]
+        column for column in [SOURCE_LABEL_COLUMN, "Источник", WORK_GROUP_COLUMN, "PetroLab Generation", "Generation", "Textural zone", "Sample", "Набор", "Минерал", "Physical Point"]
         if column in categorical
     ]
     group_options = ["Без группировки", *preferred, *[column for column in categorical if column not in preferred]]
@@ -244,10 +314,28 @@ def render_multi_panel_page() -> None:
     )
     preset = FIGURE_PRESETS[preset_name]
     c1, c2, c3 = st.columns(3)
-    columns = c1.selectbox("Колонок в фигуре", [1, 2, 3], index=1, key="multi_panel_columns")
+    columns = c1.selectbox("Колонок в фигуре", [1, 2, 3, 4], index=1, key="multi_panel_columns")
     marker_size = c2.slider("Размер точек", 10, 160, int(round(preset.marker_size)), 2, key="multi_panel_marker")
     grid = c3.checkbox("Сетка", value=preset.grid, key="multi_panel_grid")
 
+    if mode == "Обычные анализы" and "_analysis_id" in dataframe.columns:
+        render_section_header(
+            "Интерактивная связанная мультипанель",
+            "Клик, рамка и лассо работают как один общий отбор по analysis_id",
+        )
+        linked_ids = render_linked_panel_selection(
+            dataframe,
+            panels,
+            id_column="_analysis_id",
+            key=f"mineral_multi_{project_id}",
+            group_column=group_col,
+            columns=int(columns),
+        )
+        _render_selection_actions(linked_ids, project_id)
+    elif mode == "Физические точки EDS + LA":
+        st.caption("Для composite-точек интерактивный связанный отбор пока не присваивает Generation автоматически: сначала нужно выбрать физическую точку/анализ явно.")
+
+    render_section_header("Публикационный вид", "Те же 2–10 панелей в стабильном SVG/PNG")
     try:
         figure = build_multi_panel_scatter(
             dataframe,
