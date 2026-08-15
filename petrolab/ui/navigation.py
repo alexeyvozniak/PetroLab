@@ -48,6 +48,7 @@ TOOL_SECTIONS = {
         ("rocks", "Породы"),
     ],
     "Исследование": [
+        ("grain_profile", "Профиль по зерну"),
         ("multi_panel", "Несколько графиков сразу"),
         ("whole_rock_compare", "Породы + литература"),
         ("thermobarometry", "Термодинамика"),
