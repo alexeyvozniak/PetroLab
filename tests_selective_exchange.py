@@ -36,7 +36,7 @@ class Workspace:
             (db, "BACKUPS_DIR", backups),
             (archive, "DATA_DIR", data), (archive, "DB_PATH", db_path),
             (archive, "ASSETS_DIR", assets), (archive, "BACKUPS_DIR", backups),
-            (exchange, "DB_PATH", db_path), (exchange, "ASSETS_DIR", assets),
+            (exchange, "DB_PATH", db_path),
             (collab, "DB_PATH", db_path), (collab, "ASSETS_DIR", assets),
             (selective_merge, "ASSETS_DIR", assets),
         ):
