@@ -10,19 +10,55 @@ from petrolab.db import list_projects
 ACTIVE_PROJECT_KEY = "active_project_id"
 SIDEBAR_PROJECT_KEY = "sidebar_project"
 
+# Identity-bearing state must never survive a real project switch.  Keep
+# presentation preferences (styles, density, presets) out of this list.
 _PROJECT_TRANSIENT_EXACT = {
+    "pending_study_id",
+    "thin_section_selected",
+    "thin_image_selected",
+    "composite_section",
+    "composite_point",
+    "multi_panel_section",
+    "mixed_dataset",
+    "formula_dataset",
+    "img_dataset",
+    "workflow_dataset",
+    "workspace_sample",
+    "workspace_dataset",
+    "db_datasets_dashboard",
+    "batch_edit_datasets",
+    "thermodynamics_datasets",
+    "thermodynamics_selection_mode",
+    "thermodynamics_limit_incoming",
+    "quick_plot_datasets",
+    "multi_panel_datasets",
     "workflow_recent_import_target",
     "workflow_image_dataset_id",
     "whole_rock_workspace_context",
     "whole_rock_workspace_rock_ids",
     "rock_workspace_edit_id",
     "rock_workspace_open_id",
+    "workspace_sample_id_pending",
+    "workspace_dataset_id_pending",
+    "thin_section_focus_id_pending",
+    "thin_section_sample_id_pending",
+    "multi_panel_thin_section_id",
+    "_v0151_plot_exact_analysis_ids",
+    "_v0151_multi_exact_analysis_ids",
+    "_audit_edit_exact_analysis_ids",
+    "_audit_edit_exact_dataset_ids",
+    "_audit_edit_exact_context",
+    "_audit_table_exact_analysis_ids",
+    "_audit_table_exact_dataset_ids",
+    "_audit_table_exact_context",
+    "_audit_batch_exact_analysis_ids",
+    "_audit_batch_exact_dataset_ids",
 }
 _PROJECT_TRANSIENT_PREFIXES = (
-    "workflow_plot_",
-    "workflow_table_",
-    "workflow_edit_",
+    # All workflow_* keys describe a project-local hand-off or recent action.
+    "workflow_",
     "grain_profile_",
+    "thermodynamics_workspace_",
     "quick_import_",
     "universal_",
     "univimg_",
@@ -31,7 +67,13 @@ _PROJECT_TRANSIENT_PREFIXES = (
 
 
 def _clear_transient_project_state(state: MutableMapping) -> list[str]:
-    """Remove only identity-bearing workflow state when the active project changes."""
+    """Remove identity-bearing workflow state when the active project changes.
+
+    The rule is deliberately conservative about presentation state: colors,
+    presets and general UI preferences survive.  Exact object/dataset/analysis
+    identities do not, because reusing them in another project can silently
+    select the wrong object or make a routed selection appear empty.
+    """
     removed: list[str] = []
     for key in list(state.keys()):
         text = str(key)
