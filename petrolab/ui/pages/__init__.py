@@ -55,15 +55,12 @@ from .v0151_wrappers import (
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 from .rocks_v0154 import render_rocks_page
 
-# Финальный слой v0.15.4 связывает импорт, фото, текстурную разметку,
-# химический отбор и последующее утверждение Generation в один сценарий.
-from petrolab.ui.workflow_continuity_v0154 import (
-    render_add_data_page_v0154 as render_add_data_page,
-    render_multi_panel_page_v0154 as render_multi_panel_page,
-)
-# Кластеризация и сравнение остаются продолжением того же химического маршрута,
-# а не отдельными спрятанными инструментами.
+# Финальный слой v0.15.4 связывает импорт, фото и текстурную разметку.
+# Химический сценарий поверх него начинается с мультипанели и сохраняет
+# отдельные пути к лассо, кластеризации и утверждению Generation.
 from petrolab.ui.workflow_cluster_bridge_v0154 import (
+    render_add_data_page_v0154_bridge as render_add_data_page,
+    render_multi_panel_page_v0154_bridge as render_multi_panel_page,
     render_plots_page_v0154_bridge as render_plots_page,
 )
 
