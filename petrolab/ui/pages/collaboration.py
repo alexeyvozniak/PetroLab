@@ -8,6 +8,12 @@ import streamlit as st
 
 from petrolab.analytical_sessions import ensure_session_schema
 from petrolab.collaboration_merge import apply_collaboration_merge, plan_collaboration_merge
+from petrolab.collaboration_targeting import (
+    preferred_project_id,
+    read_archive_context_hint,
+    suggested_project_ids,
+)
+from petrolab.db import list_projects
 from petrolab.generations import ensure_generation_storage
 from petrolab.sample_registry import list_samples
 from petrolab.ui.layout import render_badges, render_page_header
@@ -17,17 +23,10 @@ from petrolab.ui.project_context import active_project_id
 def render_collaboration_page() -> None:
     render_page_header(
         "Добавить данные коллеги",
-        "Импортируйте полный проект или маленький .petrolab-фрагмент в текущий проект. "
-        "PetroLab сначала показывает план и никогда не склеивает похожие Sample автоматически.",
+        "Импортируйте полный проект или маленький .petrolab-фрагмент. PetroLab сначала предложит, "
+        "в какой существующий проект добавить данные, а затем отдельно проверит каждый Sample.",
         eyebrow="Совместная работа",
     )
-    project_id = active_project_id()
-    if project_id is None:
-        st.info("Сначала выберите целевой проект.")
-        return
-    project_id = int(project_id)
-    ensure_session_schema()
-    ensure_generation_storage()
 
     uploaded = st.file_uploader(
         "Проект или фрагмент (.petrolab)", type=["petrolab"], key="collab_archive"
@@ -43,6 +42,66 @@ def render_collaboration_page() -> None:
         handle.write(archive_bytes)
         temp_path = Path(handle.name)
     try:
+        try:
+            incoming_name, _payload_hint = read_archive_context_hint(temp_path)
+        except Exception as exc:
+            st.error(f"Не удалось прочитать пакет: {exc}")
+            return
+
+        projects = list_projects()
+        if not projects:
+            st.info(
+                f"В пакете указан контекст «{incoming_name}», но в этой базе пока нет рабочих проектов. "
+                "Сначала создайте проект, в который нужно добавить данные."
+            )
+            return
+
+        project_by_id = {int(project["id"]): project for project in projects}
+        matches = suggested_project_ids(projects, incoming_name)
+        preferred = preferred_project_id(
+            projects,
+            incoming_name,
+            active_project_id=active_project_id(),
+        )
+        if len(matches) == 1:
+            matched_name = str(project_by_id[int(matches[0])]["name"])
+            st.info(
+                f"Похоже, пакет относится к уже существующему проекту «{matched_name}». "
+                "Можно добавить новые Sample туда; ничего не объединится без вашего подтверждения."
+            )
+        elif len(matches) > 1:
+            st.warning(
+                f"Для контекста «{incoming_name}» найдено несколько похожих проектов. "
+                "Выберите целевой проект вручную."
+            )
+        else:
+            st.caption(
+                f"Входящий проектный контекст: «{incoming_name}». Выберите, куда добавить эти данные."
+            )
+
+        project_ids = list(project_by_id)
+        preferred_index = project_ids.index(int(preferred)) if preferred in project_ids else 0
+        project_id = int(
+            st.selectbox(
+                "Куда добавить пакет?",
+                project_ids,
+                index=preferred_index,
+                format_func=lambda value: str(project_by_id[int(value)]["name"]),
+                key=f"collab_target_project_{uploaded.name}",
+                help=(
+                    "Совпадение названия — только подсказка. Вы сами выбираете проект назначения, "
+                    "а на следующем шаге отдельно решаете судьбу каждого Sample."
+                ),
+            )
+        )
+        if len(matches) == 1 and project_id == int(matches[0]):
+            st.caption(
+                "Новые образцы будут добавлены в этот проект; совпадающие Sample можно явно связать "
+                "с уже существующими, а остальные создать как новые."
+            )
+
+        ensure_session_schema()
+        ensure_generation_storage()
         try:
             plan = plan_collaboration_merge(temp_path, project_id)
         except Exception as exc:
@@ -68,7 +127,10 @@ def render_collaboration_page() -> None:
         render_badges(badges)
 
         st.subheader("1 · Сопоставьте образцы")
-        st.caption("Похожее написание — только подсказка. Каждый входящий Sample требует явного решения.")
+        st.caption(
+            "Похожее написание — только подсказка. Каждый входящий Sample требует явного решения: "
+            "создать новый или использовать уже существующий."
+        )
         target_samples = list_samples(project_id)
         target_by_id = {int(row["id"]): row for row in target_samples}
         decisions: dict[int, int | None] = {}
@@ -79,7 +141,12 @@ def render_collaboration_page() -> None:
                 for sid in item.suggested_target_ids
                 if sid in target_by_id
             ]
-            rows.append({"Входящий Sample": item.name, "Похожие в проекте": ", ".join(likely) or "—"})
+            rows.append(
+                {
+                    "Входящий Sample": item.name,
+                    "Похожие в проекте": ", ".join(likely) or "—",
+                }
+            )
         if rows:
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         for item in plan.samples:
@@ -112,17 +179,19 @@ def render_collaboration_page() -> None:
                 "change-log и пересчитываемые derived-результаты не объединяются."
             )
         confirm = st.checkbox(
-            "Я проверил сопоставление Sample и хочу добавить этот пакет в текущий проект",
-            key=f"collab_confirm_{plan.archive_sha256}",
+            f"Я проверил Sample и хочу добавить этот пакет в «{project_by_id[project_id]['name']}»",
+            key=f"collab_confirm_{plan.archive_sha256}_{project_id}",
         )
         if st.button(
             "Добавить данные",
             type="primary",
             disabled=not confirm,
-            key=f"collab_apply_{plan.archive_sha256}",
+            key=f"collab_apply_{plan.archive_sha256}_{project_id}",
         ):
             try:
                 result = apply_collaboration_merge(temp_path, project_id, decisions)
+                st.session_state["active_project_id"] = project_id
+                st.session_state["sidebar_project"] = project_id
                 extra = ""
                 if result.entity_count or result.observation_count:
                     extra = (
