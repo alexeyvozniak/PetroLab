@@ -58,9 +58,14 @@ class RowProvenanceTests(unittest.TestCase):
             record = samples.list_samples(ws.project_id)[0]
             self.assertIn("Кандалакша", record["aliases"])
 
-    def test_case_only_variant_is_also_exposed_as_candidate_but_can_be_confirmed(self):
+    def test_case_only_variant_is_a_question_not_an_automatic_merge(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
             sample_id = samples.create_sample(ws.project_id, "19KL23")
+            self.assertIsNone(
+                provenance.canonical_sample_id(
+                    ws.project_id, "19kl23", create_if_missing=False,
+                )
+            )
             candidates = provenance.sample_reconciliation_candidates(ws.project_id, ["19kl23"])
             self.assertEqual(len(candidates), 1)
             self.assertEqual(candidates[0].reason, "отличается только регистром")
@@ -68,6 +73,8 @@ class RowProvenanceTests(unittest.TestCase):
                 ws.project_id, "19kl23", confirmed_existing_id=sample_id,
             )
             self.assertEqual(resolved, sample_id)
+            record = samples.list_samples(ws.project_id)[0]
+            self.assertIn("19kl23", record["aliases"])
 
     def test_source_transliteration_does_not_silently_reuse_study(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
