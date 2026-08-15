@@ -22,7 +22,22 @@ PROTECTED_ANALYSIS_COLUMNS = META_COLUMNS | {
 }
 
 
-def render_thermodynamic_panel(analysis_id: str, project_id: int | None, *, expanded: bool = False) -> None:
+def _open_thermodynamics(analysis_id: str, dataset_ids: list[int] | None = None) -> None:
+    st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
+    clean_ids = [int(value) for value in (dataset_ids or []) if value is not None]
+    if clean_ids:
+        st.session_state["thermodynamics_workspace_dataset_ids"] = list(dict.fromkeys(clean_ids))
+    navigate("thermobarometry")
+    st.rerun()
+
+
+def render_thermodynamic_panel(
+    analysis_id: str,
+    project_id: int | None,
+    *,
+    dataset_ids: list[int] | None = None,
+    expanded: bool = False,
+) -> None:
     """Render the small per-analysis '+' view requested for calculated thermodynamic parameters."""
     if project_id is None:
         return
@@ -31,9 +46,7 @@ def render_thermodynamic_panel(analysis_id: str, project_id: int | None, *, expa
         if not records:
             st.caption("Для этой точки ещё нет сохранённых T / P / fO₂ расчётов.")
             if st.button("Рассчитать", key=f"point_thermo_open_{analysis_id}"):
-                st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
-                navigate("thermobarometry")
-                st.rerun()
+                _open_thermodynamics(str(analysis_id), dataset_ids)
             return
 
         rows = []
@@ -70,9 +83,7 @@ def render_thermodynamic_panel(analysis_id: str, project_id: int | None, *, expa
         if any(str(record.get("Актуальность")) == "Требует пересчёта" for record in records):
             st.warning("Есть расчёты, входная химия которых после сохранения изменилась. Они оставлены как история и помечены как требующие пересчёта.")
         if st.button("Открыть термодинамику", key=f"point_thermo_recalc_{analysis_id}"):
-            st.session_state["thermodynamics_workspace_analysis_ids"] = [str(analysis_id)]
-            navigate("thermobarometry")
-            st.rerun()
+            _open_thermodynamics(str(analysis_id), dataset_ids)
 
 
 def render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
@@ -101,7 +112,14 @@ def render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
     )
     st.dataframe(properties, width="stretch", hide_index=True, height=360)
 
-    render_thermodynamic_panel(analysis_id, project_id)
+    row_dataset_ids = []
+    if "_dataset_id" in selected_row.index and pd.notna(selected_row.get("_dataset_id")):
+        row_dataset_ids = [int(selected_row["_dataset_id"])]
+    render_thermodynamic_panel(
+        analysis_id,
+        project_id,
+        dataset_ids=row_dataset_ids,
+    )
 
     with st.expander("Проверить минерал / исправить отнесение", expanded=False):
         dataset_mineral = str(selected_row.get("Минерал исходного набора") or selected_row.get("Минерал") or "")
