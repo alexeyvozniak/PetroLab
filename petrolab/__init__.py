@@ -31,3 +31,7 @@ del _install_physical_point_safety
 from .amphibole_runtime import install as _install_amphibole_runtime
 _install_amphibole_runtime()
 del _install_amphibole_runtime
+
+from .user_derived_runtime import install as _install_user_derived_runtime
+_install_user_derived_runtime()
+del _install_user_derived_runtime
