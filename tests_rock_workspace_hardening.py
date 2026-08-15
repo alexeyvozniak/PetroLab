@@ -61,6 +61,7 @@ def main() -> None:
         orphaned = rock_workspace_snapshot(project_id, rock_id)
         assert orphaned.linked_datasets == ()
         assert any(str(dataset_id) in warning and "больше не подключены" in warning for warning in orphaned.warnings)
+        assert not any("пока не связаны" in warning for warning in orphaned.warnings)
         _expect_value_error(lambda: set_mineral_links(rock_id, [dataset_id]), "не подключён к текущему проекту")
 
         import_rocks_wide(
