@@ -1,9 +1,12 @@
-"""Desktop interface hardening for the 0.15.6 line.
+"""Укрепление геометрии desktop-интерфейса для ветки 0.15.6.
 
-These overrides deliberately target the application shell only.  Scientific tables,
-plots and dense workbench controls keep their normal compact sizing, while the
-sidebar/search/header chrome gets explicit geometry so browser zoom, short windows
-and Windows text metrics cannot make adjacent controls overlap.
+Здесь меняется только оболочка приложения: боковая панель, поиск и служебные
+заголовки. Научные таблицы, графики и плотные рабочие панели сохраняют свою
+обычную компактность.
+
+Ключевой принцип hotfix: размер задаётся не только внутреннему тексту, но и
+внешнему ``stElementContainer`` Streamlit. Иначе браузер мог отрисовать текст
+выше контейнера, а следующий контрол начинал занимать ту же вертикальную область.
 """
 from __future__ import annotations
 
@@ -12,87 +15,154 @@ import streamlit as st
 
 CSS = r"""
 <style>
-/* Brand/version are separate rows with explicit line boxes. */
+/*
+ * Не заставляем внутренние надписи создавать отступы через margin: такие
+ * margin могут схлопываться на границе markdown-контейнера. Пространство между
+ * строками задаётся внешним stElementContainer ниже.
+ */
 .petrolab-sidebar-brand {
     display: block !important;
     position: relative !important;
-    font-size: 1.16rem !important;
-    line-height: 1.32 !important;
-    min-height: 1.5rem !important;
+    box-sizing: border-box !important;
+    font-size: 1.08rem !important;
+    font-weight: 750 !important;
+    line-height: 1.25 !important;
+    min-height: 1.36rem !important;
     margin: 0 !important;
-    padding: .08rem 0 0 !important;
+    padding: 0 !important;
 }
 .petrolab-sidebar-version {
     display: block !important;
     position: relative !important;
-    font-size: .74rem !important;
-    line-height: 1.35 !important;
+    box-sizing: border-box !important;
+    font-size: .76rem !important;
+    line-height: 1.3 !important;
     min-height: 1rem !important;
-    margin: .06rem 0 .48rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 .petrolab-nav-section {
     display: block !important;
     position: relative !important;
+    box-sizing: border-box !important;
     clear: both !important;
-    font-size: .69rem !important;
-    line-height: 1.4 !important;
-    min-height: 1rem !important;
-    margin: .62rem 0 .14rem !important;
+    font-size: .70rem !important;
+    line-height: 1.3 !important;
+    min-height: .95rem !important;
+    margin: 0 !important;
     padding: 0 !important;
 }
 
-/* Give every sidebar control its own stable vertical box. */
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-    gap: .28rem !important;
+/*
+ * Streamlit 1.60 размещает элементы sidebar во внешних stElementContainer.
+ * Именно эти контейнеры участвуют в вертикальном flex-потоке. Раньше текст
+ * бренда/секций становился выше контейнера и визуально заходил на следующий
+ * элемент. Теперь внешний контейнер всегда резервирует фактическую высоту.
+ */
+[data-testid="stSidebar"] [data-testid="stElementContainer"],
+[data-testid="stSidebar"] .stElementContainer {
+    flex-shrink: 0 !important;
+    min-width: 0 !important;
 }
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-sidebar-brand),
+[data-testid="stSidebar"] .stElementContainer:has(.petrolab-sidebar-brand) {
+    min-height: 1.72rem !important;
+    padding: .10rem 0 .12rem !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-sidebar-version),
+[data-testid="stSidebar"] .stElementContainer:has(.petrolab-sidebar-version) {
+    min-height: 1.45rem !important;
+    padding: .05rem 0 .32rem !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.petrolab-nav-section),
+[data-testid="stSidebar"] .stElementContainer:has(.petrolab-nav-section) {
+    min-height: 1.48rem !important;
+    padding: .30rem 0 .18rem !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}
+
+/* Общий вертикальный поток остаётся компактным, но не сжимает детей. */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: .30rem !important;
+}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
+    flex-shrink: 0 !important;
+}
+
+/* Каждая кнопка занимает собственную строку, без отрицательных отступов. */
 [data-testid="stSidebar"] .stButton {
     display: block !important;
     position: relative !important;
+    box-sizing: border-box !important;
     margin: 0 !important;
+    padding: 0 !important;
 }
 [data-testid="stSidebar"] .stButton > button {
     position: relative !important;
-    min-height: 2.18rem !important;
+    box-sizing: border-box !important;
+    min-height: 2.22rem !important;
     height: auto !important;
-    padding: .38rem .54rem !important;
+    padding: .40rem .56rem !important;
     margin: 0 !important;
     overflow: hidden !important;
 }
 [data-testid="stSidebar"] .stButton > button p {
     margin: 0 !important;
-    font-size: .86rem !important;
-    line-height: 1.32 !important;
+    font-size: .87rem !important;
+    line-height: 1.28 !important;
 }
 
-/* Search used to be particularly sensitive to short windows/browser scaling. */
+/* Поиск и выбор проекта получают устойчивую высоту внешнего элемента. */
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stTextInput"]),
+[data-testid="stSidebar"] .stElementContainer:has([data-testid="stTextInput"]) {
+    min-height: 2.52rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stSelectbox"]),
+[data-testid="stSidebar"] .stElementContainer:has([data-testid="stSelectbox"]) {
+    min-height: 2.52rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
 [data-testid="stSidebar"] [data-testid="stTextInput"] {
     display: block !important;
     position: relative !important;
+    box-sizing: border-box !important;
     clear: both !important;
-    margin: .06rem 0 .12rem !important;
-    min-height: 2.35rem !important;
+    margin: 0 !important;
+    min-height: 2.42rem !important;
 }
 [data-testid="stSidebar"] [data-testid="stTextInput"] input {
-    min-height: 2.32rem !important;
-    height: 2.32rem !important;
+    min-height: 2.36rem !important;
+    height: 2.36rem !important;
     padding: .42rem .62rem !important;
-    font-size: .84rem !important;
+    font-size: .85rem !important;
     line-height: 1.25 !important;
 }
 [data-testid="stSidebar"] [data-testid="stSelectbox"] {
     display: block !important;
     position: relative !important;
+    box-sizing: border-box !important;
     clear: both !important;
-    margin: .04rem 0 .08rem !important;
+    margin: 0 !important;
+    min-height: 2.42rem !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] {
     position: relative !important;
     clear: both !important;
-    margin-top: .18rem !important;
+    margin-top: .12rem !important;
 }
 
-/* The old circled-Unicode glyph rendered differently across Windows fonts.
-   Draw the information mark ourselves instead. */
+/*
+ * Старый Unicode-символ информации зависел от установленного Windows-шрифта.
+ * Рисуем окружность CSS-ом, внутри оставляем обычную латинскую i.
+ */
 .petrolab-info-dot {
     display: inline-flex !important;
     align-items: center !important;
@@ -124,30 +194,32 @@ CSS = r"""
     row-gap: .24rem !important;
 }
 
-/* On short desktop windows the sidebar must scroll, not compress its children. */
+/*
+ * В коротком desktop-окне sidebar должен прокручиваться. Ничего внутри него
+ * не уменьшается по высоте ради того, чтобы любой ценой поместиться на экран.
+ */
 @media (max-height: 620px) and (min-width: 761px) {
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebar"] section {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: .22rem !important;
-    }
-    .petrolab-sidebar-version {
-        margin-bottom: .34rem !important;
-    }
-    .petrolab-nav-section {
-        margin-top: .48rem !important;
+        gap: .26rem !important;
     }
     [data-testid="stSidebar"] .stButton > button {
-        min-height: 2.06rem !important;
-        padding-top: .32rem !important;
-        padding-bottom: .32rem !important;
+        min-height: 2.12rem !important;
+        padding-top: .34rem !important;
+        padding-bottom: .34rem !important;
     }
 }
 
-/* On an empty start screen, don't stretch the only action across the canvas. */
+/* На пустом стартовом экране единственное действие не растягиваем на холст. */
 .petrolab-page-header + div[data-testid="stAlert"] {
     max-width: 44rem;
 }
 
-/* Service text is compact, but not microscopic. */
+/* Служебный текст компактный, но читаемый. */
 [data-testid="stCaptionContainer"] {
     font-size: .76rem !important;
     line-height: 1.4 !important;
@@ -157,4 +229,5 @@ CSS = r"""
 
 
 def apply_interface_hotfix() -> None:
+    """Подключить защитные CSS-правила оболочки PetroLab."""
     st.markdown(CSS, unsafe_allow_html=True)
