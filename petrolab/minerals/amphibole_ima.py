@@ -125,7 +125,7 @@ def _has_measured_halogen(row: pd.Series, column: str) -> bool:
     return np.isfinite(value)
 
 
-def _allocate_one(row: pd.Series) -> dict[str, float | str | bool]:
+def _allocate_one(row: pd.Series) -> dict[str, float | str]:
     elements = ("Si", "Al", "Ti", "Cr", "Fe3", "Mg", "Fe2", "Mn", "Ca", "Na", "K", "Li")
     remaining = {element: _value(row, element) for element in elements}
     t: dict[str, float] = {}
@@ -187,7 +187,7 @@ def _allocate_one(row: pd.Series) -> dict[str, float | str | bool]:
     if c_ti >= 0.30:
         w_status += f"; Ti-based O2− screening proxy={w_o_ti_proxy:.2f} apfu"
 
-    output: dict[str, float | str | bool] = {
+    output: dict[str, float | str] = {
         "amp_T_sum": t_sum,
         "amp_C_sum": c_sum,
         "amp_B_sum": b_sum,
@@ -198,7 +198,9 @@ def _allocate_one(row: pd.Series) -> dict[str, float | str | bool]:
         "amp_B_subgroup": subgroup,
         "amp_root_charge_candidate": root_candidate,
         "amp_root_field": accepted_root,
-        "amp_Fe3_explicit": explicit_fe3,
+        # Store provenance as 1.0/0.0 rather than bool so invalid formula rows can
+        # be masked with NaN without forcing a lossy dtype conversion in pandas.
+        "amp_Fe3_explicit": 1.0 if explicit_fe3 else 0.0,
         "amp_W_O_Ti_proxy": w_o_ti_proxy,
         "amp_W_status": w_status,
         "amp_site_QC": "норма" if site_ok else "; ".join(qc),
