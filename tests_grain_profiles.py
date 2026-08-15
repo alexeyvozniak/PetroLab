@@ -96,6 +96,22 @@ def main() -> None:
     else:
         raise AssertionError("Geometry across unrelated images must be refused")
 
+    blank_frame = geometry.copy()
+    blank_frame.loc[1, "Frame"] = ""
+    try:
+        prepare_grain_profile(
+            blank_frame,
+            order_mode="geometry",
+            order_column="Order",
+            x_column="X",
+            y_column="Y",
+            coordinate_frame_column="Frame",
+        )
+    except ValueError as exc:
+        assert "одной системы координат" in str(exc)
+    else:
+        raise AssertionError("Geometry with a blank coordinate-frame id must be refused")
+
     duplicate_order = frame.copy()
     duplicate_order.loc[0, "Order"] = 1
     try:
