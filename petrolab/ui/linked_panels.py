@@ -7,6 +7,7 @@ from collections.abc import Iterable
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.colors import qualitative
 from plotly.subplots import make_subplots
 
 
@@ -14,8 +15,13 @@ LINKED_SELECTION_SUFFIX = "_linked_selection_ids"
 
 
 def _clean_id(value: object) -> str:
-    if value is None or pd.isna(value):
+    if value is None:
         return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
     return str(value).strip()
 
 
@@ -71,7 +77,7 @@ def _hover_text(frame: pd.DataFrame, id_column: str) -> list[str]:
     fields = [
         column for column in (
             "Sample", "Rock", "Минерал", "Textural zone", "PetroLab Generation",
-            "Generation", "Рабочая группа", "Источник", "Источник / статья",
+            "Generation", "Рабочая группа", "Рабочий класс породы", "Источник", "Источник / статья",
             "Источник данных", "Lithology", "Massif",
         )
         if column in frame.columns
@@ -85,6 +91,14 @@ def _hover_text(frame: pd.DataFrame, id_column: str) -> list[str]:
                 parts.append(f"{field}: {value}")
         result.append("<br>".join(parts))
     return result
+
+
+def _group_colors(dataframe: pd.DataFrame, group_column: str | None) -> dict[str, str]:
+    if not group_column or group_column not in dataframe.columns:
+        return {"Данные": qualitative.Plotly[0]}
+    labels = dataframe[group_column].astype("string").fillna("Без группы").replace("", "Без группы")
+    names = [str(value) for value in labels.unique().tolist()]
+    return {name: qualitative.Plotly[index % len(qualitative.Plotly)] for index, name in enumerate(names)}
 
 
 def build_linked_panel_figure(
@@ -112,7 +126,9 @@ def build_linked_panel_figure(
     titles = [str(panel.get("title") or f"{panel['y']} vs {panel['x']}") for panel in valid]
     figure = make_subplots(rows=nrows, cols=ncols, subplot_titles=titles)
 
-    selected = {_clean_id(value) for value in selected_ids if _clean_id(value)}
+    available_ids = {_clean_id(value) for value in dataframe[id_column].tolist() if _clean_id(value)}
+    selected = {_clean_id(value) for value in selected_ids if _clean_id(value)} & available_ids
+    colors = _group_colors(dataframe, group_column)
     legend_seen: set[str] = set()
 
     for panel_index, panel in enumerate(valid):
@@ -144,10 +160,10 @@ def build_linked_panel_figure(
                 showlegend=group_name not in legend_seen,
                 customdata=[[value] for value in ids],
                 text=_hover_text(part, id_column),
-                hovertemplate="%{text}<br>%{xaxis.title.text}: %{x}<br>%{yaxis.title.text}: %{y}<extra></extra>",
+                hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
                 selectedpoints=selectedpoints,
-                marker={"size": 8, "opacity": 0.88},
-                selected={"marker": {"size": 12, "opacity": 1.0, "line": {"width": 2}}},
+                marker={"size": 8, "opacity": 0.88, "color": colors.get(group_name)},
+                selected={"marker": {"size": 12, "opacity": 1.0, "line": {"width": 2, "color": "black"}}},
                 unselected={"marker": {"opacity": 0.18}} if selected else None,
             )
             figure.add_trace(trace, row=row, col=col)
