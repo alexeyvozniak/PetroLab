@@ -41,7 +41,7 @@ TOOL_SECTIONS = {
     ],
     "Исследование": [
         ("thermobarometry", "Термодинамика"),
-        ("ternary", "Треугольные диаграммы"),
+        ("ternary", "Треугольные"),
         ("science_plots", "Научные диаграммы"),
         ("statistics", "Статистика"),
         ("equilibrium", "Равновесные пары"),
