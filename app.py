@@ -17,9 +17,10 @@ from petrolab.ui.pages import (
     render_export_page, render_formulae_page, render_generations_page,
     render_guided_workflow_page, render_help_page, render_home_page, render_images_page,
     render_measurements_page, render_minerals_page, render_mixed_minerals_page,
-    render_object_workspace_page, render_plots_page, render_projects_page, render_rocks_page,
-    render_science_plots_page, render_settings_page, render_slides_page, render_sources_page,
-    render_statistics_page, render_ternary_page, render_thermobarometry_page, render_updates_page,
+    render_object_workspace_page, render_plots_page, render_projects_page,
+    render_quick_import_page, render_rocks_page, render_science_plots_page,
+    render_settings_page, render_slides_page, render_sources_page, render_statistics_page,
+    render_ternary_page, render_thermobarometry_page, render_updates_page,
 )
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import apply_smart_plot_defaults, route_fresh_import_to_workflow
@@ -71,6 +72,7 @@ apply_smart_plot_defaults()
 ROUTES = {
     "home": render_home_page, "workspace": render_object_workspace_page,
     "workflow": render_guided_workflow_page, "add_data": render_add_data_page,
+    "quick_import": render_quick_import_page,
     "attention": render_attention_page, "batch_edit": render_batch_edit_page,
     "intake": render_data_intake_page, "sessions": render_analytical_sessions_page,
     "mixed_minerals": render_mixed_minerals_page, "measurements": render_measurements_page,
