@@ -82,8 +82,9 @@ def similar_name_candidates(
     incoming: Iterable[str],
     existing: Iterable[str],
     *,
-    threshold: float = 0.82,
+    threshold: float = 0.90,
 ) -> list[SimilarName]:
+    """Find likely aliases without flooding short scientific IDs with false matches."""
     result: list[SimilarName] = []
     seen: set[tuple[str, str]] = set()
     existing_clean = [str(value).strip() for value in existing if str(value).strip()]
