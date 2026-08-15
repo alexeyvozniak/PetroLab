@@ -13,10 +13,19 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   windows-smoke:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,7 +57,7 @@ jobs:
 
       - name: Compile Python sources
         shell: cmd
-        run: python -m compileall -q app.py petrolab scripts/build_georoc_mineral_validation.py tests_architecture.py tests_formulae.py tests_formula_input_validation.py tests_formula_fingerprint.py tests_mineral_classification.py tests_mineral_recognition_v1.py tests_alkaline_mineral_recognition.py tests_alkaline_mineral_reference.py tests_mineral_recognition_extended.py tests_alkaline_mixed_review.py tests_dataframe_utils.py tests_import_semantics.py tests_rock_semantics.py tests_new_features.py tests_group_styles.py tests_analysis_drafts.py tests_analytical_sessions.py tests_generations.py tests_mixed_minerals.py tests_density_clustering.py tests_collaboration.py tests_selective_exchange.py tests_measurement_registry.py tests_global_project_context.py tests_publication_manifest.py tests_project_archive_scope.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_scientific_hardening.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_slides.py tests_update_launcher.py tests_update_checker.py tests_smoke.py tests_streamlit.py
+        run: python -m compileall -q app.py petrolab scripts/build_georoc_mineral_validation.py tests_architecture.py tests_formulae.py tests_formula_input_validation.py tests_formula_fingerprint.py tests_mineral_classification.py tests_mineral_recognition_v1.py tests_alkaline_mineral_recognition.py tests_alkaline_mineral_reference.py tests_mineral_recognition_extended.py tests_alkaline_mixed_review.py tests_dataframe_utils.py tests_import_semantics.py tests_rock_semantics.py tests_new_features.py tests_group_styles.py tests_analysis_drafts.py tests_analytical_sessions.py tests_generations.py tests_mixed_minerals.py tests_density_clustering.py tests_collaboration.py tests_selective_exchange.py tests_measurement_registry.py tests_global_project_context.py tests_publication_manifest.py tests_project_archive_scope.py tests_ternary.py tests_ternary_overlays.py tests_science_workbench.py tests_scientific_hardening.py tests_storage_isotopes.py tests_ui_layout.py tests_ui_viewports.py tests_v011_integrity.py tests_audit_closure.py tests_project_archive.py tests_group_envelopes.py tests_manual_fields.py tests_sample_registry.py tests_source_registry.py tests_slides.py tests_update_launcher.py tests_update_checker.py tests_smoke.py tests_streamlit.py tests_core_workflows_v015.py
 
       - name: Enforce architecture rules
         shell: cmd
@@ -195,6 +204,16 @@ jobs:
       - name: Run sourced ternary overlay tests
         shell: cmd
         run: python tests_ternary_overlays.py
+
+      - name: Run v0.15 core workflow regressions
+        shell: cmd
+        run: python tests_core_workflows_v015.py
+
+      - name: Reset transient artifacts before science workbench
+        shell: cmd
+        run: |
+          git reset --hard HEAD
+          git clean -fdx
 
       - name: Run science workbench and whole-rock tests
         shell: cmd

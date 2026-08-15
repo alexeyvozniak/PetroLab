@@ -45,6 +45,10 @@ on:
       - "tests_product_ui_viewports.py"
       - ".github/workflows/product-guidance.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   product-guidance-windows:
     runs-on: windows-latest

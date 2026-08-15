@@ -32,13 +32,27 @@ safe_normalized = preview_uploaded_source(
 assert len(safe_normalized) == 1
 assert "FeOt" in safe_normalized.columns
 
+# A plain FeO header is no longer sent to the advanced importer.  Schema recognition
+# stays safe, while the quick UI asks one inline question and passes the explicit
+# measurement meaning into the normalizer.
 ambiguous_fe = (
     "Sample,Point,SiO2,FeO,MgO\n"
     "PG-1,1,40.1,8.5,20.0\n"
 ).encode("utf-8")
 fe_preview = inspect_uploaded_sheet(ambiguous_fe, "ambiguous.csv", "", 1)
-_, fe_blockers = _safe_automatic_mapping(fe_preview)
-assert any("FeO" in reason for reason in fe_blockers), fe_blockers
+fe_mapping, fe_blockers = _safe_automatic_mapping(fe_preview)
+assert not any("FeO" in reason for reason in fe_blockers), fe_blockers
+fe_normalized = preview_uploaded_source(
+    ambiguous_fe,
+    "ambiguous.csv",
+    "",
+    1,
+    "generic",
+    fe_mapping,
+    {"FeO": "FeOt"},
+)
+assert "FeOt" in fe_normalized.columns
+assert "FeO" not in fe_normalized.columns
 
 duplicate_csv = (
     "Sample,SiO2,SiO₂,MgO\n"

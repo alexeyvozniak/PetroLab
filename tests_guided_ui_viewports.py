@@ -64,15 +64,19 @@ def _seed(root: Path) -> None:
     replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, 2 + len(frame))))
 
 
-def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
+def _sidebar_buttons(driver: webdriver.Chrome, label: str):
     return [
         button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
-        if button.is_displayed() and button.text.strip() == label
+        if button.text.strip() == label
     ]
 
 
+def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
+    return [button for button in _sidebar_buttons(driver, label) if button.is_displayed()]
+
+
 def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
-    """Open the collapsed secondary-tools group when a tested page is not in daily navigation."""
+    """Open and scroll the secondary-tools group so off-screen entries become clickable."""
     if _visible_sidebar_buttons(driver, label):
         return
     sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
@@ -84,11 +88,18 @@ def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
             continue
         if "Все инструменты" not in summary.text:
             continue
-        details = expander.find_element(By.CSS_SELECTOR, "details")
-        if details.get_attribute("open") is None:
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", summary)
-            summary.click()
-            time.sleep(0.4)
+        try:
+            details = expander.find_element(By.CSS_SELECTOR, "details")
+            opened = details.get_attribute("open") is not None
+        except Exception:
+            opened = False
+        if not opened:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", summary)
+            time.sleep(0.5)
+        matches = _sidebar_buttons(driver, label)
+        if matches:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", matches[0])
+            time.sleep(0.25)
         return
 
 

@@ -1,4 +1,4 @@
-name: Input and search regression
+name: Input, search and workflow regression
 
 on:
   push:
@@ -10,8 +10,12 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
-  input-and-search-safety:
+  input-search-and-workflow-safety:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -29,14 +33,22 @@ jobs:
         shell: cmd
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Compile input and search workflows
+      - name: Compile input, search and workflow sources
         shell: cmd
-        run: python -m compileall -q petrolab/ui/pages/quick_import.py petrolab/ui/pages/global_search.py tests_quick_import.py tests_global_search.py
+        run: python -m compileall -q petrolab/auto_pipeline.py petrolab/composite_points.py petrolab/multi_panel_plotting.py petrolab/slide_region_links.py petrolab/tectonic_discrimination.py petrolab/rock_comparison.py petrolab/ui/pages/quick_import.py petrolab/ui/pages/global_search.py petrolab/ui/pages/object_workspace.py petrolab/ui/pages/thin_section_workspace.py petrolab/ui/pages/composite_points.py petrolab/ui/pages/multi_panel.py petrolab/ui/pages/whole_rock_compare.py petrolab/ui/pages/scenario_hubs.py petrolab/ui/work_context.py tests_quick_import.py tests_global_search.py tests_final_workflows.py tests_core_workflows_v015.py
 
       - name: Run quick import safety regression
         shell: cmd
         run: python tests_quick_import.py
 
-      - name: Run global search literal regression
+      - name: Run global search regression
         shell: cmd
         run: python tests_global_search.py
+
+      - name: Run final workflow regression
+        shell: cmd
+        run: python tests_final_workflows.py
+
+      - name: Run v0.15 end-to-end core workflow regression
+        shell: cmd
+        run: python tests_core_workflows_v015.py
