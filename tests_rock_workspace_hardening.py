@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import gc
+import io
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -38,6 +40,7 @@ def main() -> None:
             set_mineral_links,
             update_rock,
         )
+        from petrolab.rock_workspace_export import rock_sample_card_json_bytes, rock_sample_card_xlsx_bytes
         from petrolab.rock_workspace_model import rock_workspace_snapshot
         from petrolab.services.rock_service import import_rocks_wide
         from petrolab.storage import ensure_storage
@@ -160,7 +163,29 @@ def main() -> None:
         assert grouped["Источник данных"].tolist() == plot_frame["Источник данных"].tolist()
         assert grouped["_rock_plot_group"].tolist() == ["★ R1", "Smith et al. 2024"]
 
-        del snapshot, orphaned, composition, after_failure, no_iso, incomplete_iso, grouped
+        # Sample-card export is reproducible and keeps per-analyte provenance without
+        # leaking the internal project id into the portable rock passport.
+        export_snapshot = rock_workspace_snapshot(project_id, rock_id)
+        payload = json.loads(rock_sample_card_json_bytes(export_snapshot).decode("utf-8"))
+        assert payload["kind"] == "petrolab_rock_sample_card"
+        assert payload["schema_version"] == 1
+        assert "project_id" not in payload["rock"]
+        chemistry_by_analyte = {row["analyte"]: row for row in payload["chemistry"]}
+        assert chemistry_by_analyte["SiO2"]["method"] == "XRF"
+        assert chemistry_by_analyte["SiO2"]["source"] == "major.xlsx"
+        assert chemistry_by_analyte["La [µg/g]"]["method"] == "LA-ICP-MS"
+        xlsx = rock_sample_card_xlsx_bytes(export_snapshot)
+        workbook = pd.ExcelFile(io.BytesIO(xlsx))
+        assert set(workbook.sheet_names) == {
+            "Rock", "Chemistry", "Isotopes", "Mineral datasets", "Images", "Data health"
+        }
+        exported_chemistry = pd.read_excel(io.BytesIO(xlsx), sheet_name="Chemistry")
+        exported_si = exported_chemistry.loc[exported_chemistry["analyte"].eq("SiO2")].iloc[0]
+        assert exported_si["method"] == "XRF"
+        assert exported_si["source"] == "major.xlsx"
+
+        del snapshot, orphaned, composition, after_failure, no_iso, incomplete_iso, grouped, export_snapshot
+        del payload, chemistry_by_analyte, xlsx, workbook, exported_chemistry, exported_si
         gc.collect()
 
     print("rock workspace hardening tests: OK")
