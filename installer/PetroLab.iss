@@ -26,7 +26,7 @@ CloseApplications=yes
 RestartApplications=no
 UninstallDisplayName=PetroLab
 UninstallDisplayIcon={app}\PetroLab.exe
-SetupIconFile=..\dist\PetroLab.ico
+SetupIconFile=..\dist\PetroLab-Installer.ico
 SetupLogging=yes
 
 [Tasks]
@@ -41,6 +41,7 @@ Source: "..\dist\payload\current\*"; DestDir: "{app}\current"; Flags: ignorevers
 Source: "..\dist\payload\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\PetroLab.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\PetroLab.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\PetroLab-Installer.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "launch_petrolab.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "update_petrolab.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "update_petrolab.cmd"; DestDir: "{app}"; Flags: ignoreversion
