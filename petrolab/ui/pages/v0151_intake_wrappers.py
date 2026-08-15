@@ -4,9 +4,13 @@ from __future__ import annotations
 import streamlit as st
 
 from petrolab.db import list_accessible_datasets
+from petrolab.ui import universal_intake as _universal
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
-from petrolab.ui.universal_intake import render_universal_intake
+from petrolab.ui.universal_intake_extensions import (
+    render_image_wizard_multi_dataset,
+    render_table_import_with_provenance,
+)
 
 from . import add_data as _add_data
 from . import quick_import as _quick_import
@@ -15,8 +19,24 @@ from . import quick_import as _quick_import
 def render_add_data_page() -> None:
     _add_data.render_add_data_page()
     project = active_project()
-    if project is not None:
-        render_universal_intake(int(project["id"]))
+    if project is None:
+        return
+
+    original_table = _universal._render_table_import
+    original_images = _universal._render_image_wizard
+
+    def table_with_source(project_id: int, name: str, data: bytes, token: str):
+        return render_table_import_with_provenance(
+            original_table, project_id, name, data, token
+        )
+
+    _universal._render_table_import = table_with_source
+    _universal._render_image_wizard = render_image_wizard_multi_dataset
+    try:
+        _universal.render_universal_intake(int(project["id"]))
+    finally:
+        _universal._render_table_import = original_table
+        _universal._render_image_wizard = original_images
 
 
 def render_quick_import_page() -> None:
@@ -32,7 +52,10 @@ def render_quick_import_page() -> None:
         return
     st.divider()
     st.markdown("### Следующий естественный шаг")
-    st.caption("Если к этим анализам есть BSE, EDS-карты или фотографии, их можно привязать сейчас — по одной фотографии к одной или нескольким точкам.")
+    st.caption(
+        "Если к этим анализам есть BSE, EDS-карты или фотографии, их можно привязать сейчас. "
+        "Если фотографии относятся к нескольким автоматически разобранным фазовым наборам, откройте «Добавить данные → Универсальный +»: там dataset выбирается отдельно для каждого изображения."
+    )
     dataset_id = st.selectbox(
         "К какому рабочему набору относятся фотографии",
         choices,

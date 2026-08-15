@@ -35,7 +35,7 @@ jobs:
 
       - name: Compile v0.15.1 changed paths
         shell: cmd
-        run: python -m compileall -q petrolab/physical_point_safety.py petrolab/services/import_runtime.py petrolab/auto_pipeline.py petrolab/ui/work_context.py petrolab/ui/pages/v0151_wrappers.py petrolab/ui/universal_intake.py petrolab/ui/pages/v0151_intake_wrappers.py tests_v0151_silent_errors.py tests_v0151_ui_selection.py tests_v0151_universal_intake.py
+        run: python -m compileall -q petrolab/physical_point_safety.py petrolab/services/import_runtime.py petrolab/auto_pipeline.py petrolab/ui/work_context.py petrolab/ui/pages/v0151_wrappers.py petrolab/ui/universal_intake.py petrolab/ui/universal_intake_extensions.py petrolab/ui/pages/v0151_intake_wrappers.py tests_v0151_silent_errors.py tests_v0151_ui_selection.py tests_v0151_universal_intake.py tests_v0151_intake_extensions.py
 
       - name: Run silent data-link regressions
         shell: cmd
@@ -47,4 +47,6 @@ jobs:
 
       - name: Run universal intake regressions
         shell: cmd
-        run: python tests_v0151_universal_intake.py
+        run: |
+          python tests_v0151_universal_intake.py
+          python tests_v0151_intake_extensions.py

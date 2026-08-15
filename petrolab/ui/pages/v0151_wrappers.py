@@ -18,6 +18,7 @@ from petrolab.ui.project_context import active_project
 from . import composite_points as _composite
 from . import global_search as _search
 from . import multi_panel as _multi
+from . import plots_advanced as _advanced
 from . import plots_dashboard as _plots
 from . import thin_section_workspace as _thin
 
@@ -81,7 +82,6 @@ def _update_exact_selection_state(state, persistent_key: str) -> list[str]:
             state.pop(persistent_key, None)
     persisted = [str(value) for value in state.get(persistent_key, []) if str(value)]
     if persisted:
-        # Legacy pages consume this key with pop(); restore it on every rerun.
         state["workflow_plot_analysis_ids"] = persisted
     return persisted
 
@@ -158,16 +158,26 @@ def _render_exact_selection_notice(persistent_key: str, exact: list[str], reset_
 def render_plots_page() -> None:
     exact = _update_exact_selection_state(st.session_state, _PLOT_EXACT_KEY)
     original_quick = _plots._quick_workspace
+    original_load = _advanced.load_unified_with_derived
 
     def quick_with_exact(project_id: int) -> None:
         _render_exact_selection_notice(_PLOT_EXACT_KEY, exact, "v0151_reset_xy_exact")
         original_quick(project_id)
 
+    def load_exact(project_id: int, dataset_ids):
+        dataframe = original_load(project_id, dataset_ids)
+        if exact and not dataframe.empty and "_analysis_id" in dataframe.columns:
+            wanted = set(exact)
+            dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(wanted)].copy()
+        return dataframe
+
     _plots._quick_workspace = quick_with_exact
+    _advanced.load_unified_with_derived = load_exact
     try:
         _plots.render_plots_dashboard_page()
     finally:
         _plots._quick_workspace = original_quick
+        _advanced.load_unified_with_derived = original_load
 
 
 def render_multi_panel_page() -> None:
