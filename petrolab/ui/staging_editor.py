@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import pandas as pd
 import streamlit as st
@@ -17,6 +17,7 @@ from petrolab.import_staging import (
     normalized_name_key,
     similar_name_candidates,
 )
+from petrolab.term_registry import DEFAULT_TERM_DOMAINS
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
 
 
@@ -29,6 +30,7 @@ class StagingResult:
     role_columns: dict[str, str]
     sample_column: str | None
     source_column: str | None
+    confirmations: dict[str, dict[str, str]]
 
 
 def _state_key(token: str, sheet: str) -> str:
@@ -180,7 +182,7 @@ def _similarity_reason(left: str, right: str) -> str:
     if left.casefold() == right.casefold():
         return "отличается только регистром"
     if normalized_name_key(left) == normalized_name_key(right):
-        return "совпадает после нормализации/транслитерации"
+        return "совпадает после языковой/орфографической нормализации"
     return "похожее написание"
 
 
@@ -221,8 +223,8 @@ def _duplicate_reconciliation(
     resolved: dict[str, str] = {}
     with st.expander(f"Похожие названия · {field} · {len(grouped)}", expanded=True):
         st.caption(
-            "Регистр, транслитерация и похожее написание используются только для поиска кандидатов. "
-            "PetroLab не объединяет похожие научные объекты без вашего подтверждения."
+            "Регистр, русское/английское написание и похожая орфография используются только для поиска кандидатов. "
+            "PetroLab не объединяет научные сущности без вашего подтверждения. Подтверждённые варианты запоминаются как алиасы."
         )
         for index, (incoming_name, by_existing) in enumerate(grouped.items()):
             found = sorted(by_existing.values(), key=lambda item: (-item.score, item.existing.casefold()))
@@ -246,6 +248,7 @@ def render_staging_editor(
     chemistry_columns: Iterable[str] = (),
     existing_samples: Iterable[str] = (),
     existing_sources: Iterable[str] = (),
+    existing_terms: Mapping[str, Iterable[str]] | None = None,
 ) -> tuple[StagingResult, dict[str, str], dict[str, str]]:
     frame = _current_frame(token, sheet, dataframe)
     render_section_header("Предпросмотр до импорта", "Автоматика сначала; ручные изменения касаются только staging-копии")
@@ -263,10 +266,35 @@ def render_staging_editor(
 
     sample_column = role_columns.get("Sample") or ("Sample" if "Sample" in frame.columns else None)
     source_column = role_columns.get("Source") or ("Source" if "Source" in frame.columns else None)
+    confirmations: dict[str, dict[str, str]] = {}
     sample_confirmations = _duplicate_reconciliation(
         frame, field=sample_column or "Sample", existing_names=existing_samples, token=token, sheet=sheet,
     )
     source_confirmations = _duplicate_reconciliation(
         frame, field=source_column or "Source", existing_names=existing_sources, token=token, sheet=sheet,
     )
-    return StagingResult(frame, role_columns, sample_column, source_column), sample_confirmations, source_confirmations
+    if sample_confirmations:
+        confirmations["Sample"] = sample_confirmations
+    if source_confirmations:
+        confirmations["Source"] = source_confirmations
+
+    known = existing_terms or {}
+    for domain in DEFAULT_TERM_DOMAINS:
+        domain_column = role_columns.get(domain) or (domain if domain in frame.columns else None)
+        if not domain_column:
+            continue
+        confirmed = _duplicate_reconciliation(
+            frame,
+            field=domain_column,
+            existing_names=known.get(domain, ()),
+            token=token,
+            sheet=sheet,
+        )
+        if confirmed:
+            confirmations[domain] = confirmed
+
+    return (
+        StagingResult(frame, role_columns, sample_column, source_column, confirmations),
+        sample_confirmations,
+        source_confirmations,
+    )
