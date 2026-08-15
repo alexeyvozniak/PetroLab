@@ -21,6 +21,7 @@ VIEWPORTS = ((1440, 900), (1024, 768), (768, 900), (390, 844))
 PAGES = (
     ("home", "Главная"),
     ("workspace", "Рабочий стол"),
+    ("thin_section", "Работать со шлифом"),
     ("graphs", "XY-диаграммы"),
     ("thermodynamics", "Термодинамика"),
     ("rocks", "Породы"),
@@ -72,19 +73,27 @@ def _reset_desktop_metrics(driver: webdriver.Chrome) -> None:
     driver.set_window_size(1280, 900)
 
 
-def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
+def _sidebar_buttons(driver: webdriver.Chrome, label: str):
     return [
         button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
-        if button.is_displayed() and button.text.strip() == label
+        if button.text.strip() == label
     ]
 
 
-def _expand_tool_navigation(driver: webdriver.Chrome) -> None:
+def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
+    return [button for button in _sidebar_buttons(driver, label) if button.is_displayed()]
+
+
+def _expand_tool_navigation(driver: webdriver.Chrome, label: str) -> None:
     summaries = driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stExpander"] summary')
     for summary in summaries:
         if summary.is_displayed() and "Все инструменты" in summary.text:
-            summary.click()
-            time.sleep(0.35)
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", summary)
+            time.sleep(0.5)
+            matches = _sidebar_buttons(driver, label)
+            if matches:
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", matches[0])
+                time.sleep(0.25)
             return
 
 
@@ -96,7 +105,7 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
     output.mkdir(parents=True, exist_ok=True)
     try:
         if not _visible_sidebar_buttons(driver, label):
-            _expand_tool_navigation(driver)
+            _expand_tool_navigation(driver, label)
         wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
         buttons = _visible_sidebar_buttons(driver, label)
         assert buttons, f"Sidebar button not found: {label}"
