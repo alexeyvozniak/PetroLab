@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import tempfile
 from contextlib import ExitStack
@@ -61,7 +62,12 @@ class Workspace:
             con.commit()
 
     def __exit__(self, exc_type, exc, tb):
+        # SQLite connections are explicitly closed by db.connect(). On Windows, short-lived
+        # sqlite cursor/row objects can nevertheless keep the file handle alive until GC.
+        # Collect before restoring the patched DB path so TemporaryDirectory teardown is deterministic.
+        gc.collect()
         self.stack.close()
+        gc.collect()
 
 
 def _add_fake_image(project_id: int, thin_section_id: int, title: str) -> int:
