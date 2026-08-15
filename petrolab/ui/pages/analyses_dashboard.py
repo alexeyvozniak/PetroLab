@@ -16,7 +16,11 @@ from petrolab.dataframe_utils import apply_quick_filter, compute_changes, datase
 from petrolab.db import META_COLUMNS, list_accessible_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
-from petrolab.ui.analysis_components import PROTECTED_ANALYSIS_COLUMNS, render_point_card
+from petrolab.ui.analysis_components import (
+    PROTECTED_ANALYSIS_COLUMNS,
+    render_point_card,
+    render_thermodynamic_panel,
+)
 from petrolab.ui.destructive_actions import confirm_then, render_pending
 from petrolab.ui.editability import common_editable_source_columns
 from petrolab.ui.layout import render_badges, render_page_header
@@ -74,6 +78,34 @@ def _draft_time(value: str) -> str:
 def _clear_draft_and_editor(project_id: int) -> None:
     clear_analysis_draft(project_id)
     st.session_state.pop(_DRAFT_EDITOR_KEY, None)
+
+
+def _thermodynamic_row_selector(dataframe, project_id: int) -> None:
+    """Compact '+' interaction directly below the calculated-fields table."""
+    if dataframe.empty or "_analysis_id" not in dataframe.columns:
+        return
+    st.markdown("#### ＋ Термодинамические параметры строки")
+    st.caption(
+        "Выберите анализ из текущей таблицы. Откроются сохранённые T, P и fO₂ именно этой точки; "
+        "исходная химия и структурная формула при этом не меняются."
+    )
+    choices: dict[str, str] = {}
+    for _, row in dataframe.head(3000).iterrows():
+        analysis_id = str(row["_analysis_id"])
+        identity = " · ".join(
+            str(row.get(column) or "—")
+            for column in ("Sample", "Grain", "Point", "Generation")
+            if column in dataframe.columns
+        )
+        label = f"＋ {identity} · {analysis_id[:8]}"
+        choices[label] = analysis_id
+    selected_label = st.selectbox(
+        "Анализ",
+        list(choices),
+        key="analysis_table_thermodynamic_point",
+        label_visibility="collapsed",
+    )
+    render_thermodynamic_panel(choices[selected_label], project_id, expanded=True)
 
 
 def render_analyses_dashboard_page() -> None:
@@ -218,6 +250,9 @@ def render_analyses_dashboard_page() -> None:
                 st.error(error)
         st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
         st.caption("«QC уровень» и причины рассчитываются из данных и не скрывают анализы. В «QC решение» можно вручную оставить Авто, Включить или Исключить для графиков; это поле хранится только в PetroLab.")
+        if mode == "Расчёты":
+            st.divider()
+            _thermodynamic_row_selector(shown, int(project_id))
     with point_tab:
         if len(shown) > 3000:
             st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск в toolbar, чтобы сузить выборку.")

@@ -50,7 +50,6 @@ def _seed(root: Path) -> None:
             "FeO": 6.0 + 0.1 * (index % 2), "MgO": 15.0 + 0.1 * (index % 3),
             "CaO": 21.0 - 0.1 * (index % 3), "Na2O": 0.8,
         })
-    # Still clinopyroxene-like, but deliberately unusual relative to the compact group.
     rows.append({
         "Sample": "PG-1", "Grain": "Cpx-1", "Point": "p9",
         "SiO2": 48.5, "Al2O3": 2.0, "FeO": 8.0, "MgO": 8.0, "CaO": 28.0, "Na2O": 1.0,
@@ -65,6 +64,34 @@ def _seed(root: Path) -> None:
     replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, 2 + len(frame))))
 
 
+def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
+    return [
+        button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
+        if button.is_displayed() and button.text.strip() == label
+    ]
+
+
+def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
+    """Open the collapsed secondary-tools group when a tested page is not in daily navigation."""
+    if _visible_sidebar_buttons(driver, label):
+        return
+    sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
+    expanders = sidebar.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]')
+    for expander in expanders:
+        try:
+            summary = expander.find_element(By.CSS_SELECTOR, "summary")
+        except Exception:
+            continue
+        if "Все инструменты" not in summary.text:
+            continue
+        details = expander.find_element(By.CSS_SELECTOR, "details")
+        if details.get_attribute("open") is None:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", summary)
+            summary.click()
+            time.sleep(0.4)
+        return
+
+
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
     driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
     driver.set_window_size(1280, 900)
@@ -72,9 +99,10 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) 
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     try:
-        wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
-        buttons = [button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button') if button.is_displayed() and button.text.strip() == label]
-        assert buttons, f"Sidebar button not found: {label}"
+        _expand_tools_if_needed(driver, label)
+        wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
+        buttons = _visible_sidebar_buttons(driver, label)
+        assert buttons, f"Sidebar button not found after expanding tools: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()
         time.sleep(1.5)

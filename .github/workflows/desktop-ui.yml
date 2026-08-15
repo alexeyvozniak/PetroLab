@@ -1,0 +1,32 @@
+name: Desktop UI regression
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+      - "integration/**"
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  desktop-ui:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile UI sources
+        shell: cmd
+        run: python -m compileall -q petrolab/ui/theme.py petrolab/ui/layout.py tests_desktop_ui.py
+
+      - name: Run desktop UI contract
+        shell: cmd
+        run: python tests_desktop_ui.py

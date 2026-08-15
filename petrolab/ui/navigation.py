@@ -8,50 +8,60 @@ from petrolab.ui.project_context import active_project_id, set_active_project
 from petrolab.update_checker import available_update
 
 
-NAV_SECTIONS = {
-    "Основное": [
-        ("home", "Главная"),
-        ("workflow", "Рабочий процесс"),
-        ("add_data", "Добавить данные"),
-        ("attention", "Требует внимания"),
-    ],
+DAILY_NAV = [
+    ("home", "Главная"),
+    ("workspace", "Рабочий стол"),
+    ("add_data", "Добавить данные"),
+    ("database", "Вся база"),
+    ("images", "Изображения"),
+    ("plots", "XY-диаграммы"),
+    ("rocks", "Породы"),
+    ("article_tables", "Таблицы для статьи"),
+    ("attention", "Требует внимания"),
+]
+
+TOOL_SECTIONS = {
     "Данные": [
+        ("search", "Глобальный поиск"),
+        ("quick_import", "Быстрый импорт"),
+        ("workflow", "Рабочий процесс"),
         ("analyses", "База анализов"),
-        ("database", "Вся база"),
+        ("sources", "Новые анализы"),
+        ("sessions", "Аналитические сессии"),
+        ("intake", "Источники и литература"),
     ],
     "Материалы": [
-        ("images", "Изображения"),
         ("slides", "Шлифы и поля"),
         ("measurements", "Образцы и измерения"),
-    ],
-    "Интерпретация": [
         ("mixed_minerals", "Фазы и выбросы"),
         ("batch_edit", "Массовые действия"),
         ("formulae", "Расчёты"),
         ("generations", "Поколения"),
+        ("minerals", "Минералогические модули"),
     ],
     "Исследование": [
-        ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
-        ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
-        ("equilibrium", "Равновесные пары"), ("distribution", "Распределение элементов"),
-        ("thermobarometry", "Термобарометрия"), ("rocks", "Породы"),
+        ("thermobarometry", "Термодинамика"),
+        ("ternary", "Треугольные"),
+        ("science_plots", "Научные диаграммы"),
+        ("statistics", "Статистика"),
+        ("equilibrium", "Равновесные пары"),
+        ("distribution", "Распределение элементов"),
     ],
-    "Публикация": [("article_tables", "Таблицы для статьи"), ("export", "Экспорт")],
-    "Расширенные инструменты": [
-        ("sources", "Новые анализы"),
-        ("sessions", "Аналитические сессии"),
-        ("intake", "Источники и литература"),
-        ("minerals", "Минералогические модули"),
+    "Публикация": [
+        ("export", "Экспорт"),
     ],
     "Система": [
         ("projects", "Проекты"),
         ("collaboration", "Совместная работа"),
         ("change_log", "История правок данных"),
-        ("settings", "Настройки"), ("help", "Справка"),
+        ("settings", "Настройки"),
+        ("help", "Справка"),
         ("updates", "Что нового"),
     ],
 }
-ROUTE_LABELS = {route: label for entries in NAV_SECTIONS.values() for route, label in entries}
+
+_ALL_ENTRIES = DAILY_NAV + [item for entries in TOOL_SECTIONS.values() for item in entries]
+ROUTE_LABELS = {route: label for route, label in _ALL_ENTRIES}
 
 
 def navigate(route: str) -> None:
@@ -78,6 +88,17 @@ def _render_update_notice(installed_version: str) -> None:
         st.rerun()
 
 
+def _nav_button(route: str, label: str, current: str, *, prefix: str = "nav") -> None:
+    if st.button(
+        label,
+        key=f"{prefix}_{route}",
+        type="primary" if route == current else "secondary",
+        width="stretch",
+    ):
+        st.session_state["nav_route"] = route
+        st.rerun()
+
+
 def render_sidebar(version: str) -> str:
     st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
@@ -101,6 +122,18 @@ def render_sidebar(version: str) -> str:
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True
+
+        st.markdown('<div class="petrolab-nav-section">Поиск</div>', unsafe_allow_html=True)
+        search = st.text_input(
+            "Найти Sample, минерал, статью или массив",
+            key="sidebar_object_search",
+            label_visibility="collapsed",
+            placeholder="Sample, минерал, статья…",
+        )
+        if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
+            st.session_state["global_search_query_pending"] = str(search or "").strip()
+            st.session_state["nav_route"] = "search"
+            st.rerun()
     else:
         st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
@@ -111,10 +144,15 @@ def render_sidebar(version: str) -> str:
     if current not in ROUTE_LABELS:
         current = "home"
         st.session_state["nav_route"] = current
-    for section, entries in NAV_SECTIONS.items():
-        st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
-        for route, label in entries:
-            if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch"):
-                st.session_state["nav_route"] = route
-                st.rerun()
+
+    st.markdown('<div class="petrolab-nav-section">Основное</div>', unsafe_allow_html=True)
+    for route, label in DAILY_NAV:
+        _nav_button(route, label, current, prefix="daily_nav")
+
+    daily_routes = {route for route, _ in DAILY_NAV}
+    with st.expander("Все инструменты", expanded=current not in daily_routes):
+        for section, entries in TOOL_SECTIONS.items():
+            st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
+            for route, label in entries:
+                _nav_button(route, label, current, prefix="tool_nav")
     return current

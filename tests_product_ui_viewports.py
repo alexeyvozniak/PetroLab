@@ -18,8 +18,10 @@ from tests_guided_ui_viewports import _assert_viewport, _seed, _select_page, _wa
 PORT = 8522
 PAGES = (
     ("add_data", "Добавить данные", ("Мои анализы", "Статья / коллега", "Полевые Sample")),
-    ("attention", "Требует внимания", ("PetroLab собирает оставшиеся хвосты",)),
-    ("batch", "Массовые действия", ("Изменить фазу, Generation или морфологию",)),
+    # Page/section descriptions are deliberately compacted behind the ⓘ disclosure in the
+    # desktop UI. Browser contracts must therefore assert visible task content, not hidden help.
+    ("attention", "Требует внимания", ("Сначала проверить", "Неразобранные фазы / mixed")),
+    ("batch", "Массовые действия", ("Наборы", "Фильтр")),
     ("history", "История правок данных", ("История действий", "Интерпретации", "Значения и Excel")),
 )
 VIEWPORTS = ((1440, 900), (390, 844))

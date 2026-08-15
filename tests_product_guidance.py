@@ -91,7 +91,15 @@ class ProductGuidanceTests(unittest.TestCase):
     def test_primary_navigation_is_user_task_oriented(self):
         navigation = Path("petrolab/ui/navigation.py").read_text(encoding="utf-8")
         add_data = Path("petrolab/ui/pages/add_data.py").read_text(encoding="utf-8")
-        for marker in ["Основное", "Добавить данные", "Требует внимания", "Массовые действия", "Расширенные инструменты"]:
+        for marker in [
+            "Основное",
+            "Рабочий стол",
+            "Добавить данные",
+            "Требует внимания",
+            "Глобальный поиск",
+            "Массовые действия",
+            "Все инструменты",
+        ]:
             self.assertIn(marker, navigation)
         for marker in ["Мои анализы", "Статья / коллега", "Полевые Sample", "pending_study_id"]:
             self.assertIn(marker, add_data)

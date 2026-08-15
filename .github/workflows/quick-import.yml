@@ -1,0 +1,42 @@
+name: Input and search regression
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+      - "integration/**"
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  input-and-search-safety:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install PetroLab dependencies
+        shell: cmd
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile input and search workflows
+        shell: cmd
+        run: python -m compileall -q petrolab/ui/pages/quick_import.py petrolab/ui/pages/global_search.py tests_quick_import.py tests_global_search.py
+
+      - name: Run quick import safety regression
+        shell: cmd
+        run: python tests_quick_import.py
+
+      - name: Run global search literal regression
+        shell: cmd
+        run: python tests_global_search.py
