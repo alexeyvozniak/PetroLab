@@ -203,7 +203,8 @@ for marker in [
 ]:
     assert marker in plot_actions, marker
 for marker in [
-    'confirm_then("rock_image"', 'confirm_then("rock_links"',
+    'action_key = f"rock_links_{rock_id}"', "pending_key(action_key)",
+    "confirm_then(action_key, link_target", 'confirm_then("rock_image"',
     "set_mineral_links as _set_mineral_links", "delete_rock_image as _delete_rock_image",
 ]:
     assert marker in rocks, marker
