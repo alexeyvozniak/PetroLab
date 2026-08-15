@@ -12,6 +12,7 @@ from petrolab.publication_composer import (
     default_panel_label,
     figure_bytes,
     panel_label_sequence,
+    parse_publication_recipe_bytes,
     publication_recipe,
     recipe_json_bytes,
 )
@@ -22,6 +23,10 @@ from petrolab.visualization_presets import FIGURE_PRESETS
 
 
 _ALLOWED_TYPES = ["png", "jpg", "jpeg", "tif", "tiff", "webp"]
+_EDITOR_COLUMNS = [
+    "Порядок", "Источник", "Заголовок", "Метка", "Показывать метку",
+    "X метки", "Y метки", "Размер метки", "Жирная", "Заполнение", "_source_id",
+]
 
 
 def _upload_sources(uploads) -> list[dict]:
@@ -41,7 +46,16 @@ def _upload_sources(uploads) -> list[dict]:
 
 def _inbox_sources() -> list[dict]:
     raw = st.session_state.get("publication_composer_inbox", [])
-    sources = [dict(item) for item in raw if isinstance(item, dict) and item.get("source_id")]
+    sources: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict) or not item.get("source_id"):
+            continue
+        source_id = str(item["source_id"])
+        if source_id in seen:
+            continue
+        seen.add(source_id)
+        sources.append(dict(item))
     if not sources:
         return []
     c1, c2 = st.columns([3, 1])
@@ -51,6 +65,22 @@ def _inbox_sources() -> list[dict]:
         st.session_state.pop("_publication_composer_fingerprint", None)
         st.rerun()
     return sources
+
+
+def _unique_sources(sources: list[dict]) -> tuple[list[dict], int]:
+    unique: list[dict] = []
+    seen: set[str] = set()
+    duplicates = 0
+    for source in sources:
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        if source_id in seen:
+            duplicates += 1
+            continue
+        seen.add(source_id)
+        unique.append(source)
+    return unique, duplicates
 
 
 def _source_fingerprint(sources: list[dict]) -> str:
@@ -66,28 +96,137 @@ def _source_fingerprint(sources: list[dict]) -> str:
     return digest.hexdigest()
 
 
+def _source_title(source: dict) -> str:
+    return f"{source.get('group', '')} · {source.get('source_name', '')}".strip(" ·")
+
+
+def _default_row(source: dict, order: int, label: str, font_size: float) -> dict:
+    return {
+        "Порядок": int(order),
+        "Источник": _source_title(source),
+        "Заголовок": "",
+        "Метка": str(label),
+        "Показывать метку": bool(label),
+        "X метки": 0.025,
+        "Y метки": 0.975,
+        "Размер метки": float(font_size),
+        "Жирная": True,
+        "Заполнение": "Вместить",
+        "_source_id": str(source.get("source_id", "")),
+    }
+
+
 def _default_editor(sources: list[dict], mode: str, font_size: float) -> pd.DataFrame:
     labels = panel_label_sequence(len(sources), mode)
-    rows: list[dict] = []
-    for index, source in enumerate(sources):
-        rows.append({
+    return pd.DataFrame([
+        _default_row(source, index + 1, labels[index], font_size)
+        for index, source in enumerate(sources)
+    ], columns=_EDITOR_COLUMNS)
+
+
+def _recipe_rows(recipe: dict) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for index, panel in enumerate(recipe.get("panels", [])):
+        source_id = str(panel.get("source_id") or "")
+        label = dict(panel.get("label") or {})
+        result[source_id] = {
             "Порядок": index + 1,
-            "Источник": f"{source.get('group', '')} · {source.get('source_name', '')}".strip(" ·"),
-            "Заголовок": "",
-            "Метка": labels[index],
-            "Показывать метку": bool(labels[index]),
-            "X метки": 0.025,
-            "Y метки": 0.975,
-            "Размер метки": float(font_size),
-            "Жирная": True,
-            "Заполнение": "Вместить",
-            "_source_id": str(source.get("source_id", "")),
-        })
-    return pd.DataFrame(rows)
+            "Заголовок": str(panel.get("title") or ""),
+            "Метка": str(label.get("text") or ""),
+            "Показывать метку": bool(label.get("enabled", bool(label.get("text")))),
+            "X метки": float(label.get("x", 0.025)),
+            "Y метки": float(label.get("y", 0.975)),
+            "Размер метки": float(label.get("font_size", 11.0)),
+            "Жирная": str(label.get("font_weight", "bold")) == "bold",
+            "Заполнение": "Заполнить" if str(panel.get("crop_mode")) == "cover" else "Вместить",
+        }
+    return result
+
+
+def _editor_from_recipe(
+    sources: list[dict],
+    recipe: dict,
+    mode: str,
+    font_size: float,
+) -> tuple[pd.DataFrame, list[str]]:
+    source_map = {str(source.get("source_id")): source for source in sources}
+    recipe_map = _recipe_rows(recipe)
+    rows: list[dict] = []
+    missing: list[str] = []
+    for source_id, settings in recipe_map.items():
+        source = source_map.get(source_id)
+        if source is None:
+            missing.append(source_id)
+            continue
+        row = _default_row(source, int(settings["Порядок"]), str(settings["Метка"]), font_size)
+        row.update(settings)
+        rows.append(row)
+
+    used = set(recipe_map)
+    extras = [source for source in sources if str(source.get("source_id")) not in used]
+    candidates = panel_label_sequence(12, mode)
+    used_labels = {str(row.get("Метка") or "") for row in rows}
+    next_order = max([int(row["Порядок"]) for row in rows] or [0]) + 1
+    for source in extras:
+        label = next((candidate for candidate in candidates if candidate and candidate not in used_labels), "")
+        used_labels.add(label)
+        rows.append(_default_row(source, next_order, label, font_size))
+        next_order += 1
+    return pd.DataFrame(rows, columns=_EDITOR_COLUMNS), missing
+
+
+def _reconcile_editor(
+    sources: list[dict],
+    current: pd.DataFrame | None,
+    mode: str,
+    font_size: float,
+    loaded_recipe: dict | None = None,
+) -> pd.DataFrame:
+    """Preserve manual settings for surviving source IDs when sources change."""
+    if not isinstance(current, pd.DataFrame) or current.empty or "_source_id" not in current.columns:
+        if loaded_recipe:
+            return _editor_from_recipe(sources, loaded_recipe, mode, font_size)[0]
+        return _default_editor(sources, mode, font_size)
+
+    existing: dict[str, dict] = {}
+    for _, row in current.iterrows():
+        source_id = str(row.get("_source_id") or "")
+        if source_id and source_id not in existing:
+            existing[source_id] = {column: row.get(column) for column in _EDITOR_COLUMNS}
+    recipe_map = _recipe_rows(loaded_recipe or {})
+    kept: list[dict] = []
+    new_sources: list[dict] = []
+    for source in sources:
+        source_id = str(source.get("source_id") or "")
+        if source_id in existing:
+            row = dict(existing[source_id])
+            row["Источник"] = _source_title(source)
+            row["_source_id"] = source_id
+            kept.append(row)
+        else:
+            new_sources.append(source)
+
+    numeric_orders = pd.to_numeric(pd.Series([row.get("Порядок") for row in kept]), errors="coerce") if kept else pd.Series(dtype=float)
+    next_order = int(numeric_orders.max()) + 1 if not numeric_orders.empty and numeric_orders.notna().any() else len(kept) + 1
+    used_labels = {str(row.get("Метка") or "") for row in kept}
+    candidates = panel_label_sequence(12, mode)
+    for source in new_sources:
+        source_id = str(source.get("source_id") or "")
+        settings = recipe_map.get(source_id)
+        if settings is not None:
+            row = _default_row(source, int(settings["Порядок"]), str(settings["Метка"]), font_size)
+            row.update(settings)
+        else:
+            label = next((candidate for candidate in candidates if candidate and candidate not in used_labels), "")
+            used_labels.add(label)
+            row = _default_row(source, next_order, label, font_size)
+            next_order += 1
+        kept.append(row)
+    return pd.DataFrame(kept, columns=_EDITOR_COLUMNS)
 
 
 def _reset_auto_labels(dataframe: pd.DataFrame, mode: str, show_all: bool) -> pd.DataFrame:
-    updated = dataframe.copy()
+    updated = dataframe.copy().reset_index(drop=True)
     labels = panel_label_sequence(len(updated), mode)
     for row_index, label in enumerate(labels):
         updated.at[row_index, "Метка"] = label
@@ -126,8 +265,6 @@ def _panels_from_editor(sources: list[dict], editor: pd.DataFrame, show_all: boo
         try:
             image_bytes = _read_source(source)
         except Exception:
-            # Keep the panel cell in place. The composer engine will draw an
-            # explicit broken-source message instead of shifting later panels.
             image_bytes = b""
         panels.append({
             "source_id": source_id,
@@ -143,8 +280,9 @@ def _panels_from_editor(sources: list[dict], editor: pd.DataFrame, show_all: boo
 def _project_source_selector(project: dict | None) -> list[dict]:
     if project is None:
         return []
+    project_id = int(project["id"])
     try:
-        available = project_publication_sources(int(project["id"]))
+        available = project_publication_sources(project_id)
     except Exception as exc:
         st.warning(f"Не удалось прочитать изображения проекта: {exc}")
         return []
@@ -156,7 +294,7 @@ def _project_source_selector(project: dict | None) -> list[dict]:
         "Взять из текущего проекта",
         list(by_id),
         format_func=lambda value: f"{by_id[str(value)]['group']} · {by_id[str(value)]['source_name']}",
-        key="publication_composer_project_sources",
+        key=f"publication_composer_project_sources_{project_id}",
         placeholder="Фото пород, изображения анализов, шлифы…",
     )
     selected = [by_id[str(value)] for value in selected_ids if str(value) in by_id]
@@ -164,6 +302,32 @@ def _project_source_selector(project: dict | None) -> list[dict]:
     if fallback_notes:
         st.warning("\n".join(dict.fromkeys(fallback_notes)))
     return selected
+
+
+def _restore_recipe(upload, sources: list[dict], mode: str, font_size: float, preset_names: list[str]) -> None:
+    if upload is None:
+        return
+    content = upload.getvalue()
+    digest = hashlib.sha256(content).hexdigest()
+    if digest == str(st.session_state.get("_publication_composer_applied_recipe", "")):
+        return
+    recipe = parse_publication_recipe_bytes(content)
+    st.session_state["_publication_composer_loaded_recipe"] = recipe
+    st.session_state["_publication_composer_applied_recipe"] = digest
+    preset_name = str(recipe.get("journal_preset") or "")
+    if preset_name in preset_names:
+        st.session_state["publication_composer_preset"] = preset_name
+    layout = dict(recipe.get("layout") or {})
+    st.session_state["publication_composer_columns"] = int(layout.get("columns", 2))
+    st.session_state["publication_composer_width"] = float(layout.get("width_in", 7.2))
+    st.session_state["publication_composer_panel_height"] = float(layout.get("panel_height_in", 3.2))
+    config, missing = _editor_from_recipe(sources, recipe, mode, font_size)
+    st.session_state["_publication_composer_config"] = config
+    st.session_state["_publication_composer_fingerprint"] = _source_fingerprint(sources)
+    st.session_state["_publication_composer_editor_revision"] = int(
+        st.session_state.get("_publication_composer_editor_revision", 0)
+    ) + 1
+    st.session_state["_publication_composer_recipe_missing"] = missing
 
 
 def render_publication_composer_page() -> None:
@@ -185,7 +349,9 @@ def render_publication_composer_page() -> None:
         key="publication_composer_uploads",
         help="PNG, JPEG, TIFF и WEBP. Можно добавить уже экспортированные графики PetroLab.",
     )
-    sources = [*inbox_sources, *project_sources, *_upload_sources(uploads)]
+    sources, duplicate_count = _unique_sources([*inbox_sources, *project_sources, *_upload_sources(uploads)])
+    if duplicate_count:
+        st.warning(f"Повторяющихся источников пропущено: {duplicate_count}. Одна физическая картинка не дублируется молча.")
     if not sources:
         st.info("Передайте график из PetroLab, выберите изображения из проекта или добавьте файлы с компьютера.")
         return
@@ -194,6 +360,33 @@ def render_publication_composer_page() -> None:
         sources = sources[:12]
 
     preset_names = list(FIGURE_PRESETS)
+    mode_by_title = {title: key for key, title in LABEL_MODE_TITLES.items()}
+    current_mode_title = str(st.session_state.get("publication_composer_label_mode", "A, B, C…"))
+    label_mode_for_restore = mode_by_title.get(current_mode_title, "latin_upper")
+    fallback_preset_name = str(st.session_state.get("publication_composer_preset", "Lithos"))
+    fallback_preset = FIGURE_PRESETS.get(fallback_preset_name, next(iter(FIGURE_PRESETS.values())))
+    default_label_size_for_restore = max(float(fallback_preset.font_size) + 2.0, 10.0)
+
+    recipe_upload = st.file_uploader(
+        "Восстановить настройки из Recipe JSON",
+        type=["json"],
+        accept_multiple_files=False,
+        key="publication_composer_recipe_upload",
+        help="Recipe восстанавливает порядок, сетку, размеры и метки. Исходные изображения должны быть доступны в текущих источниках.",
+    )
+    if recipe_upload is not None:
+        try:
+            _restore_recipe(recipe_upload, sources, label_mode_for_restore, default_label_size_for_restore, preset_names)
+        except Exception as exc:
+            st.error(f"Не удалось восстановить recipe: {exc}")
+
+    missing = list(st.session_state.get("_publication_composer_recipe_missing", []))
+    if missing:
+        still_missing = [source_id for source_id in missing if source_id not in {str(item.get("source_id")) for item in sources}]
+        st.session_state["_publication_composer_recipe_missing"] = still_missing
+        if still_missing:
+            st.warning("В recipe пока недоступны источники: " + ", ".join(still_missing[:8]))
+
     p1, p2, p3 = st.columns(3)
     preset_name = p1.selectbox(
         "Журнальный preset",
@@ -202,7 +395,6 @@ def render_publication_composer_page() -> None:
         key="publication_composer_preset",
     )
     preset = FIGURE_PRESETS[preset_name]
-    mode_by_title = {title: key for key, title in LABEL_MODE_TITLES.items()}
     selected_mode_title = p2.selectbox(
         "Автоматические метки",
         list(mode_by_title),
@@ -216,10 +408,14 @@ def render_publication_composer_page() -> None:
     fingerprint = _source_fingerprint(sources)
     previous_fingerprint = str(st.session_state.get("_publication_composer_fingerprint", ""))
     if fingerprint != previous_fingerprint:
-        st.session_state["_publication_composer_config"] = _default_editor(
+        loaded_recipe = st.session_state.get("_publication_composer_loaded_recipe")
+        loaded_recipe = loaded_recipe if isinstance(loaded_recipe, dict) else None
+        st.session_state["_publication_composer_config"] = _reconcile_editor(
             sources,
+            st.session_state.get("_publication_composer_config"),
             label_mode,
             default_label_size,
+            loaded_recipe,
         )
         st.session_state["_publication_composer_fingerprint"] = fingerprint
         st.session_state["_publication_composer_editor_revision"] = int(
@@ -230,11 +426,7 @@ def render_publication_composer_page() -> None:
     if controls[0].button("Сбросить метки по схеме", key="publication_reset_labels"):
         current = st.session_state.get("_publication_composer_config")
         if isinstance(current, pd.DataFrame):
-            st.session_state["_publication_composer_config"] = _reset_auto_labels(
-                current,
-                label_mode,
-                show_all,
-            )
+            st.session_state["_publication_composer_config"] = _reset_auto_labels(current, label_mode, show_all)
             st.session_state["_publication_composer_editor_revision"] = int(
                 st.session_state.get("_publication_composer_editor_revision", 0)
             ) + 1
@@ -244,7 +436,7 @@ def render_publication_composer_page() -> None:
     render_section_header("Панели", "Порядок, подписи и положение меток")
     config = st.session_state.get("_publication_composer_config")
     if not isinstance(config, pd.DataFrame) or len(config) != len(sources):
-        config = _default_editor(sources, label_mode, default_label_size)
+        config = _reconcile_editor(sources, config if isinstance(config, pd.DataFrame) else None, label_mode, default_label_size)
         st.session_state["_publication_composer_config"] = config
     revision = int(st.session_state.get("_publication_composer_editor_revision", 0))
     edited = st.data_editor(
