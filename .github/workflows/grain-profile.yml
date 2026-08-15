@@ -33,13 +33,14 @@ jobs:
         shell: cmd
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Compile grain profile and intake-scope paths
+      - name: Compile grain profile and project-scope paths
         shell: cmd
-        run: python -m compileall -q petrolab/grain_profiles.py petrolab/grain_profile_groups.py petrolab/ui/pages/grain_profile.py petrolab/ui/pages/v0153_grain_profile_wrappers.py petrolab/ui/pages/v0151_intake_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_grain_profiles.py tests_grain_profile_hardening.py tests_universal_intake_scope.py
+        run: python -m compileall -q petrolab/grain_profiles.py petrolab/grain_profile_groups.py petrolab/ui/pages/grain_profile.py petrolab/ui/pages/v0153_grain_profile_wrappers.py petrolab/ui/pages/v0151_intake_wrappers.py petrolab/ui/project_context.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_grain_profiles.py tests_grain_profile_hardening.py tests_universal_intake_scope.py tests_project_switch_scope.py
 
-      - name: Run grain profile and intake-scope regressions
+      - name: Run grain profile and project-scope regressions
         shell: cmd
         run: |
           python tests_grain_profiles.py
           python tests_grain_profile_hardening.py
           python tests_universal_intake_scope.py
+          python tests_project_switch_scope.py
