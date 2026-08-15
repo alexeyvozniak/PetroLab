@@ -55,6 +55,9 @@ from .v0151_wrappers import (
 )
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
+# v0.15.3 routes an exact global-search result directly into the profile mode.
+from .v0153_grain_profile_wrappers import render_global_search_page
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",
