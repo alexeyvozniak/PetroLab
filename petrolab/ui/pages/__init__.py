@@ -22,6 +22,7 @@ from .images_dashboard import render_images_dashboard_page as render_images_page
 from .measurements import render_measurements_page
 from .minerals import render_minerals_page
 from .mixed_minerals import render_mixed_minerals_page
+from .object_workspace import render_object_workspace_page
 from .plots_dashboard import render_plots_dashboard_page as render_plots_page
 from .projects import render_projects_page
 from .rocks import render_rocks_page
@@ -42,8 +43,8 @@ __all__ = [
     "render_export_page", "render_formulae_page", "render_generations_page",
     "render_guided_workflow_page", "render_help_page", "render_home_page",
     "render_images_page", "render_measurements_page", "render_minerals_page",
-    "render_mixed_minerals_page", "render_plots_page", "render_projects_page",
-    "render_rocks_page", "render_science_plots_page", "render_settings_page",
-    "render_slides_page", "render_sources_page", "render_statistics_page",
+    "render_mixed_minerals_page", "render_object_workspace_page", "render_plots_page",
+    "render_projects_page", "render_rocks_page", "render_science_plots_page",
+    "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
     "render_ternary_page", "render_thermobarometry_page", "render_updates_page",
 ]
