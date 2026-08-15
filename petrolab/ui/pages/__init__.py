@@ -52,6 +52,7 @@ from .v0151_wrappers import (
     render_plots_page,
     render_thin_section_workspace_page,
 )
+from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
