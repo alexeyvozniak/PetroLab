@@ -37,7 +37,6 @@ _VISIBILITY_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 
 def _russian_count(value: int, forms: tuple[str, str, str]) -> str:
-    """Format a compact Russian count without adding a UI dependency elsewhere."""
     number = abs(int(value))
     if number % 10 == 1 and number % 100 != 11:
         form = forms[0]
@@ -58,7 +57,6 @@ def _display_visibility_value(value: str) -> str:
 
 
 def available_visibility_dimensions(dataframe: pd.DataFrame) -> list[PlotVisibilityDimension]:
-    """Return stable visibility dimensions that are actually present in the current plot data."""
     result: list[PlotVisibilityDimension] = []
     for key, label, candidates in _VISIBILITY_DIMENSIONS:
         column = next((candidate for candidate in candidates if candidate in dataframe.columns), None)
@@ -81,7 +79,6 @@ def normalize_visibility_filters(
     dataframe: pd.DataFrame,
     filters: dict[str, list[str]] | None,
 ) -> dict[str, list[str]]:
-    """Prune stale values without turning a changed dataset selection into an accidental blank plot."""
     raw = filters if isinstance(filters, dict) else {}
     normalized: dict[str, list[str]] = {}
     for dimension in available_visibility_dimensions(dataframe):
@@ -96,8 +93,6 @@ def normalize_visibility_filters(
             continue
         valid = [str(value) for value in requested if str(value) in options]
         if not valid:
-            # All saved values disappeared after the user changed datasets/search.
-            # Treat that filter as stale rather than silently hiding every point.
             continue
         if set(valid) != set(options):
             normalized[dimension.key] = valid
@@ -108,7 +103,6 @@ def apply_plot_visibility_filters(
     dataframe: pd.DataFrame,
     filters: dict[str, list[str]] | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Apply reversible plot-only visibility filters without mutating analytical rows."""
     normalized = normalize_visibility_filters(dataframe, filters)
     if dataframe.empty or not normalized:
         return dataframe.copy(), dataframe.iloc[0:0].copy()
@@ -145,12 +139,7 @@ def render_source_visibility_controls(
     key: str,
     saved_visible: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
-    """Render one reversible visibility panel shared by quick and advanced XY plots.
-
-    The historical function name and return shape are preserved because publication manifests
-    still track source visibility explicitly. The UI now also controls Sample, Generation,
-    mineral and work-group visibility from the same plot-only panel.
-    """
+    """Reversible plot-only visibility by source, Sample, Generation, mineral or work group."""
     source_options = source_labels(dataframe)
     dimensions = available_visibility_dimensions(dataframe)
     if not dimensions:
@@ -171,31 +160,28 @@ def render_source_visibility_controls(
         st.session_state[dimension_key] = current_dimension
 
     st.markdown("#### Что показывать")
-    selector_col, reset_col = st.columns([4, 1], vertical_alignment="bottom")
-    with selector_col:
-        current_dimension = st.selectbox(
-            "Управлять видимостью по",
-            dimension_keys,
-            key=dimension_key,
-            format_func=lambda value: dimension_map[value].label,
-            help=(
-                "Один блок управляет временной видимостью статей, Sample, Generation, минералов "
-                "и рабочих групп. Ограничения разных категорий можно сочетать."
-            ),
-        )
-    with reset_col:
-        if st.button(
-            "Включить все",
-            key=f"{key}_show_all",
-            disabled=not state,
-            help="Сбросить все ограничения видимости и вернуть на график все доступные точки.",
-            width="stretch",
-        ):
-            st.session_state[state_key] = {}
-            for dimension in dimensions:
-                widget_key = f"{key}_visibility_values_{dimension.key}"
-                st.session_state[widget_key] = _visibility_options(dataframe, dimension)
-            st.rerun()
+    current_dimension = st.selectbox(
+        "Управлять видимостью по",
+        dimension_keys,
+        key=dimension_key,
+        format_func=lambda value: dimension_map[value].label,
+        help=(
+            "Один блок управляет временной видимостью статей, Sample, Generation, минералов "
+            "и рабочих групп. Ограничения разных категорий можно сочетать."
+        ),
+    )
+    if st.button(
+        "Включить все",
+        key=f"{key}_show_all",
+        disabled=not state,
+        help="Сбросить все ограничения видимости и вернуть на график все доступные точки.",
+        width="stretch",
+    ):
+        st.session_state[state_key] = {}
+        for dimension in dimensions:
+            widget_key = f"{key}_visibility_values_{dimension.key}"
+            st.session_state[widget_key] = _visibility_options(dataframe, dimension)
+        st.rerun()
 
     active = dimension_map[current_dimension]
     options = _visibility_options(dataframe, active)
@@ -208,7 +194,6 @@ def render_source_visibility_controls(
         previous = list(st.session_state[widget_key])
         valid_previous = [value for value in previous if value in options]
         if previous and not valid_previous:
-            # Dataset/search context changed completely; do not keep a stale empty selector.
             valid_previous = default_values
         if valid_previous != previous:
             st.session_state[widget_key] = valid_previous
@@ -235,8 +220,6 @@ def render_source_visibility_controls(
 
     visible, _all_hidden = apply_plot_visibility_filters(dataframe, state)
 
-    # Keep the historical source-only excluded frame so the advanced export does not falsely
-    # label Sample/Generation/mineral visibility exclusions as "source disabled".
     selected_sources = state.get("source", source_options)
     selected_sources = [value for value in source_options if value in set(selected_sources)]
     source_visible_frame, source_hidden_frame = filter_visible_sources(dataframe, selected_sources)
