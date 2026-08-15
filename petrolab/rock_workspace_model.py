@@ -137,7 +137,7 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
             "Есть mineral-связи с datasets, которые больше не подключены к проекту: "
             + ", ".join(map(str, inaccessible_link_ids[:8]))
         )
-    if not datasets:
+    if not linked_ids:
         warnings.append("Минералогические datasets пока не связаны с этой породой")
     if not images:
         warnings.append("Нет общей фотографии породы")
