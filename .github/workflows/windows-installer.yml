@@ -120,8 +120,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $preservedData | Out-Null
           Set-Content -LiteralPath $marker -Value "must survive uninstall" -Encoding ASCII
 
-          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- "/DIR=$installRoot"
-          if ($LASTEXITCODE -ne 0) { throw "Silent installer returned exit code $LASTEXITCODE." }
+          # Inno Setup is a GUI executable. Start-Process -Wait prevents a race where
+          # PowerShell continues before the installed files have reached disk.
+          $installProcess = Start-Process -FilePath $installer -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$installRoot"
+          ) -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) { throw "Silent installer returned exit code $($installProcess.ExitCode)." }
 
           $python = Join-Path $installRoot "runtime\python.exe"
           $app = Join-Path $installRoot "current\app.py"
@@ -198,8 +202,10 @@ jobs:
 
           $uninstaller = Join-Path $installRoot "unins000.exe"
           if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
-          & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Silent uninstall failed with exit code $LASTEXITCODE." }
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          ) -Wait -PassThru
+          if ($uninstallProcess.ExitCode -ne 0) { throw "Silent uninstall failed with exit code $($uninstallProcess.ExitCode)." }
           if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
               throw "Uninstall removed user scientific data marker."
           }
