@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from petrolab.ui.pages.analytical_sessions import _session_dataset_map
 from petrolab.ui.pages.distribution import _distribution_dataset_map
 from petrolab.ui.pages.equilibrium import _equilibrium_dataset_map
 
@@ -12,7 +13,7 @@ def main() -> None:
             "project_name": "Project",
             "name": "Mica",
             "mineral_key": "phlogopite",
-            "source_filename": "a.xlsx",
+            "source_filename": "same.xlsx",
             "source_sheet": "Data",
             "row_count": 10,
         },
@@ -22,18 +23,18 @@ def main() -> None:
             "project_name": "Project",
             "name": "Mica",
             "mineral_key": "phlogopite",
-            "source_filename": "b.xlsx",
+            "source_filename": "same.xlsx",
             "source_sheet": "Data",
-            "row_count": 12,
+            "row_count": 10,
         },
     ]
     distribution = _distribution_dataset_map(datasets)
     equilibrium = _equilibrium_dataset_map(datasets)
-    assert len(distribution) == 2, distribution
-    assert len(equilibrium) == 2, equilibrium
-    assert {int(row["id"]) for row in distribution.values()} == {11, 12}
-    assert {int(row["id"]) for row in equilibrium.values()} == {11, 12}
-    assert all("#" in label or "id" in label.casefold() for label in distribution), distribution
+    sessions = _session_dataset_map(datasets)
+    for mapping in (distribution, equilibrium, sessions):
+        assert len(mapping) == 2, mapping
+        assert set(int(row["id"]) for row in mapping.values()) == {11, 12} if mapping is not sessions else set(mapping.values()) == {11, 12}
+        assert all("ID" in label for label in mapping), mapping
     print("duplicate-dataset UI selector regressions: OK")
 
 
