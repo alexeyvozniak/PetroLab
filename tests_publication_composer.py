@@ -4,8 +4,10 @@ import io
 import json
 
 import matplotlib.pyplot as plt
+import pandas as pd
 from PIL import Image
 
+from petrolab.multi_panel_plotting import build_multi_panel_scatter
 from petrolab.publication_composer import (
     build_publication_figure,
     default_panel_label,
@@ -99,6 +101,31 @@ def main() -> None:
     assert any(text.get_text() == "A" for text in figure.axes[0].texts)
     assert any(text.get_text() == "B" for text in figure.axes[1].texts)
     plt.close(figure)
+
+    scientific = pd.DataFrame({
+        "X": [1.0, 2.0, 3.0],
+        "Y": [2.0, 3.0, 4.0],
+        "Z": [4.0, 5.0, 6.0],
+    })
+    scientific_figure = build_multi_panel_scatter(
+        scientific,
+        [
+            {"x": "X", "y": "Y", "title": "", "panel_label": default_panel_label("А")},
+            {
+                "x": "X",
+                "y": "Z",
+                "title": "",
+                "panel_label": default_panel_label("Б", x=0.82, y=0.14),
+            },
+        ],
+        columns=2,
+        show_legend=False,
+    )
+    assert any(text.get_text() == "А" for text in scientific_figure.axes[0].texts)
+    b_text = next(text for text in scientific_figure.axes[1].texts if text.get_text() == "Б")
+    assert abs(float(b_text.get_position()[0]) - 0.82) < 1e-9
+    assert abs(float(b_text.get_position()[1]) - 0.14) < 1e-9
+    plt.close(scientific_figure)
 
     print("publication composer tests: OK")
 
