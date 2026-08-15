@@ -165,7 +165,7 @@ def install() -> None:
             con.execute("DELETE FROM rock_mineral_links WHERE rock_id=?", (int(rock_id),))
             now = repo._utcnow()
             con.executemany(
-                "INSERT INTO rock_mineral_links(rock_id, dataset_id, relation, notes, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO rock_mineral_links(rock_id, dataset_id, relationship, notes, created_at) VALUES (?, ?, ?, ?, ?)",
                 [(int(rock_id), dataset_id, "same_sample", "", now) for dataset_id in ids],
             )
 
