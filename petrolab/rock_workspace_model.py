@@ -81,6 +81,25 @@ def _major_completeness(canonical: set[str]) -> tuple[int, int]:
     return present, len(_MAJOR_COMPONENTS) + 1
 
 
+def _finite_isotope_systems(isotopes: pd.DataFrame) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if isotopes.empty:
+        return (), ()
+    systems: list[str] = []
+    warnings: list[str] = []
+    for _, row in isotopes.iterrows():
+        ratio = str(row.get("ratio_name") or "").strip() or "?"
+        system = str(row.get("system") or "").strip()
+        value = pd.to_numeric(pd.Series([row.get("value")]), errors="coerce").iloc[0]
+        if pd.isna(value) or not np.isfinite(float(value)):
+            warnings.append(f"Изотопное определение {ratio} не имеет конечного числового значения")
+            continue
+        if system:
+            systems.append(system)
+        else:
+            warnings.append(f"Для изотопного определения {ratio} не указана система")
+    return tuple(dict.fromkeys(systems)), tuple(dict.fromkeys(warnings))
+
+
 def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnapshot:
     project_id = int(project_id)
     rock_id = int(rock_id)
@@ -100,13 +119,11 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
 
     canonical, trace_count, composition_warnings = _composition_roles(composition)
     major_present, major_expected = _major_completeness(canonical)
-    isotope_systems = ()
-    if not isotopes.empty and "system" in isotopes.columns:
-        isotope_systems = _clean_values(isotopes["system"])
+    isotope_systems, isotope_warnings = _finite_isotope_systems(isotopes)
     methods = _clean_values(composition.get("method", pd.Series(dtype=object)))
     sources = _clean_values(composition.get("source", pd.Series(dtype=object)))
 
-    warnings: list[str] = list(composition_warnings)
+    warnings: list[str] = [*composition_warnings, *isotope_warnings]
     if composition.empty:
         warnings.append("Нет валового химического состава")
     elif major_present < major_expected:
@@ -114,7 +131,7 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
     if trace_count == 0:
         warnings.append("Нет распознанных trace-element концентраций")
     if not isotope_systems:
-        warnings.append("Изотопные определения не добавлены")
+        warnings.append("Изотопные определения не добавлены или не содержат конечных значений")
     if inaccessible_link_ids:
         warnings.append(
             "Есть mineral-связи с datasets, которые больше не подключены к проекту: "
