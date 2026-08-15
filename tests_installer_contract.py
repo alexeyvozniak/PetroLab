@@ -20,11 +20,39 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertNotIn(r"{userdocs}\PetroLab Data", active_uninstall_lines)
         self.assertIn(r'Type: filesandordirs; Name: "{app}\runtime.previous"', active_uninstall_lines)
 
-    def test_launcher_uses_embedded_runtime_and_explicit_data_directory(self):
+    def test_installer_shortcuts_use_native_launcher_and_branded_icon(self):
+        iss = (INSTALLER / "PetroLab.iss").read_text(encoding="utf-8")
+        self.assertIn('#define MyAppExeName "PetroLab.exe"', iss)
+        self.assertIn(r"SetupIconFile=..\dist\PetroLab.ico", iss)
+        self.assertIn(r"UninstallDisplayIcon={app}\PetroLab.exe", iss)
+        self.assertIn(r'Filename: "{app}\PetroLab.exe"', iss)
+        self.assertIn(r'IconFilename: "{app}\PetroLab.exe"', iss)
+        self.assertNotIn(r'Filename: "{sys}\wscript.exe"', iss)
+        self.assertTrue((INSTALLER / "petrolab-icon.svg").is_file())
+
+    def test_native_launcher_uses_embedded_runtime_health_check_and_persistent_state(self):
+        launcher = (INSTALLER / "PetroLabLauncher.cs").read_text(encoding="utf-8")
+        for marker in [
+            'Path.Combine(root, "runtime", "python.exe")',
+            'Path.Combine(current, "app.py")',
+            'Environment.GetEnvironmentVariable("PETROLAB_DATA_DIR")',
+            '"/_stcore/health"',
+            'Path.Combine(root, "petrolab-server.state")',
+            'PETROLAB_LAUNCHER_NO_BROWSER',
+            'browser.UseShellExecute = true',
+            'server.BeginErrorReadLine()',
+            'Path.Combine(logDir, "launcher.log")',
+        ]:
+            self.assertIn(marker, launcher)
+        self.assertIn("TryExistingServer", launcher)
+        self.assertIn("FindFreePort", launcher)
+
+    def test_legacy_vbs_prefers_native_launcher_but_keeps_old_install_fallback(self):
         launcher = (INSTALLER / "launch_petrolab.vbs").read_text(encoding="utf-8")
+        self.assertIn('launcherExe = fso.BuildPath(rootDir, "PetroLab.exe")', launcher)
+        self.assertIn("If fso.FileExists(launcherExe) Then", launcher)
         self.assertIn(r'"runtime\pythonw.exe"', launcher)
         self.assertIn('shell.SpecialFolders("MyDocuments")', launcher)
-        self.assertIn('shell.Environment("PROCESS")("PETROLAB_DATA_DIR") = dataDir', launcher)
         self.assertIn("shell.Run command, 0, False", launcher)
 
     def test_updater_is_transactional_and_does_not_touch_user_data(self):
@@ -73,15 +101,23 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertIn('if ($codeBackupCreated -and (Test-Path -LiteralPath $Previous))', updater)
         self.assertIn('if ($runtimeBackupCreated -and (Test-Path -LiteralPath $RuntimePrevious))', updater)
 
-    def test_installer_ci_builds_and_smokes_self_contained_installation(self):
+    def test_installer_ci_builds_and_smokes_the_actual_installed_launcher(self):
         workflow = (ROOT / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
         self.assertIn("python-3.12.10-embed-amd64.zip", workflow)
         self.assertIn("Lib\\site-packages", workflow)
         self.assertIn("PetroLab-Setup-x64.exe", workflow)
+        self.assertIn("PetroLabLauncher.cs", workflow)
+        self.assertIn("petrolab-icon.svg", workflow)
+        self.assertIn("PetroLab.ico", workflow)
+        self.assertIn("PetroLab.exe", workflow)
+        self.assertIn("PETROLAB_LAUNCHER_NO_BROWSER", workflow)
+        self.assertIn("petrolab-server.state", workflow)
+        self.assertIn("Start-Process -FilePath $launcherExe", workflow)
+        self.assertIn("/_stcore/health", workflow)
+        self.assertIn("launcher.log", workflow)
         self.assertIn("Start-Process -FilePath $installer", workflow)
         self.assertIn("Start-Process -FilePath $uninstaller", workflow)
         self.assertGreaterEqual(workflow.count("-Wait -PassThru"), 2)
-        self.assertIn("/_stcore/health", workflow)
         self.assertIn("powershell.exe -NoProfile -ExecutionPolicy Bypass", workflow)
         self.assertIn("installer-preservation-marker-", workflow)
         self.assertIn("PETROLAB_UPDATE_TARGET_SHA", workflow)
