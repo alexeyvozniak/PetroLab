@@ -1,6 +1,7 @@
 """Связность сценария: импорт → фото → текстура → химия → Generation."""
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping
 
 import pandas as pd
@@ -361,7 +362,41 @@ def _selected_ids_with_memory(original, event) -> list[str]:
     ]
 
 
-def _advanced_interactive_with_memory(original, xy_module, *args, **kwargs):
+def _interactive_key_prefix(*args, **kwargs) -> str:
+    """Deterministic per-plot Streamlit key prefix for the chemical-selection wrapper.
+
+    The same advanced XY can be rendered more than once in one Streamlit tree
+    (tabs, recipe reload, multi-instance pages). The prefix must be unique per
+    plot instance while staying stable across reruns, otherwise Streamlit raises
+    ``DuplicateElementKey``.
+    """
+    def _value(index: int, name: str, default: str) -> str:
+        if len(args) > index and args[index] is not None:
+            return str(args[index])
+        value = kwargs.get(name)
+        return str(value) if value is not None else default
+
+    project_id = _value(1, "project_id", "p")
+    x = _value(2, "x", "x")
+    y = _value(3, "y", "y")
+    columns = getattr(kwargs.get("dataframe"), "columns", ())
+    if not columns and args:
+        columns = getattr(args[0], "columns", ())
+    dataset_ids = []
+    if "_dataset_id" in columns:
+        frame = kwargs.get("dataframe") if kwargs.get("dataframe") is not None else (args[0] if args else None)
+        if frame is not None:
+            dataset_ids = sorted({str(value) for value in pd.to_numeric(frame["_dataset_id"], errors="coerce").dropna().astype(int).unique()})[:8]
+    anchor = "_".join([project_id, x, y, *dataset_ids])
+    return f"v0154_chem_{hashlib.sha1(anchor.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _advanced_interactive_with_memory(original, xy_module, key_prefix: str, *args, **kwargs):
+    """Обернуть интерактивный XY scoped-ключом и «памятью» химического отбора.
+
+    ``key_prefix`` обязан быть уникальным на экземпляр графика в одном Streamlit
+    дереве, иначе кнопки/элементы этого компонента получают дублирующиеся ключи.
+    """
     persisted = [
         str(value)
         for value in st.session_state.get(_PERSISTENT_CHEMICAL_SELECTION, []) or []
@@ -373,7 +408,7 @@ def _advanced_interactive_with_memory(original, xy_module, *args, **kwargs):
             f"Текущий химический отбор: {len(persisted)} точек. Он сохраняется при смене X/Y, "
             "пока вы не сделаете новое выделение или не сбросите его."
         )
-        if c2.button("Сбросить отбор", width="stretch", key="v0154_clear_chemical_selection"):
+        if c2.button("Сбросить отбор", width="stretch", key=f"{key_prefix}_clear_chemical_selection"):
             st.session_state.pop(_PERSISTENT_CHEMICAL_SELECTION, None)
             st.session_state[_IGNORE_SELECTION_ONCE] = True
             st.session_state.pop("petrolab_advanced_interactive_plot", None)
@@ -418,9 +453,11 @@ def render_plots_page_v0154() -> None:
         return overlay_textural_zone(original_advanced_load(project_id, dataset_ids))
 
     def advanced_interactive(*args, **kwargs):
+        prefix = _interactive_key_prefix(*args, **kwargs)
         return _advanced_interactive_with_memory(
             original_advanced_interactive,
             _xy,
+            prefix,
             *args,
             **kwargs,
         )
