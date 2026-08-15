@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import gc
 import math
 import os
 import tempfile
 
 # Isolate the full SQLite/runtime integration before importing PetroLab.  The
-# package reads PETROLAB_DATA_DIR at import time.
-_TEST_DATA = tempfile.TemporaryDirectory(prefix="petrolab-user-derived-")
+# package reads PETROLAB_DATA_DIR at import time. Windows runners can briefly
+# retain a SQLite file handle during interpreter teardown, so cleanup is best-
+# effort after all explicit PetroLab connections have already been closed.
+_TEST_DATA = tempfile.TemporaryDirectory(
+    prefix="petrolab-user-derived-",
+    ignore_cleanup_errors=True,
+)
 os.environ["PETROLAB_DATA_DIR"] = _TEST_DATA.name
 
 import numpy as np
@@ -244,4 +250,5 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        gc.collect()
         _TEST_DATA.cleanup()
