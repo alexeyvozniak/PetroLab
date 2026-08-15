@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 import pandas as pd
 import streamlit as st
@@ -132,22 +132,40 @@ def _complexity_reasons(frame: pd.DataFrame, chemistry_columns: list[str]) -> li
     return reasons
 
 
+def _sheet_header_rows(selected: list[str], default_header: int, token: str) -> dict[str, int]:
+    rows = {sheet: int(default_header) for sheet in selected}
+    if len(selected) <= 1:
+        return rows
+    with st.expander("Строка заголовков по каждому листу", expanded=False):
+        st.caption("У разных статей в одной книге заголовки могут начинаться на разных строках.")
+        for index, sheet in enumerate(selected):
+            rows[sheet] = int(st.number_input(
+                f"{sheet or 'CSV'} · строка заголовков",
+                min_value=1,
+                max_value=200,
+                value=int(default_header),
+                step=1,
+                key=f"v0154_sheet_header_{token}_{index}",
+            ))
+    return rows
+
+
 def _structural_previews(
     data: bytes,
     filename: str,
     selected: list[str],
-    header_row: int,
+    header_rows: Mapping[str, int],
     previews: dict[str, object],
 ) -> tuple[dict[str, pd.DataFrame], list[str]]:
     frames: dict[str, pd.DataFrame] = {}
     complexity: list[str] = []
     if len(selected) > 1:
         complexity.append(
-            f"выбрано листов: {len(selected)} — источник и метаданные можно подтвердить отдельно для каждого"
+            f"выбрано листов: {len(selected)} — источник, строку заголовков и метаданные можно подтвердить отдельно для каждого"
         )
     for sheet in selected:
         preview = previews[sheet]
-        frame = preview_uploaded_source(data, filename, sheet, header_row, "generic")
+        frame = preview_uploaded_source(data, filename, sheet, int(header_rows[sheet]), "generic")
         frames[sheet] = frame
         chemistry = [item[1] for item in preview.recognized_oxides] + [item[1] for item in preview.recognized_traces]
         complexity.extend(f"{sheet or 'CSV'} · {reason}" for reason in _complexity_reasons(frame, chemistry))
@@ -171,20 +189,21 @@ def render_table_import_v0154(
         st.error(f"Файл не удалось открыть как таблицу: {exc}")
         return []
 
-    header_row = int(st.number_input(
-        "Строка заголовков для структурного анализа",
+    default_header = int(st.number_input(
+        "Строка заголовков по умолчанию",
         1, 200, 1, 1,
         key=f"v0154_header_{token}",
     ))
     selected = st.multiselect("Листы", sheets, default=sheets, key=f"v0154_sheets_{token}")
     if not selected:
         return []
+    header_rows = _sheet_header_rows(selected, default_header, token)
 
     previews: dict[str, object] = {}
     try:
         for sheet in selected:
-            previews[sheet] = inspect_uploaded_sheet(data, name, sheet, header_row)
-        structural, complexity = _structural_previews(data, name, selected, header_row, previews)
+            previews[sheet] = inspect_uploaded_sheet(data, name, sheet, int(header_rows[sheet]))
+        structural, complexity = _structural_previews(data, name, selected, header_rows, previews)
     except Exception as exc:
         st.error(f"Структуру таблицы не удалось проверить: {exc}")
         return []
@@ -208,7 +227,8 @@ def render_table_import_v0154(
         ),
     )
     if mode == "Обычный безопасный импорт":
-        # The established importer asks its own Fe question exactly once.
+        # The established importer keeps its own per-sheet header/mineral controls and
+        # asks the ambiguous Fe question exactly once.
         return render_table_import_with_provenance(original, project_id, name, data, token)
 
     measurement_maps, iron_ready = _iron_semantics(previews, token)
@@ -223,7 +243,7 @@ def render_table_import_v0154(
                 data,
                 name,
                 sheet,
-                header_row,
+                int(header_rows[sheet]),
                 "generic",
                 measurement_map=measurement_maps.get(sheet, {}),
             )
@@ -246,6 +266,7 @@ def render_table_import_v0154(
         chemistry = [item[1] for item in preview.recognized_oxides] + [item[1] for item in preview.recognized_traces]
         with st.container(border=True):
             st.markdown(f"### {sheet or 'CSV'}")
+            st.caption(f"Заголовки прочитаны со строки {int(header_rows[sheet])}.")
             if len(selected) > 1 and "Source" not in normalized[sheet].columns:
                 st.caption(
                     "Если этот лист соответствует одной статье, выберите «Весь лист» → Source и назначьте источник одним действием."
@@ -271,6 +292,7 @@ def render_table_import_v0154(
         pd.DataFrame([
             {
                 "Лист": sheet or "CSV",
+                "Строка заголовков": int(header_rows[sheet]),
                 "Строк": len(frame),
                 "Sample": "Sample" in frame.columns,
                 "Lithology": "Lithology" in frame.columns,
@@ -299,7 +321,7 @@ def render_table_import_v0154(
             frames=staged_frames,
             dataset_name=dataset_name,
             mineral_key="generic",
-            header_rows={sheet: header_row for sheet in staged_frames},
+            header_rows={sheet: int(header_rows[sheet]) for sheet in staged_frames},
         )
         for dataset_id in imported.dataset_ids:
             link_dataset_to_project(project_id, dataset_id, "Добавлено через staging-импорт", purpose="working")
