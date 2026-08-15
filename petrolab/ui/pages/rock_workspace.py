@@ -41,6 +41,14 @@ def _age_label(rock: dict) -> str:
     return text
 
 
+def _valid_rock_id(value, by_id: dict[int, dict]) -> int | None:
+    try:
+        rock_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return rock_id if rock_id in by_id else None
+
+
 def render_rock_workspace_page() -> None:
     project = active_project()
     if project is None:
@@ -68,14 +76,18 @@ def render_rock_workspace_page() -> None:
         return
 
     by_id = {int(rock["id"]): rock for rock in rocks}
-    pending_id = st.session_state.pop("rock_workspace_open_id", None)
-    default_id = int(pending_id) if pending_id is not None and int(pending_id) in by_id else next(iter(by_id))
+    selector_key = f"rock_workspace_select_{project_id}"
+    pending_id = _valid_rock_id(st.session_state.pop("rock_workspace_open_id", None), by_id)
+    if pending_id is not None:
+        st.session_state[selector_key] = pending_id
+    current_id = _valid_rock_id(st.session_state.get(selector_key), by_id)
+    if current_id is None:
+        st.session_state[selector_key] = next(iter(by_id))
     rock_id = st.selectbox(
         "Открыть образец",
         list(by_id),
-        index=list(by_id).index(default_id),
         format_func=lambda value: _rock_label(by_id[int(value)]),
-        key=f"rock_workspace_select_{project_id}",
+        key=selector_key,
     )
     try:
         snapshot = rock_workspace_snapshot(project_id, int(rock_id))
