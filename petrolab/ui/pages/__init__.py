@@ -17,6 +17,7 @@ from .export import render_export_page
 from .formulae import render_formulae_page
 from .generations import render_generations_page
 from .global_search import render_global_search_page
+from .grain_profile import render_grain_profile_page
 from .guided_workflow import render_guided_workflow_page
 from .help import render_help_page
 from .home_dashboard import render_home_dashboard_page as render_home_page
@@ -55,8 +56,12 @@ from .v0151_wrappers import (
 )
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
-# v0.15.2 adds publication labels without bypassing the exact-selection wrapper.
+# v0.15.3 publication composer adds labels without bypassing exact-selection.
 from .v0152_publication_wrappers import render_multi_panel_page
+
+# v0.15.4 grain profile extends the exact global-search actions with a profile
+# route while leaving publication and multi-panel wrappers intact.
+from .v0153_grain_profile_wrappers import render_global_search_page
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
@@ -65,8 +70,8 @@ __all__ = [
     "render_compare_page", "render_composite_points_page", "render_data_intake_page",
     "render_database_browser_page", "render_distribution_page", "render_equilibrium_page",
     "render_export_page", "render_formulae_page", "render_generations_page",
-    "render_global_search_page", "render_guided_workflow_page", "render_help_page",
-    "render_home_page", "render_images_page", "render_measurements_page",
+    "render_global_search_page", "render_grain_profile_page", "render_guided_workflow_page",
+    "render_help_page", "render_home_page", "render_images_page", "render_measurements_page",
     "render_minerals_page", "render_mixed_minerals_page", "render_multi_panel_page",
     "render_object_workspace_page", "render_plots_page", "render_projects_page",
     "render_publication_composer_page", "render_publish_page", "render_quick_import_page",

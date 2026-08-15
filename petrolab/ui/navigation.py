@@ -49,6 +49,7 @@ TOOL_SECTIONS = {
     ],
     "Исследование": [
         ("multi_panel", "Несколько графиков сразу"),
+        ("grain_profile", "Профиль по зерну"),
         ("whole_rock_compare", "Породы + литература"),
         ("thermobarometry", "Термодинамика"),
         ("ternary", "Треугольные"),
