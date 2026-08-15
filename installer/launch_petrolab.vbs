@@ -1,10 +1,20 @@
 Option Explicit
 
-Dim fso, shell, rootDir, currentDir, pythonExe, appFile, dataDir, command
+Dim fso, shell, rootDir, launcherExe, currentDir, pythonExe, appFile, dataDir, command
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set shell = CreateObject("WScript.Shell")
 
 rootDir = fso.GetParentFolderName(WScript.ScriptFullName)
+launcherExe = fso.BuildPath(rootDir, "PetroLab.exe")
+
+' New installations use the native launcher. Keep this script only as a
+' compatibility bridge for updater shortcuts from older installations.
+If fso.FileExists(launcherExe) Then
+    shell.Run Chr(34) & launcherExe & Chr(34), 0, False
+    WScript.Quit 0
+End If
+
+' Legacy fallback for installations created before the native launcher existed.
 currentDir = fso.BuildPath(rootDir, "current")
 pythonExe = fso.BuildPath(rootDir, "runtime\pythonw.exe")
 appFile = fso.BuildPath(currentDir, "app.py")
