@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import io
 import tempfile
 from contextlib import ExitStack
@@ -56,6 +57,11 @@ def test_real_runtime_upload_persists_wds_method():
             assert frame["Method"].tolist() == ["EPMA-WDS", "EPMA-WDS"]
             assert frame["Sample"].tolist() == ["S1", "S1"]
             assert frame["Point"].astype(str).tolist() == ["1", "2"]
+            del frame, result, buffer, source
+            # Windows refuses to remove a temporary SQLite file while any short-lived
+            # connection object is awaiting finalization. Product connections close in
+            # db.connect(); this collection only makes test teardown deterministic.
+            gc.collect()
 
 
 if __name__ == "__main__":
