@@ -10,6 +10,17 @@ def _escape(value: object) -> str:
     return html.escape(str(value or ""))
 
 
+def _details(text: str, css_class: str, *, label: str = "ⓘ") -> str:
+    if not text:
+        return ""
+    return (
+        f'<details class="{css_class}">'
+        f'<summary title="Подробнее" aria-label="Подробнее">{_escape(label)}</summary>'
+        f'<div>{_escape(text)}</div>'
+        "</details>"
+    )
+
+
 def render_page_header(
     title: str,
     description: str = "",
@@ -20,9 +31,11 @@ def render_page_header(
     parts = ['<header class="petrolab-page-header">']
     if eyebrow:
         parts.append(f'<div class="petrolab-eyebrow">{_escape(eyebrow)}</div>')
+    parts.append('<div class="petrolab-page-title-row">')
     parts.append(f'<h1 class="petrolab-page-title">{_escape(title)}</h1>')
     if description:
-        parts.append(f'<div class="petrolab-page-lead">{_escape(description)}</div>')
+        parts.append(_details(description, "petrolab-page-help"))
+    parts.append("</div>")
     if context:
         parts.append(f'<div class="petrolab-context-line">{_escape(context)}</div>')
     parts.append("</header>")
@@ -30,11 +43,12 @@ def render_page_header(
 
 
 def render_section_header(title: str, note: str = "") -> None:
-    note_html = f'<div class="petrolab-section-note">{_escape(note)}</div>' if note else ""
+    help_html = _details(note, "petrolab-section-help") if note else ""
     st.markdown(
         '<div class="petrolab-section-header">'
-        f'<h2 class="petrolab-section-title">{_escape(title)}</h2>'
-        f'{note_html}</div>',
+        '<div class="petrolab-section-title-wrap">'
+        f'<h2 class="petrolab-section-title">{_escape(title)}</h2>{help_html}'
+        '</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -49,11 +63,11 @@ def render_badges(items: Iterable[tuple[str, str]]) -> None:
 
 
 def render_hint(text: str) -> None:
-    """Optional guidance only; never use for QC, provenance, errors, or warnings."""
+    """Optional guidance hidden behind a small info disclosure; never use for QC/errors/warnings."""
     from petrolab.settings_service import load_settings
 
-    if bool(load_settings().get("show_help_hints", True)):
-        st.caption(text)
+    if bool(load_settings().get("show_help_hints", True)) and str(text or "").strip():
+        st.markdown(_details(str(text), "petrolab-inline-help"), unsafe_allow_html=True)
 
 
 def render_card(title: str, body: str = "", *, meta: str = "", active: bool = False) -> None:
