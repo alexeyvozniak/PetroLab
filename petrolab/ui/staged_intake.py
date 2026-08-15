@@ -10,7 +10,7 @@ from petrolab.auto_pipeline import auto_process_imported_datasets
 from petrolab.db import get_or_create_library_project, link_dataset_to_project
 from petrolab.import_staging import detect_block_header_rows, source_like_column
 from petrolab.row_provenance import materialize_dataset_row_provenance
-from petrolab.sample_registry import list_samples
+from petrolab.sample_registry import add_sample_alias, list_samples
 from petrolab.source_registry import list_studies
 from petrolab.services.import_service import (
     inspect_uploaded_sheet,
@@ -21,6 +21,18 @@ from petrolab.staged_import_service import import_staged_frames
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
 from petrolab.ui.staging_editor import render_staging_editor
 from petrolab.ui.universal_intake_extensions import render_table_import_with_provenance
+
+
+_IRON_CHOICES = {
+    "FeO": {
+        "Всё железо, выраженное как FeO total": "FeOt",
+        "Отдельно измеренное Fe²⁺ как FeO": "FeO",
+    },
+    "Fe2O3": {
+        "Всё железо, выраженное как Fe₂O₃ total": "Fe2O3t",
+        "Отдельно измеренное Fe³⁺ как Fe₂O₃": "Fe2O3",
+    },
+}
 
 
 def _source_labels(project_id: int) -> list[str]:
@@ -55,6 +67,63 @@ def _canonicalize_staging_roles(frame: pd.DataFrame, roles: dict[str, str]) -> p
         # Keep the author's original column and add a canonical working field.
         result[role] = result[source]
     return result
+
+
+def _replace_confirmed_names(
+    frame: pd.DataFrame,
+    *,
+    sample_names: dict[str, str],
+    source_names: dict[str, str],
+) -> pd.DataFrame:
+    result = frame.copy()
+    for field, mapping in (("Sample", sample_names), ("Source", source_names)):
+        if field not in result.columns or not mapping:
+            continue
+        original = result[field].copy()
+        mapped = original.map(
+            lambda value: mapping.get(str(value).strip(), value)
+            if pd.notna(value) and str(value).strip() else value
+        )
+        changed = original.astype("string").fillna("") != mapped.astype("string").fillna("")
+        if bool(changed.any()):
+            source_field = f"{field} (source)"
+            if source_field not in result.columns:
+                result[source_field] = original
+            result[field] = mapped
+    return result
+
+
+def _persist_confirmed_sample_aliases(project_id: int, mappings: dict[str, str]) -> None:
+    if not mappings:
+        return
+    by_name = {str(item["name"]): int(item["id"]) for item in list_samples(int(project_id))}
+    for alias, canonical in mappings.items():
+        sample_id = by_name.get(str(canonical))
+        if sample_id is not None and str(alias).strip() and str(alias).strip() != str(canonical).strip():
+            add_sample_alias(int(sample_id), str(alias).strip(), source="staging_confirmed")
+
+
+def _iron_semantics(previews: dict[str, object], token: str) -> tuple[dict[str, dict[str, str]], bool]:
+    result: dict[str, dict[str, str]] = {}
+    ready = True
+    for sheet, preview in previews.items():
+        columns = {str(column) for column in preview.schema.columns}
+        mapping: dict[str, str] = {}
+        for iron, choices in _IRON_CHOICES.items():
+            if iron not in columns:
+                continue
+            choice = st.radio(
+                f"{sheet or 'CSV'} · что означает {iron}?",
+                list(choices),
+                index=None,
+                key=f"v0154_iron_{token}_{sheet}_{iron}",
+            )
+            if choice is None:
+                ready = False
+            else:
+                mapping[iron] = choices[choice]
+        result[sheet] = mapping
+    return result, ready
 
 
 def _complexity_reasons(frame: pd.DataFrame, chemistry_columns: list[str]) -> list[str]:
@@ -105,16 +174,30 @@ def render_table_import_v0154(
         return []
 
     previews: dict[str, object] = {}
+    for sheet in selected:
+        try:
+            previews[sheet] = inspect_uploaded_sheet(data, name, sheet, header_row)
+        except Exception as exc:
+            st.error(f"{sheet or 'CSV'}: не удалось прочитать схему — {exc}")
+            return []
+
+    measurement_maps, iron_ready = _iron_semantics(previews, token)
+    if not iron_ready:
+        st.info("Нужно подтвердить только неоднозначную форму представления железа; после этого структурный предпросмотр продолжится.")
+        return []
+
     normalized: dict[str, pd.DataFrame] = {}
     complexity: list[str] = []
     for sheet in selected:
+        preview = previews[sheet]
         try:
-            preview = inspect_uploaded_sheet(data, name, sheet, header_row)
-            frame = preview_uploaded_source(data, name, sheet, header_row, "generic")
+            frame = preview_uploaded_source(
+                data, name, sheet, header_row, "generic",
+                measurement_map=measurement_maps.get(sheet, {}),
+            )
         except Exception as exc:
             st.error(f"{sheet or 'CSV'}: не удалось построить структурный предпросмотр — {exc}")
             return []
-        previews[sheet] = preview
         normalized[sheet] = frame
         chemistry = [item[1] for item in preview.recognized_oxides] + [item[1] for item in preview.recognized_traces]
         complexity.extend(f"{sheet or 'CSV'} · {reason}" for reason in _complexity_reasons(frame, chemistry))
@@ -147,7 +230,6 @@ def render_table_import_v0154(
     staged_frames: dict[str, pd.DataFrame] = {}
     sample_name_confirmations: dict[str, str] = {}
     source_name_confirmations: dict[str, str] = {}
-    role_maps: dict[str, dict[str, str]] = {}
 
     for sheet in selected:
         preview = previews[sheet]
@@ -164,9 +246,17 @@ def render_table_import_v0154(
             )
             frame = _canonicalize_staging_roles(result.dataframe, result.role_columns)
             staged_frames[sheet] = frame
-            role_maps[sheet] = result.role_columns
             sample_name_confirmations.update(sample_confirm)
             source_name_confirmations.update(source_confirm)
+
+    staged_frames = {
+        sheet: _replace_confirmed_names(
+            frame,
+            sample_names=sample_name_confirmations,
+            source_names=source_name_confirmations,
+        )
+        for sheet, frame in staged_frames.items()
+    }
 
     dataset_name = st.text_input(
         "Название набора",
@@ -219,6 +309,7 @@ def render_table_import_v0154(
                 confirmed_samples=confirmed_samples,
                 confirmed_sources=confirmed_sources,
             )
+            _persist_confirmed_sample_aliases(int(project_id), sample_name_confirmations)
             report = auto_process_imported_datasets(int(project_id), list(imported.dataset_ids))
             working = list(report.working_dataset_ids) or [int(value) for value in imported.dataset_ids]
             st.session_state[f"universal_imported_{token}"] = working
