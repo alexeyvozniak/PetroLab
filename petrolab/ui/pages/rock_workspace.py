@@ -100,14 +100,11 @@ def render_rock_workspace_page() -> None:
     ]
     render_badges(badges)
 
-    q1, q2, q3 = st.columns(3)
-    if q1.button("Сравнить с литературой", type="primary", width="stretch", key="rock_workspace_compare"):
+    q1, q2 = st.columns(2)
+    if q1.button("Сравнить / построить whole-rock диаграммы", type="primary", width="stretch", key="rock_workspace_compare"):
         st.session_state["whole_rock_workspace_rock_ids"] = [int(rock_id)]
         _go("whole_rock_compare")
-    if q2.button("Диаграммы этой породы", width="stretch", key="rock_workspace_plots_jump"):
-        st.session_state["rock_workspace_tab"] = "Диаграммы"
-        st.rerun()
-    if q3.button("Редактировать / добавить данные", width="stretch", key="rock_workspace_edit"):
+    if q2.button("Редактировать / добавить данные", width="stretch", key="rock_workspace_edit"):
         st.session_state["rock_workspace_edit_id"] = int(rock_id)
         _go("rocks")
 
