@@ -31,4 +31,10 @@ jobs:
       - name: Re-run prior exact-selection regressions
         run: python tests_v0151_ui_selection.py
       - name: Re-run project-context regressions
-        run: python tests_project_context.py
+        run: |
+          python tests_global_project_context.py
+          python tests_project_switch_scope.py
+      - name: Re-run route-stack and UI contracts
+        run: |
+          python tests_v0155_route_stack.py
+          python tests_ui_layout.py
