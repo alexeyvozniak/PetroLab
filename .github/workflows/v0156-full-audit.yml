@@ -29,6 +29,7 @@ jobs:
           petrolab/ui/pages/equilibrium.py
           petrolab/ui/pages/distribution.py
           petrolab/ui/pages/change_log.py
+          petrolab/ui/pages/analytical_sessions.py
           petrolab/ui/pages/__init__.py
           tests_v0156_full_audit.py
           tests_v0156_generation_scope.py
