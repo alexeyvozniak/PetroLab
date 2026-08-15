@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable
+import unicodedata
 
 import pandas as pd
 
 from petrolab.db import connect, load_dataset_dataframe
-from petrolab.import_staging import normalized_name_key, similar_name_candidates
+from petrolab.import_staging import similar_name_candidates
 from petrolab.sample_registry import add_sample_alias, create_sample, list_samples
 from petrolab.source_registry import create_study, list_studies
 
@@ -76,6 +77,12 @@ def _clean_unique(values: Iterable[object]) -> list[str]:
     return result
 
 
+def _literal_key(value: object) -> str:
+    """Exact identity key: typographic/case normalization only, no transliteration or fuzzy matching."""
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold().replace("ё", "е")
+    return " ".join(text.split())
+
+
 def sample_reconciliation_candidates(project_id: int, incoming: Iterable[object]) -> list[ReconciliationCandidate]:
     existing = list_samples(int(project_id))
     by_name = {str(item["name"]): int(item["id"]) for item in existing}
@@ -101,22 +108,22 @@ def source_reconciliation_candidates(project_id: int, incoming: Iterable[object]
 
 
 def _find_exact_sample(project_id: int, label: str) -> dict | None:
-    key = normalized_name_key(label)
+    key = _literal_key(label)
     for item in list_samples(int(project_id)):
-        if normalized_name_key(item.get("name", "")) == key:
+        if _literal_key(item.get("name", "")) == key:
             return item
         for alias in item.get("aliases", []):
-            if normalized_name_key(alias) == key:
+            if _literal_key(alias) == key:
                 return item
     return None
 
 
 def _find_exact_study(project_id: int, label: str) -> dict | None:
-    key = normalized_name_key(label)
+    key = _literal_key(label)
     for item in list_studies(int(project_id)):
         for field in ("citation", "title", "doi"):
             value = str(item.get(field) or "").strip()
-            if value and normalized_name_key(value) == key:
+            if value and _literal_key(value) == key:
                 return item
     return None
 
