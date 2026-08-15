@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.ui.navigation import navigate
+from petrolab.ui.project_context import active_project_id
 
 from . import v0151_wrappers as _v0151
 
@@ -16,6 +17,7 @@ def _search_actions_with_profile(result: pd.DataFrame, scope_label: str) -> None
         int(value) for value in result.get("_dataset_id", pd.Series(dtype=int)).dropna().tolist()
     })
     context = {
+        "project_id": active_project_id(),
         "scope": scope_label,
         "query": str(st.session_state.get("global_search_query") or ""),
         "analysis_ids": analysis_ids,
