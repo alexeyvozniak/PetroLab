@@ -25,6 +25,19 @@ def install() -> None:
             raise ValueError("Числовое значение породы должно быть конечным")
         return numeric
 
+    def combine_metadata_values(old_value, new_value) -> str:
+        """Accumulate summary metadata without replacing earlier provenance."""
+        values: list[str] = []
+        for raw in (old_value, new_value):
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            for part in text.split(" | "):
+                clean = part.strip()
+                if clean and clean not in values:
+                    values.append(clean)
+        return " | ".join(values)
+
     def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = None):
         excluded = excluded_columns or set()
         composition: dict[str, float] = {}
@@ -180,7 +193,14 @@ def install() -> None:
             methods = {analyte: chemistry_method for analyte in composition}
             sources = {analyte: source for analyte in composition}
             if on_conflict == "update" and name in existing:
-                old_composition, old_units, old_methods, old_sources = existing_composition(int(existing[name]["id"]))
+                current_rock = existing[name]
+                metadata["chemistry_method"] = combine_metadata_values(
+                    current_rock.get("chemistry_method"), chemistry_method
+                )
+                metadata["laboratory"] = combine_metadata_values(
+                    current_rock.get("laboratory"), laboratory
+                )
+                old_composition, old_units, old_methods, old_sources = existing_composition(int(current_rock["id"]))
                 old_composition.update(composition)
                 old_units.update(units)
                 for analyte in new_analytes:
