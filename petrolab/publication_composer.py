@@ -27,13 +27,7 @@ LABEL_MODE_TITLES = {
 
 
 def panel_label_sequence(count: int, mode: str = "latin_upper") -> list[str]:
-    """Return deterministic panel labels for the requested alphabet.
-
-    Publication figures in PetroLab currently support up to 12 panels in the UI,
-    but the helper deliberately handles longer sequences by continuing as A1/A2
-    (or the equivalent last alphabet symbol + suffix) rather than silently
-    dropping labels.
-    """
+    """Return deterministic panel labels for the requested alphabet."""
     count = max(0, int(count))
     sequence = LABEL_SEQUENCES.get(str(mode))
     if sequence is None:
@@ -85,17 +79,32 @@ def make_panel_labels(
     ]
 
 
-def _bounded_coordinate(value: object, fallback: float) -> float:
+def _finite_float(value: object, fallback: float) -> float:
     try:
         numeric = float(value)
     except (TypeError, ValueError):
-        return fallback
+        return float(fallback)
+    return numeric if math.isfinite(numeric) else float(fallback)
+
+
+def _safe_bool(value: object, fallback: bool) -> bool:
+    if value is None:
+        return bool(fallback)
+    try:
+        return bool(value)
+    except (TypeError, ValueError):
+        return bool(fallback)
+
+
+def _bounded_coordinate(value: object, fallback: float) -> float:
+    numeric = _finite_float(value, fallback)
     return max(-0.25, min(1.25, numeric))
 
 
 def normalized_panel_label(label: dict | None, fallback_text: str = "") -> dict:
     raw = dict(label or {})
-    text = str(raw.get("text", fallback_text))
+    text_value = raw.get("text", fallback_text)
+    text = fallback_text if text_value is None else str(text_value)
     horizontal_alignment = str(raw.get("horizontal_alignment", "left"))
     if horizontal_alignment not in {"left", "center", "right"}:
         horizontal_alignment = "left"
@@ -105,13 +114,10 @@ def normalized_panel_label(label: dict | None, fallback_text: str = "") -> dict:
     font_weight = str(raw.get("font_weight", "bold"))
     if font_weight not in {"normal", "bold"}:
         font_weight = "bold"
-    try:
-        font_size = float(raw.get("font_size", 11.0))
-    except (TypeError, ValueError):
-        font_size = 11.0
+    font_size = _finite_float(raw.get("font_size", 11.0), 11.0)
     return {
         "text": text,
-        "enabled": bool(raw.get("enabled", bool(text))),
+        "enabled": _safe_bool(raw.get("enabled", bool(text)), bool(text)),
         "x": _bounded_coordinate(raw.get("x", 0.025), 0.025),
         "y": _bounded_coordinate(raw.get("y", 0.975), 0.975),
         "horizontal_alignment": horizontal_alignment,
@@ -288,6 +294,73 @@ def publication_recipe(
         "font_family": str(font_family),
         "panels": recipe_panels,
     }
+
+
+def normalized_publication_recipe(payload: object) -> dict:
+    """Validate and normalize a v1 composer recipe before UI state is restored."""
+    if not isinstance(payload, dict):
+        raise ValueError("Recipe должен быть JSON-объектом")
+    if str(payload.get("kind") or "") != "publication_composer":
+        raise ValueError("Это не recipe редактора мультипанельных рисунков")
+    try:
+        version = int(payload.get("recipe_version", 0))
+    except (TypeError, ValueError):
+        version = 0
+    if version != 1:
+        raise ValueError(f"Неподдерживаемая версия recipe: {version}")
+    raw_panels = payload.get("panels")
+    if not isinstance(raw_panels, list) or not raw_panels:
+        raise ValueError("Recipe не содержит панелей")
+    if len(raw_panels) > 12:
+        raise ValueError("Recipe содержит больше 12 панелей")
+    panels: list[dict] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(raw_panels):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Панель {index + 1} в recipe повреждена")
+        source_id = str(raw.get("source_id") or "").strip()
+        if not source_id:
+            raise ValueError(f"У панели {index + 1} отсутствует source_id")
+        if source_id in seen_ids:
+            raise ValueError(f"Recipe содержит повторяющийся source_id: {source_id}")
+        seen_ids.add(source_id)
+        crop_mode = str(raw.get("crop_mode") or "contain")
+        if crop_mode not in {"contain", "cover"}:
+            crop_mode = "contain"
+        panels.append({
+            "order": index,
+            "source_id": source_id,
+            "source_name": str(raw.get("source_name") or source_id),
+            "crop_mode": crop_mode,
+            "title": str(raw.get("title") or ""),
+            "label": normalized_panel_label(raw.get("label")),
+        })
+    layout = payload.get("layout") if isinstance(payload.get("layout"), dict) else {}
+    columns = int(max(1, min(4, round(_finite_float(layout.get("columns", 2), 2.0)))))
+    width_in = max(2.0, min(20.0, _finite_float(layout.get("width_in", 7.2), 7.2)))
+    panel_height_in = max(1.0, min(10.0, _finite_float(layout.get("panel_height_in", 3.2), 3.2)))
+    return {
+        "recipe_version": 1,
+        "kind": "publication_composer",
+        "journal_preset": str(payload.get("journal_preset") or ""),
+        "layout": {
+            "columns": columns,
+            "width_in": width_in,
+            "panel_height_in": panel_height_in,
+        },
+        "font_family": str(payload.get("font_family") or "Arial"),
+        "panels": panels,
+    }
+
+
+def parse_publication_recipe_bytes(content: bytes) -> dict:
+    if not content:
+        raise ValueError("Recipe-файл пуст")
+    try:
+        payload = json.loads(content.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Recipe-файл не является корректным UTF-8 JSON") from exc
+    return normalized_publication_recipe(payload)
 
 
 def recipe_json_bytes(recipe: dict) -> bytes:
