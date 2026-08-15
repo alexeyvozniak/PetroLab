@@ -134,6 +134,13 @@ def test_resolving_legacy_collision_removes_moved_analysis_from_old_point():
         m1 = create_slide_marker(ws.project_id, slide_image_id=image1, x_norm=.1, y_norm=.1, label="P-1", analysis_ids=("f1",))
         m2 = create_slide_marker(ws.project_id, slide_image_id=image2, x_norm=.9, y_norm=.9, label="P-1", analysis_ids=("f2",))
         set_physical_point_links(ws.project_id, old_point, ["f1", "f2"])
+        # Give the surviving link distinctive provenance: resolving f2 must not rewrite it.
+        with db.connect() as con:
+            con.execute(
+                "UPDATE physical_point_analysis_links SET link_role='manual_reference', note='keep this provenance' WHERE entity_id=? AND analysis_id='f1'",
+                (old_point,),
+            )
+            con.commit()
         # Recreate the exact legacy v0.15 state: same auto-created entity, no provenance.
         from petrolab.physical_point_safety import _ensure_marker_link_source_schema
         _ensure_marker_link_source_schema()
@@ -148,13 +155,16 @@ def test_resolving_legacy_collision_removes_moved_analysis_from_old_point():
         new_point = create_entity(ws.project_id, kind="probe_point", name="P-1 moved", parent_id=section)
         set_slide_marker_entity(ws.project_id, m2, new_point)
         with db.connect() as con:
-            old_links = [str(row["analysis_id"]) for row in con.execute(
-                "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id", (old_point,)
-            ).fetchall()]
+            old_rows = con.execute(
+                "SELECT analysis_id,link_role,note FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id",
+                (old_point,),
+            ).fetchall()
             new_links = [str(row["analysis_id"]) for row in con.execute(
                 "SELECT analysis_id FROM physical_point_analysis_links WHERE entity_id=? ORDER BY analysis_id", (new_point,)
             ).fetchall()]
-        assert old_links == ["f1"]
+        assert [str(row["analysis_id"]) for row in old_rows] == ["f1"]
+        assert str(old_rows[0]["link_role"]) == "manual_reference"
+        assert str(old_rows[0]["note"]) == "keep this provenance"
         assert new_links == ["f2"]
         # Confirming the remaining marker on its original point finishes the migration.
         set_slide_marker_entity(ws.project_id, m1, old_point)
