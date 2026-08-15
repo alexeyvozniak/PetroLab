@@ -4,6 +4,7 @@ import pandas as pd
 
 from petrolab.minerals.amphibole_ima import attach_amphibole_ima_diagnostics
 from petrolab.minerals.classification import FIELD_COL, SPECIES_COL, attach_mineral_classification
+from petrolab.services.formula_service import calculate_formula_safe
 
 
 def row(*, explicit_fe3=True, **apfu):
@@ -44,7 +45,7 @@ uncertain = attach_amphibole_ima_diagnostics(
 assert uncertain["amp_B_subgroup"] == "calcium"
 assert "pargasite" in uncertain["amp_root_charge_candidate"]
 assert uncertain["amp_root_field"] == ""
-assert uncertain["amp_Fe3_explicit"] is False or not bool(uncertain["amp_Fe3_explicit"])
+assert float(uncertain["amp_Fe3_explicit"]) == 0.0
 assert "withheld" in uncertain["amp_classification_note"]
 
 # The public classifier remains deliberately conservative: diagnostics yes, formal species no.
@@ -59,6 +60,23 @@ classified_uncertain = attach_mineral_classification(
 ).iloc[0]
 assert classified_uncertain[SPECIES_COL] == ""
 assert "root charge field withheld" in classified_uncertain[FIELD_COL]
+
+# Exercise the real formula-service path. Numeric 1/0 provenance must remain nullable
+# so formula validity masking can use NaN without a pandas bool-dtype failure.
+oxide = pd.DataFrame([{
+    "SiO2": 45.0,
+    "Al2O3": 10.0,
+    "MgO": 15.0,
+    "CaO": 11.0,
+    "Na2O": 3.0,
+    "K2O": 1.0,
+    "FeO": 12.0,
+}])
+oxide_result = calculate_formula_safe(oxide, "amphibole", "amp_ima2012_23o").data.iloc[0]
+assert bool(oxide_result["formula_valid"])
+assert float(oxide_result["amp_Fe3_explicit"]) == 0.0
+assert oxide_result[SPECIES_COL] == ""
+assert "amphibole" in oxide_result[FIELD_COL]
 
 # Site failures and Li-bearing compositions must never look formally classified.
 bad = attach_mineral_classification(pd.DataFrame([row(Si=8, Mg=2, Ca=1)]), "amphibole").iloc[0]
