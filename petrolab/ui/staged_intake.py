@@ -14,6 +14,7 @@ from petrolab.sample_registry import add_sample_alias, list_samples
 from petrolab.source_registry import list_studies
 from petrolab.services.import_service import inspect_uploaded_sheet, list_uploaded_sheets, preview_uploaded_source
 from petrolab.staged_import_service import import_staged_frames
+from petrolab.term_registry import DEFAULT_TERM_DOMAINS, persist_staged_terms, term_values
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
 from petrolab.ui.staging_editor import render_staging_editor
 from petrolab.ui.universal_intake_extensions import render_table_import_with_provenance
@@ -65,13 +66,22 @@ def _canonicalize_roles(frame: pd.DataFrame, roles: dict[str, str]) -> pd.DataFr
     return result
 
 
-def _replace_confirmed_names(
+def _merge_confirmations(
+    target: dict[str, dict[str, str]],
+    incoming: Mapping[str, Mapping[str, str]],
+) -> None:
+    for field, mappings in incoming.items():
+        bucket = target.setdefault(str(field), {})
+        bucket.update({str(alias): str(canonical) for alias, canonical in mappings.items()})
+
+
+def _replace_confirmed_values(
     frame: pd.DataFrame,
-    sample_names: dict[str, str],
-    source_names: dict[str, str],
+    confirmations: Mapping[str, Mapping[str, str]],
 ) -> pd.DataFrame:
+    """Canonicalize confirmed aliases while preserving the author's original value."""
     result = frame.copy()
-    for field, mapping in (("Sample", sample_names), ("Source", source_names)):
+    for field, mapping in confirmations.items():
         if field not in result.columns or not mapping:
             continue
         original = result[field].copy()
@@ -88,7 +98,7 @@ def _replace_confirmed_names(
     return result
 
 
-def _persist_sample_aliases(project_id: int, mappings: dict[str, str]) -> None:
+def _persist_sample_aliases(project_id: int, mappings: Mapping[str, str]) -> None:
     by_name = {str(item["name"]): int(item["id"]) for item in list_samples(int(project_id))}
     for alias, canonical in mappings.items():
         sample_id = by_name.get(str(canonical))
@@ -96,7 +106,7 @@ def _persist_sample_aliases(project_id: int, mappings: dict[str, str]) -> None:
             add_sample_alias(sample_id, str(alias).strip(), source="staging_confirmed")
 
 
-def _iron_semantics(previews: dict[str, object], token: str) -> tuple[dict[str, dict[str, str]], bool]:
+def _iron_semantics(previews: Mapping[str, object], token: str) -> tuple[dict[str, dict[str, str]], bool]:
     maps: dict[str, dict[str, str]] = {}
     ready = True
     for sheet, preview in previews.items():
@@ -109,7 +119,7 @@ def _iron_semantics(previews: dict[str, object], token: str) -> tuple[dict[str, 
                 f"{sheet or 'CSV'} · что означает {iron}?",
                 list(choices),
                 index=None,
-                key=f"v0154_iron_{token}_{sheet}_{iron}",
+                key=f"staging_iron_{token}_{sheet}_{iron}",
             )
             if choice is None:
                 ready = False
@@ -145,7 +155,7 @@ def _sheet_header_rows(selected: list[str], default_header: int, token: str) -> 
                 max_value=200,
                 value=int(default_header),
                 step=1,
-                key=f"v0154_sheet_header_{token}_{index}",
+                key=f"staging_sheet_header_{token}_{index}",
             ))
     return rows
 
@@ -155,7 +165,7 @@ def _structural_previews(
     filename: str,
     selected: list[str],
     header_rows: Mapping[str, int],
-    previews: dict[str, object],
+    previews: Mapping[str, object],
 ) -> tuple[dict[str, pd.DataFrame], list[str]]:
     frames: dict[str, pd.DataFrame] = {}
     complexity: list[str] = []
@@ -192,9 +202,9 @@ def render_table_import_v0154(
     default_header = int(st.number_input(
         "Строка заголовков по умолчанию",
         1, 200, 1, 1,
-        key=f"v0154_header_{token}",
+        key=f"staging_header_{token}",
     ))
-    selected = st.multiselect("Листы", sheets, default=sheets, key=f"v0154_sheets_{token}")
+    selected = st.multiselect("Листы", sheets, default=sheets, key=f"staging_sheets_{token}")
     if not selected:
         return []
     header_rows = _sheet_header_rows(selected, default_header, token)
@@ -220,15 +230,13 @@ def render_table_import_v0154(
         ["Обычный безопасный импорт", "Разобрать перед импортом"],
         index=1 if complexity else 0,
         horizontal=True,
-        key=f"v0154_mode_{token}",
+        key=f"staging_mode_{token}",
         help=(
             "Обычный режим сохраняет двустороннюю синхронизацию XLSX. Staging позволяет менять структуру, "
             "но сохраняет исходный файл только как provenance и не переписывает его."
         ),
     )
     if mode == "Обычный безопасный импорт":
-        # The established importer keeps its own per-sheet header/mineral controls and
-        # asks the ambiguous Fe question exactly once.
         return render_table_import_with_provenance(original, project_id, name, data, token)
 
     measurement_maps, iron_ready = _iron_semantics(previews, token)
@@ -257,9 +265,12 @@ def render_table_import_v0154(
     )
     existing_samples = [str(item["name"]) for item in list_samples(int(project_id))]
     existing_sources = _study_labels(int(project_id))
+    existing_terms = {
+        domain: term_values(int(project_id), domain)
+        for domain in DEFAULT_TERM_DOMAINS
+    }
     staged_frames: dict[str, pd.DataFrame] = {}
-    sample_confirmations: dict[str, str] = {}
-    source_confirmations: dict[str, str] = {}
+    all_confirmations: dict[str, dict[str, str]] = {}
 
     for sheet in selected:
         preview = previews[sheet]
@@ -271,23 +282,23 @@ def render_table_import_v0154(
                 st.caption(
                     "Если этот лист соответствует одной статье, выберите «Весь лист» → Source и назначьте источник одним действием."
                 )
-            result, sample_confirm, source_confirm = render_staging_editor(
+            result, _, _ = render_staging_editor(
                 normalized[sheet],
                 token=token,
                 sheet=sheet or "CSV",
                 chemistry_columns=chemistry,
                 existing_samples=existing_samples,
                 existing_sources=existing_sources,
+                existing_terms=existing_terms,
             )
             staged_frames[sheet] = _canonicalize_roles(result.dataframe, result.role_columns)
-            sample_confirmations.update(sample_confirm)
-            source_confirmations.update(source_confirm)
+            _merge_confirmations(all_confirmations, result.confirmations)
 
     staged_frames = {
-        sheet: _replace_confirmed_names(frame, sample_confirmations, source_confirmations)
+        sheet: _replace_confirmed_values(frame, all_confirmations)
         for sheet, frame in staged_frames.items()
     }
-    dataset_name = st.text_input("Название набора", value=Path(name).stem, key=f"v0154_dataset_name_{token}")
+    dataset_name = st.text_input("Название набора", value=Path(name).stem, key=f"staging_dataset_name_{token}")
     st.dataframe(
         pd.DataFrame([
             {
@@ -308,7 +319,7 @@ def render_table_import_v0154(
         "Проверить и импортировать staging-копию",
         type="primary",
         width="stretch",
-        key=f"v0154_import_{token}",
+        key=f"staging_import_{token}",
     ):
         return []
 
@@ -325,6 +336,9 @@ def render_table_import_v0154(
         )
         for dataset_id in imported.dataset_ids:
             link_dataset_to_project(project_id, dataset_id, "Добавлено через staging-импорт", purpose="working")
+
+        sample_confirmations = all_confirmations.get("Sample", {})
+        source_confirmations = all_confirmations.get("Source", {})
         confirmed_samples, confirmed_sources = _confirmation_ids(
             project_id, sample_confirmations, source_confirmations
         )
@@ -337,6 +351,11 @@ def render_table_import_v0154(
             confirmed_sources=confirmed_sources,
         )
         _persist_sample_aliases(project_id, sample_confirmations)
+        remembered_terms = sum(
+            persist_staged_terms(project_id, frame, all_confirmations)
+            for frame in staged_frames.values()
+        )
+
         report = auto_process_imported_datasets(project_id, list(imported.dataset_ids))
         working = list(report.working_dataset_ids) or [int(value) for value in imported.dataset_ids]
         st.session_state[f"universal_imported_{token}"] = working
@@ -349,5 +368,7 @@ def render_table_import_v0154(
     st.success(
         f"Связей Sample: {provenance['sample_links']} · Source: {provenance['source_links']} · рабочих наборов: {len(working)}."
     )
+    if remembered_terms:
+        st.caption(f"Канонических терминов/категорий запомнено: {remembered_terms}.")
     st.rerun()
     return []
