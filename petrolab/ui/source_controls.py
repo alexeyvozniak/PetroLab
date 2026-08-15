@@ -6,11 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
-from petrolab.source_registry import (
-    SOURCE_LABEL_COLUMN,
-    filter_visible_sources,
-    source_labels,
-)
+from petrolab.source_registry import SOURCE_LABEL_COLUMN
 
 
 _MISSING_VALUE = "— без значения —"
@@ -24,8 +20,10 @@ class PlotVisibilityDimension:
 
 
 _VISIBILITY_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("source", "Источник / статья", (SOURCE_LABEL_COLUMN,)),
-    ("sample", "Sample", ("Sample", "Образец")),
+    # Prefer row-level provenance from a compilation table. Fall back to an explicit
+    # staged Source column, then to the historical dataset-level article label.
+    ("source", "Источник / статья", ("Row Source", "Source", SOURCE_LABEL_COLUMN)),
+    ("sample", "Sample", ("Canonical Sample", "Sample", "Образец")),
     (
         "generation",
         "Generation",
@@ -122,15 +120,29 @@ def _legacy_source_filter(
     dataframe: pd.DataFrame,
     saved_visible: list[str] | None,
 ) -> dict[str, list[str]]:
-    if saved_visible is None or SOURCE_LABEL_COLUMN not in dataframe.columns:
+    if saved_visible is None:
         return {}
-    options = source_labels(dataframe)
+    source_dimension = next((item for item in available_visibility_dimensions(dataframe) if item.key == "source"), None)
+    if source_dimension is None:
+        return {}
+    options = _visibility_options(dataframe, source_dimension)
     valid = [value for value in saved_visible if value in options]
     if not saved_visible:
         return {"source": []}
     if valid and set(valid) != set(options):
         return {"source": valid}
     return {}
+
+
+def _source_split(dataframe: pd.DataFrame, selected_sources: list[str]) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    dimension = next((item for item in available_visibility_dimensions(dataframe) if item.key == "source"), None)
+    if dimension is None:
+        return dataframe.copy(), dataframe.iloc[0:0].copy(), []
+    options = _visibility_options(dataframe, dimension)
+    selected = set(selected_sources)
+    mask = _visibility_tokens(dataframe[dimension.column]).isin(selected)
+    hidden = [value for value in options if value not in selected]
+    return dataframe.loc[mask].copy(), dataframe.loc[~mask].copy(), hidden
 
 
 def render_source_visibility_controls(
@@ -140,10 +152,12 @@ def render_source_visibility_controls(
     saved_visible: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
     """Reversible plot-only visibility by source, Sample, Generation, mineral or work group."""
-    source_options = source_labels(dataframe)
     dimensions = available_visibility_dimensions(dataframe)
     if not dimensions:
         return dataframe.copy(), dataframe.iloc[0:0].copy(), [], []
+    dimension_map = {dimension.key: dimension for dimension in dimensions}
+    source_dimension = dimension_map.get("source")
+    source_options = _visibility_options(dataframe, source_dimension) if source_dimension is not None else []
 
     state_key = f"{key}_visibility_filters"
     if state_key not in st.session_state:
@@ -151,7 +165,6 @@ def render_source_visibility_controls(
     state = normalize_visibility_filters(dataframe, st.session_state.get(state_key, {}))
     st.session_state[state_key] = state
 
-    dimension_map = {dimension.key: dimension for dimension in dimensions}
     dimension_key = f"{key}_visibility_dimension"
     dimension_keys = list(dimension_map)
     current_dimension = st.session_state.get(dimension_key)
@@ -222,9 +235,7 @@ def render_source_visibility_controls(
 
     selected_sources = state.get("source", source_options)
     selected_sources = [value for value in source_options if value in set(selected_sources)]
-    source_visible_frame, source_hidden_frame = filter_visible_sources(dataframe, selected_sources)
-    del source_visible_frame
-    hidden_sources = [value for value in source_options if value not in set(selected_sources)]
+    _source_visible_frame, source_hidden_frame, hidden_sources = _source_split(dataframe, selected_sources)
 
     active_summary: list[str] = []
     for dimension in dimensions:
