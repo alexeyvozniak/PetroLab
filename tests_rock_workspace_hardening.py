@@ -37,6 +37,7 @@ def main() -> None:
         from petrolab.rock_workspace_model import rock_workspace_snapshot
         from petrolab.services.rock_service import import_rocks_wide
         from petrolab.storage import ensure_storage
+        from petrolab.ui.pages.rock_workspace import _valid_rock_id
         from petrolab.ui.pages.whole_rock_compare import _apply_plot_groups
 
         ensure_storage()
@@ -52,6 +53,11 @@ def main() -> None:
         link_dataset_to_project(project_id, dataset_id, note="working context")
 
         rock_id = create_rock(project_id, "R1", lithology="lamprophyre")
+        assert _valid_rock_id(rock_id, {rock_id: {"id": rock_id}}) == rock_id
+        assert _valid_rock_id(str(rock_id), {rock_id: {"id": rock_id}}) == rock_id
+        assert _valid_rock_id("broken", {rock_id: {"id": rock_id}}) is None
+        assert _valid_rock_id(rock_id + 1000, {rock_id: {"id": rock_id}}) is None
+
         set_mineral_links(rock_id, [dataset_id])
         snapshot = rock_workspace_snapshot(project_id, rock_id)
         assert [int(item["id"]) for item in snapshot.linked_datasets] == [dataset_id]
