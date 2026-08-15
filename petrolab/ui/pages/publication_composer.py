@@ -39,6 +39,20 @@ def _upload_sources(uploads) -> list[dict]:
     return sources
 
 
+def _inbox_sources() -> list[dict]:
+    raw = st.session_state.get("publication_composer_inbox", [])
+    sources = [dict(item) for item in raw if isinstance(item, dict) and item.get("source_id")]
+    if not sources:
+        return []
+    c1, c2 = st.columns([3, 1])
+    c1.success(f"Из PetroLab передано готовых графиков: {len(sources)}")
+    if c2.button("Очистить переданные", key="publication_composer_clear_inbox", width="stretch"):
+        st.session_state["publication_composer_inbox"] = []
+        st.session_state.pop("_publication_composer_fingerprint", None)
+        st.rerun()
+    return sources
+
+
 def _source_fingerprint(sources: list[dict]) -> str:
     digest = hashlib.sha256()
     for index, source in enumerate(sources):
@@ -161,7 +175,8 @@ def render_publication_composer_page() -> None:
         context=str(project["name"]) if project else "Без проекта",
     )
 
-    render_section_header("Источники панелей", "Можно смешивать изображения из проекта и новые файлы")
+    render_section_header("Источники панелей", "Можно смешивать готовые графики PetroLab, изображения проекта и новые файлы")
+    inbox_sources = _inbox_sources()
     project_sources = _project_source_selector(project)
     uploads = st.file_uploader(
         "Или добавить файлы с компьютера",
@@ -170,9 +185,9 @@ def render_publication_composer_page() -> None:
         key="publication_composer_uploads",
         help="PNG, JPEG, TIFF и WEBP. Можно добавить уже экспортированные графики PetroLab.",
     )
-    sources = [*project_sources, *_upload_sources(uploads)]
+    sources = [*inbox_sources, *project_sources, *_upload_sources(uploads)]
     if not sources:
-        st.info("Выберите изображения из проекта или добавьте файлы с компьютера.")
+        st.info("Передайте график из PetroLab, выберите изображения из проекта или добавьте файлы с компьютера.")
         return
     if len(sources) > 12:
         st.warning("В одной фигуре сейчас поддерживается до 12 панелей. Используются первые 12 выбранных источников.")
