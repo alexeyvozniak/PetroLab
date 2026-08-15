@@ -1,0 +1,42 @@
+name: Thermodynamics regression
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+      - "integration/**"
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  scientific-regression:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install PetroLab dependencies
+        shell: cmd
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile thermodynamics sources
+        shell: cmd
+        run: python -m compileall -q petrolab/thermodynamics.py petrolab/thermobarometry.py petrolab/ui/analysis_components.py petrolab/ui/pages/thermobarometry.py petrolab/ui/pages/object_workspace.py tests_thermobarometry.py tests_thermodynamics.py
+
+      - name: Run legacy Cpx thermometry regression
+        shell: cmd
+        run: python tests_thermobarometry.py
+
+      - name: Run thermodynamics catalogue regression
+        shell: cmd
+        run: python tests_thermodynamics.py
