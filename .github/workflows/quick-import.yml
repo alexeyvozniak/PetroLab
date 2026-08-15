@@ -1,4 +1,4 @@
-name: Quick import regression
+name: Input and search regression
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
     branches: ["main"]
 
 jobs:
-  import-safety:
+  input-and-search-safety:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -29,10 +29,14 @@ jobs:
         shell: cmd
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Compile quick import workflow
+      - name: Compile input and search workflows
         shell: cmd
-        run: python -m compileall -q petrolab/ui/pages/quick_import.py tests_quick_import.py
+        run: python -m compileall -q petrolab/ui/pages/quick_import.py petrolab/ui/pages/global_search.py tests_quick_import.py tests_global_search.py
 
       - name: Run quick import safety regression
         shell: cmd
         run: python tests_quick_import.py
+
+      - name: Run global search literal regression
+        shell: cmd
+        run: python tests_global_search.py
