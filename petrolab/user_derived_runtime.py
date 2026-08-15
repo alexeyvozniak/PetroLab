@@ -11,10 +11,35 @@ def install() -> None:
     from petrolab import derived
     from petrolab.repositories import rock_repository
     from petrolab.user_derived import (
-        apply_dataset_fields,
-        apply_rock_project_fields,
+        _apply_fields,
         list_dataset_fields,
+        list_rock_project_fields,
     )
+
+    def apply_safely(frame, fields):
+        """Never let a persisted custom definition shadow a measured/system column."""
+        source_columns = {str(column) for column in frame.columns}
+        active = [field for field in fields if field.enabled and field.name not in source_columns]
+        blocked = [field for field in fields if field.enabled and field.name in source_columns]
+
+        seeded = frame.copy()
+        seeded.attrs.update(frame.attrs)
+        units = dict(seeded.attrs.get("derived_units", {}) or {})
+        # Seed declared units so formula chains retain dimensional semantics while a
+        # dependency is materialized earlier in the same calculation pass.
+        for field in active:
+            if field.unit:
+                units.setdefault(field.name, field.unit)
+        seeded.attrs["derived_units"] = units
+        result = _apply_fields(seeded, active)
+        if blocked:
+            warnings = list(result.attrs.get("user_derived_warnings", []) or [])
+            warnings.extend(
+                f"{field.name}: сохранённая формула отключена при чтении, потому что это имя теперь занято исходной/системной колонкой."
+                for field in blocked
+            )
+            result.attrs["user_derived_warnings"] = list(dict.fromkeys(warnings))
+        return result
 
     current_dataset_loader = derived.load_dataset_with_derived
     if not getattr(current_dataset_loader, "_petrolab_user_derived", False):
@@ -22,7 +47,8 @@ def install() -> None:
 
         def load_dataset_with_user_derived(dataset_id: int, include_meta: bool = True):
             frame = original_dataset_loader(int(dataset_id), include_meta=include_meta)
-            return apply_dataset_fields(frame, int(dataset_id))
+            fields = list_dataset_fields(int(dataset_id), include_disabled=False)
+            return apply_safely(frame, fields)
 
         load_dataset_with_user_derived._petrolab_user_derived = True
         load_dataset_with_user_derived._petrolab_original = original_dataset_loader
@@ -54,7 +80,8 @@ def install() -> None:
             frame = original_rock_loader(project_id)
             if project_id is None:
                 return frame
-            return apply_rock_project_fields(frame, int(project_id))
+            fields = list_rock_project_fields(int(project_id), include_disabled=False)
+            return apply_safely(frame, fields)
 
         composition_wide_with_user_derived._petrolab_user_derived = True
         composition_wide_with_user_derived._petrolab_original = original_rock_loader
