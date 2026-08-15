@@ -78,8 +78,12 @@ def _clean_unique(values: Iterable[object]) -> list[str]:
 
 
 def _literal_key(value: object) -> str:
-    """Exact identity key: typographic/case normalization only, no transliteration or fuzzy matching."""
-    text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold().replace("ё", "е")
+    """Exact identity only: Unicode/whitespace cleanup, but case and spelling stay significant.
+
+    Case-only, Cyrillic/Latin and fuzzy variants must pass through the staging
+    reconciliation question instead of being merged silently.
+    """
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
     return " ".join(text.split())
 
 
