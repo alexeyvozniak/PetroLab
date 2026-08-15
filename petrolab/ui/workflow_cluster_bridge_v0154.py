@@ -5,6 +5,7 @@ import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
+from petrolab.generations import assign_generation
 from petrolab.ui import universal_intake_extensions as _extensions
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
@@ -83,7 +84,7 @@ def render_add_data_page_v0154_bridge() -> None:
             _reset_multi_panel_state()
             st.session_state["workflow_plot_notice"] = (
                 "Открыты только что импортированные наборы сразу в нескольких химических проекциях. "
-                "Textural zone доступна как наблюдаемая группировка; для точного ручного отбора ниже есть переход к лассо."
+                "Textural zone доступна как наблюдаемая группировка; клик, рамка и лассо дают общий связанный отбор."
             )
         original_navigate(target)
 
@@ -137,11 +138,11 @@ def render_multi_panel_page_v0154_bridge() -> None:
     st.divider()
     st.markdown("### Продолжить разметку")
     st.caption(
-        "Мультипанель нужна для одновременной проверки одной и той же выборки в нескольких проекциях. "
-        "Если границу группы нужно провести вручную, откройте точную разметку лассо; для независимой проверки — PCA и кластеризацию."
+        "Мультипанель даёт общий click/box/lasso отбор сразу на 2–10 проекциях. "
+        "Для более детальной одиночной проверки можно открыть точный XY; для независимой проверки — PCA и кластеризацию."
     )
     c1, c2, c3 = st.columns(3)
-    if c1.button("Точная разметка лассо", type="primary", width="stretch", key="v0154_multi_to_lasso"):
+    if c1.button("Точная разметка XY", type="primary", width="stretch", key="v0154_multi_to_lasso"):
         if dataset_ids:
             st.session_state["workflow_plot_dataset_ids"] = dataset_ids
         navigate("plots")
@@ -150,19 +151,70 @@ def render_multi_panel_page_v0154_bridge() -> None:
         _prepare_statistics_scope(dataset_ids)
         navigate("statistics")
         st.rerun()
-    if c3.button("Утвердить Generation", width="stretch", key="v0154_multi_to_generation"):
+    if c3.button("Открыть менеджер Generation", width="stretch", key="v0154_multi_to_generation"):
         st.session_state.pop(_CHEMICAL_MARKUP_MODE, None)
         navigate("generations")
         st.rerun()
 
 
+def _render_generation_for_precise_selection() -> None:
+    """Позволить click/box/lasso выбору в одиночном XY сразу стать осознанной Generation."""
+    selection_key = getattr(_flow, "_PERSISTENT_CHEMICAL_SELECTION", "v0154_chemical_selection_ids")
+    selected = [
+        str(value).strip()
+        for value in st.session_state.get(selection_key, []) or []
+        if str(value).strip()
+    ]
+    if not selected:
+        return
+
+    with st.container(border=True):
+        st.markdown("#### Текущий точный отбор → Generation")
+        st.caption(
+            f"Выбрано {len(selected)} анализов. Тот же набор сохраняется при смене осей; "
+            "Generation записывается отдельно от исходной колонки и с историей изменений."
+        )
+        c1, c2 = st.columns([1, 1.5])
+        name = c1.text_input(
+            "Generation",
+            placeholder="например, N-LF, core-1, rim-2",
+            key="v0154_precise_generation_name",
+        ).strip()
+        rationale = c2.text_input(
+            "Основание",
+            placeholder="например, Ti–Al + Mg# + Textural zone",
+            key="v0154_precise_generation_rationale",
+        ).strip()
+        if st.button(
+            "Утвердить выбранные как Generation",
+            type="primary",
+            width="stretch",
+            disabled=not name,
+            key="v0154_precise_generation_save",
+        ):
+            try:
+                changed = assign_generation(
+                    selected,
+                    name,
+                    rationale=rationale,
+                    source_kind="interactive_xy_selection",
+                    source_value="click/box/lasso",
+                )
+            except Exception as exc:
+                st.error(f"Generation не удалось сохранить: {exc}")
+            else:
+                st.success(f"Generation «{name}» утверждена для {changed} анализов.")
+                st.rerun()
+
+
 def render_plots_page_v0154_bridge() -> None:
-    """Оставить лассо на месте и дать рядом явные пути к кластеризации и сравнению."""
+    """Оставить точный click/box/lasso отбор и дать рядом Generation, кластеризацию и сравнение."""
     _flow.render_plots_page_v0154()
+    _render_generation_for_precise_selection()
 
     st.markdown("### Другие способы выделить и проверить группы")
     st.caption(
-        "Лассо и рамка удобны для ручной разметки. Для независимой проверки можно открыть PCA и "
+        "Клик удобен для одной точки, рамка и лассо — для нескольких. Для независимой проверки можно открыть PCA и "
         "K-means / иерархическую / DBSCAN / HDBSCAN кластеризацию; найденные кластеры тоже сохраняются "
         "как рабочие группы и затем могут быть утверждены как Generation."
     )
