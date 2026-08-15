@@ -12,6 +12,7 @@ from petrolab.textural_runtime import (
     SOURCE_TEXTURAL_ZONE_COLUMN,
     TEXTURAL_ZONE_COLUMN,
 )
+from petrolab.ui.pages import v0151_intake_wrappers as intake_wrappers
 from petrolab.ui.workflow_cluster_bridge_v0154 import _chemistry_entry_route
 from petrolab.ui.workflow_continuity_v0154 import (
     apply_persistent_selection_to_figure,
@@ -86,6 +87,41 @@ class ChemistryEntryRouteTests(unittest.TestCase):
     def test_regular_xy_navigation_is_not_rewritten(self) -> None:
         self.assertEqual(_chemistry_entry_route("plots", False), "plots")
         self.assertEqual(_chemistry_entry_route("statistics", True), "statistics")
+
+
+class AddDataRouteContractTests(unittest.TestCase):
+    def test_image_wizard_extension_point_is_exposed(self) -> None:
+        self.assertTrue(callable(intake_wrappers.render_image_wizard_multi_dataset))
+
+    def test_add_data_route_uses_patchable_image_wizard_alias(self) -> None:
+        seen: list[object] = []
+
+        def sentinel_wizard(*args, **kwargs):
+            return None
+
+        original_alias = intake_wrappers.render_image_wizard_multi_dataset
+        original_active_project = intake_wrappers.active_project
+        original_add_page = intake_wrappers._add_data.render_add_data_page
+        original_universal_render = intake_wrappers._universal.render_universal_intake
+        try:
+            intake_wrappers.render_image_wizard_multi_dataset = sentinel_wizard
+            intake_wrappers.active_project = lambda: {"id": 7}
+            intake_wrappers._add_data.render_add_data_page = lambda: None
+
+            def fake_universal_render(project_id: int) -> None:
+                self.assertEqual(project_id, 7)
+                seen.append(intake_wrappers._universal._render_image_wizard)
+
+            intake_wrappers._universal.render_universal_intake = fake_universal_render
+            intake_wrappers.render_add_data_page()
+        finally:
+            intake_wrappers.render_image_wizard_multi_dataset = original_alias
+            intake_wrappers.active_project = original_active_project
+            intake_wrappers._add_data.render_add_data_page = original_add_page
+            intake_wrappers._universal.render_universal_intake = original_universal_render
+
+        self.assertEqual(len(seen), 1)
+        self.assertIs(seen[0], sentinel_wizard)
 
 
 if __name__ == "__main__":
