@@ -1,6 +1,6 @@
 PetroLab Windows branding
 
-- `PetroLab.ico` is the main application/shortcut icon.
-- `PetroLab-Installer.ico` is the installer/uninstaller icon with the install badge.
-- Both assets are derived from the approved PetroLab crystal/strata/geochemical icon family and are stored as multi-resolution ICO files (256, 128, 64, 48, 32, 24, 16 px).
-- The application EXE embeds the app icon; Inno Setup uses the installer icon for the setup executable and the app icon for installed shortcuts/uninstall entry.
+- `petrolab-icon.svg` is the source artwork for the main application/shortcut icon.
+- `petrolab-installer-icon.svg` is the matching installer artwork with the install badge.
+- The Windows build generates `PetroLab.ico` and `PetroLab-Installer.ico` from those sources at 256, 128, 64, 48, 32, 24 and 16 px.
+- `PetroLab.exe` embeds the application icon. Inno Setup embeds the dedicated installer icon in the setup executable and uses the application icon for installed shortcuts and the uninstall entry.
