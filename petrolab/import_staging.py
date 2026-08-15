@@ -25,8 +25,16 @@ ROLE_ALIASES: dict[str, tuple[str, ...]] = {
     "Grain": ("grain", "grain id", "grain_id", "зерно", "номер зерна"),
     "Point": ("point", "spot", "analysis", "analysis id", "точка", "точка анализа", "анализ"),
     "Method": ("method", "analytical method", "technique", "метод", "метод анализа"),
+    "Laboratory": ("laboratory", "lab", "laboratory name", "лаборатория", "лаборатория анализа"),
     "Locality": ("locality", "location", "местоположение", "участок", "локалитет"),
     "Massif": ("massif", "complex", "intrusion", "массив", "комплекс", "интрузия"),
+    "Latitude": ("latitude", "lat", "широта", "широта град"),
+    "Longitude": ("longitude", "lon", "long", "долгота", "долгота град"),
+    "Age": ("age", "age ma", "age (ma)", "age, ma", "возраст", "возраст млн лет", "возраст, млн лет"),
+    "Age uncertainty": (
+        "age uncertainty", "age error", "age err", "age +/-", "age ±", "ошибка возраста", "погрешность возраста", "± млн лет",
+    ),
+    "Age method": ("age method", "dating method", "geochronology", "метод возраста", "метод датирования"),
 }
 
 _RU_TO_LAT = {
