@@ -7,18 +7,55 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
-from petrolab.db import list_datasets, list_plot_recipes, list_style_profiles
+from petrolab.db import connect, list_datasets, list_plot_recipes, list_style_profiles
 from petrolab.derived import formula_provenance_rows, load_unified_with_derived
 from petrolab.services.image_service import image_export_records
 
 
-def _selected_project_ids(datasets: list[dict], dataset_ids: list[int]) -> set[int]:
-    wanted = {int(value) for value in dataset_ids}
-    return {
-        int(dataset["project_id"])
-        for dataset in datasets
-        if int(dataset["id"]) in wanted
-    }
+def _selected_project_ids(dataset_ids: list[int]) -> set[int]:
+    """Return every project that actually contains one of the selected datasets.
+
+    Raw dataset ownership is deliberately separate from project membership in
+    PetroLab.  Using datasets.project_id here silently dropped project-local
+    recipes/styles for shared library datasets.
+    """
+    wanted = sorted({int(value) for value in dataset_ids})
+    if not wanted:
+        return set()
+    project_ids: set[int] = set()
+    with connect() as con:
+        for start in range(0, len(wanted), 800):
+            chunk = wanted[start : start + 800]
+            rows = con.execute(
+                "SELECT DISTINCT project_id FROM project_dataset_links WHERE dataset_id IN ("
+                + ",".join("?" for _ in chunk)
+                + ")",
+                chunk,
+            ).fetchall()
+            project_ids.update(int(row["project_id"]) for row in rows)
+    return project_ids
+
+
+def _selected_membership_rows(dataset_ids: list[int]) -> list[dict]:
+    wanted = sorted({int(value) for value in dataset_ids})
+    if not wanted:
+        return []
+    result: list[dict] = []
+    with connect() as con:
+        for start in range(0, len(wanted), 800):
+            chunk = wanted[start : start + 800]
+            rows = con.execute(
+                """SELECT l.dataset_id, l.project_id, p.name AS project_name,
+                          l.purpose, l.note, l.added_at
+                   FROM project_dataset_links l
+                   JOIN projects p ON p.id=l.project_id
+                   WHERE l.dataset_id IN ("""
+                + ",".join("?" for _ in chunk)
+                + ") ORDER BY l.dataset_id, p.name COLLATE NOCASE",
+                chunk,
+            ).fetchall()
+            result.extend(dict(row) for row in rows)
+    return result
 
 
 def _dataset_scoped_records(records: list[dict], dataset_ids: list[int]) -> list[dict]:
@@ -67,14 +104,19 @@ def render_export_page() -> None:
     if not dataset_ids:
         return
 
-    project_ids = _selected_project_ids(datasets, dataset_ids)
+    project_ids = _selected_project_ids(dataset_ids)
     dataframe = load_unified_with_derived(dataset_ids=dataset_ids)
     st.dataframe(dataframe.head(80), width="stretch", hide_index=True)
+    st.caption(f"Предпросмотр: первые {min(80, len(dataframe))} из {len(dataframe)} строк. В Excel выгружаются все выбранные строки.")
     export_dataframe = dataframe[[column for column in dataframe.columns if not str(column).startswith("_")]].copy()
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         export_dataframe.to_excel(writer, index=False, sheet_name="Все анализы")
+
+        memberships = _selected_membership_rows(dataset_ids)
+        if memberships:
+            pd.DataFrame(memberships).to_excel(writer, index=False, sheet_name="Проекты datasets")
 
         images = _dataset_scoped_records(image_export_records(), dataset_ids)
         if images:
@@ -118,7 +160,7 @@ def render_export_page() -> None:
             ).to_excel(writer, index=False, sheet_name="Профили стилей")
 
     st.caption(
-        "Экспорт включает только выбранные datasets, их изображения и project-local metadata. "
+        "Экспорт включает выбранные datasets, их реальные связи с проектами, изображения и project-local metadata. "
         "Глобальные recipes/styles включаются как общие настройки PetroLab."
     )
     st.download_button(
