@@ -5,22 +5,27 @@ import streamlit as st
 from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.settings_service import load_settings
 from petrolab.ui.project_context import active_project_id, set_active_project
+from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
 DAILY_NAV = [
     ("home", "Главная"),
     ("workspace", "Рабочий стол"),
+    ("thin_section", "Работать со шлифом"),
     ("add_data", "Добавить данные"),
     ("database", "Вся база"),
-    ("images", "Изображения"),
     ("plots", "XY-диаграммы"),
-    ("rocks", "Породы"),
     ("article_tables", "Таблицы для статьи"),
     ("attention", "Требует внимания"),
 ]
 
 TOOL_SECTIONS = {
+    "Сценарии": [
+        ("compare", "Сравнить данные"),
+        ("calculate", "Посчитать"),
+        ("publish", "Подготовить рисунок / таблицу"),
+    ],
     "Данные": [
         ("search", "Глобальный поиск"),
         ("quick_import", "Быстрый импорт"),
@@ -31,13 +36,15 @@ TOOL_SECTIONS = {
         ("intake", "Источники и литература"),
     ],
     "Материалы": [
-        ("slides", "Шлифы и поля"),
+        ("images", "Изображения"),
+        ("slides", "Шлифы и поля · расширенно"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
         ("batch_edit", "Массовые действия"),
         ("formulae", "Расчёты"),
         ("generations", "Поколения"),
         ("minerals", "Минералогические модули"),
+        ("rocks", "Породы"),
     ],
     "Исследование": [
         ("thermobarometry", "Термодинамика"),
@@ -123,15 +130,26 @@ def render_sidebar(version: str) -> str:
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True
 
+        context = get_work_context(int(selected))
+        if context:
+            context_col, clear_col = st.columns([5, 1])
+            with context_col:
+                st.caption(f"Сейчас: {context.get('label', '')}")
+            with clear_col:
+                if st.button("×", key="sidebar_clear_context", help="Сбросить текущий контекст"):
+                    clear_work_context()
+                    st.rerun()
+
         st.markdown('<div class="petrolab-nav-section">Поиск</div>', unsafe_allow_html=True)
         search = st.text_input(
-            "Найти Sample, минерал, статью или массив",
+            "Найти везде",
             key="sidebar_object_search",
             label_visibility="collapsed",
-            placeholder="Sample, минерал, статья…",
+            placeholder="🔎 Найти везде…",
         )
         if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
             st.session_state["global_search_query_pending"] = str(search or "").strip()
+            st.session_state["global_search_scope_pending"] = "all"
             st.session_state["nav_route"] = "search"
             st.rerun()
     else:
