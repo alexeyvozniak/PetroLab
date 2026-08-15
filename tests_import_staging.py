@@ -30,6 +30,16 @@ class ImportStagingTests(unittest.TestCase):
         self.assertIn(("Кандалакша", "Kandalaksha"), pairs)
         self.assertIn(("Por'ya Guba", "Porya Guba"), pairs)
 
+    def test_geological_russian_english_terms_are_candidates_not_silent_identity(self):
+        candidates = similar_name_candidates(
+            ["флогопит", "карбонатит", "Кимберлит"],
+            ["Phlogopite", "carbonatite", "kimberlite"],
+        )
+        pairs = {(item.incoming, item.existing) for item in candidates}
+        self.assertIn(("флогопит", "Phlogopite"), pairs)
+        self.assertIn(("карбонатит", "carbonatite"), pairs)
+        self.assertIn(("Кимберлит", "kimberlite"), pairs)
+
     def test_neighbouring_sample_ids_are_not_duplicate_candidates(self):
         candidates = similar_name_candidates(["19KL24"], ["19KL23"])
         self.assertEqual(candidates, [])
