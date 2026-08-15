@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
-from petrolab.source_registry import SOURCE_LABEL_COLUMN
+from petrolab.source_registry import SOURCE_LABEL_COLUMN, filter_visible_sources
 
 
 _MISSING_VALUE = "— без значения —"
@@ -139,9 +139,16 @@ def _source_split(dataframe: pd.DataFrame, selected_sources: list[str]) -> tuple
     if dimension is None:
         return dataframe.copy(), dataframe.iloc[0:0].copy(), []
     options = _visibility_options(dataframe, dimension)
+    hidden = [value for value in options if value not in set(selected_sources)]
+
+    # Preserve the established dataset-level source contract for older projects and
+    # saved plot recipes. Compilation tables use the newer row-level branch below.
+    if dimension.column == SOURCE_LABEL_COLUMN:
+        visible_frame, hidden_frame = filter_visible_sources(dataframe, selected_sources)
+        return visible_frame, hidden_frame, hidden
+
     selected = set(selected_sources)
     mask = _visibility_tokens(dataframe[dimension.column]).isin(selected)
-    hidden = [value for value in options if value not in selected]
     return dataframe.loc[mask].copy(), dataframe.loc[~mask].copy(), hidden
 
 
