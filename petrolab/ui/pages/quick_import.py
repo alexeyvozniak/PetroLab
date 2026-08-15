@@ -14,7 +14,7 @@ from petrolab.services.import_service import (
     list_uploaded_sheets,
     preview_uploaded_source,
 )
-from petrolab.ui.layout import render_badges, render_page_header, render_section_header
+from petrolab.ui.layout import render_badges, render_hint, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 
@@ -81,7 +81,7 @@ def render_quick_import_page() -> None:
     project = active_project()
     render_page_header(
         "Быстрый импорт",
-        "Если структура файла однозначна, PetroLab импортирует его без длинного мастера. Любая научная неоднозначность автоматически переводит сценарий в экспертный режим.",
+        "Однозначные файлы проходят короткий путь; научная неоднозначность переводит импорт в полный мастер.",
         eyebrow="Добавить данные",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -113,10 +113,8 @@ def render_quick_import_page() -> None:
         return
 
     render_badges([
-        ("Без догадок о минерале", "success"),
-        ("Неоднозначное Fe → экспертный режим", "warning"),
         ("Preview до записи", "neutral"),
-        ("Исходный файл сохраняется", "neutral"),
+        ("Fe не угадывается", "warning"),
     ])
 
     uploaded = st.file_uploader(
@@ -125,16 +123,14 @@ def render_quick_import_page() -> None:
         key="quick_import_file",
     )
     if uploaded is None:
-        st.caption(
-            "Быстрый импорт создаёт внутреннюю рабочую копию. Если нужна двусторонняя синхронизация с вашим XLSX/XLSM, используйте «Расширенный импорт»."
-        )
-        if st.button("Расширенный импорт / связать файл на компьютере", width="stretch", key="quick_to_advanced_empty"):
+        render_hint("Быстрый импорт создаёт внутреннюю рабочую копию. Для двусторонней синхронизации с XLSX/XLSM используйте расширенный импорт.")
+        if st.button("Расширенный импорт", width="stretch", key="quick_to_advanced_empty", help="Связать исходный файл на компьютере и пройти полный контроль схемы."):
             navigate("sources")
             st.rerun()
         return
 
     data = uploaded.getvalue()
-    with st.expander("Если заголовки не в первой строке", expanded=False):
+    with st.expander("Заголовки не в первой строке", expanded=False):
         header_row = int(st.number_input(
             "Строка заголовков",
             min_value=1,
@@ -183,17 +179,14 @@ def render_quick_import_page() -> None:
             blockers[sheet] = reasons
         preview_rows.append(_preview_table(preview, sheet))
 
-    render_section_header("Проверка", "PetroLab автоматически продолжит только при однозначной схеме")
+    render_section_header("Проверка", "Автоматическое продолжение разрешено только для однозначной схемы")
     if preview_rows:
         st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
 
     if blockers:
-        st.warning(
-            "Быстрый импорт остановлен: есть поля, которые нельзя интерпретировать без вашего решения. "
-            "Данные ещё не записывались."
-        )
+        st.warning("Быстрый импорт остановлен: нужны ваши решения. Данные ещё не записывались.")
         for sheet, reasons in blockers.items():
-            with st.expander(f"{sheet or 'CSV'} · что нужно уточнить", expanded=True):
+            with st.expander(f"{sheet or 'CSV'} · уточнить", expanded=True):
                 for reason in reasons:
                     st.write("• " + reason)
         if st.button("Открыть расширенный импорт", type="primary", width="stretch", key="quick_to_advanced"):
@@ -217,7 +210,7 @@ def render_quick_import_page() -> None:
             st.error(f"{sheet or 'CSV'}: preflight не пройден — {exc}")
             return
 
-    st.success("Схема однозначна. Научных вопросов, требующих ручного подтверждения, не найдено.")
+    st.success("Схема однозначна.")
     for index, sheet in enumerate(selected):
         frame = normalized[sheet]
         with st.expander(
@@ -226,11 +219,9 @@ def render_quick_import_page() -> None:
         ):
             st.dataframe(frame.head(40), width="stretch", hide_index=True)
             if len(frame) > 40:
-                st.caption(f"Показаны первые 40 из {len(frame)} строк.")
+                render_hint(f"В preview показаны первые 40 из {len(frame)} строк.")
 
-    st.caption(
-        "Минерал намеренно сохраняется как «Смешанный / определить автоматически»: быстрый режим не делает минералогическое предположение по одному имени файла или листа."
-    )
+    render_hint("Минерал сохраняется как «Смешанный / определить автоматически»: быстрый режим не делает минералогическое предположение по имени файла или листа.")
     if st.button("Импортировать", type="primary", width="stretch", key="quick_import_commit"):
         try:
             result = import_uploaded_sheets(
