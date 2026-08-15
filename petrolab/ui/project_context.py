@@ -35,6 +35,8 @@ _PROJECT_TRANSIENT_EXACT = {
     "multi_panel_datasets",
     "unified_editor_dashboard",
     "analysis_table_thermodynamic_point",
+    "active_analytical_session",
+    "analytical_session_selector",
     "workflow_recent_import_target",
     "workflow_image_dataset_id",
     "whole_rock_workspace_context",
@@ -68,6 +70,8 @@ _PROJECT_TRANSIENT_PREFIXES = (
     "mixed_",
     "batch_",
     "imgwiz_",
+    "session_",
+    "generation_",
     "grain_profile_",
     "thermodynamics_",
     # Destructive confirmation must never carry into a different project.
