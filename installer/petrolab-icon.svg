@@ -1,14 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="70" y="70" width="884" height="884" rx="190" fill="#183f48"/>
-  <circle cx="512" cy="512" r="342" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="18"/>
-  <polygon points="512,190 725,350 675,690 512,830 349,690 299,350" fill="#f4f4eb"/>
-  <polygon points="512,190 512,830 349,690 299,350" fill="#e2e7de"/>
-  <polygon points="512,190 725,350 675,690 512,830" fill="#f4f4eb"/>
-  <polygon points="512,190 725,350 512,430 299,350" fill="#caa85b"/>
-  <polygon points="299,350 512,430 512,830 349,690" fill="#72bba9"/>
-  <polygon points="512,430 725,350 675,690 512,830" fill="#e8ece4"/>
-  <line x1="512" y1="190" x2="512" y2="830" stroke="#183f48" stroke-opacity="0.72" stroke-width="10"/>
-  <circle cx="410" cy="835" r="18" fill="#f4f4eb"/>
-  <circle cx="512" cy="835" r="18" fill="#f4f4eb"/>
-  <circle cx="614" cy="835" r="18" fill="#f4f4eb"/>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#082c52"/>
+      <stop offset="0.55" stop-color="#0b3558"/>
+      <stop offset="1" stop-color="#061d35"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#42d9ef"/>
+      <stop offset="0.38" stop-color="#167aa5"/>
+      <stop offset="0.72" stop-color="#164b74"/>
+      <stop offset="1" stop-color="#f4a52c"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9ffff"/>
+      <stop offset="0.24" stop-color="#42e0dc"/>
+      <stop offset="0.68" stop-color="#0d8c94"/>
+      <stop offset="1" stop-color="#07515d"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0a6"/>
+      <stop offset="0.28" stop-color="#ffc33d"/>
+      <stop offset="0.72" stop-color="#e66d14"/>
+      <stop offset="1" stop-color="#8d3613"/>
+    </linearGradient>
+    <linearGradient id="slate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b7c9df"/>
+      <stop offset="0.34" stop-color="#4d6680"/>
+      <stop offset="1" stop-color="#1d2b3d"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="18"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.46"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="42" y="42" width="940" height="940" rx="215" fill="url(#tile)"/>
+  <rect x="55" y="55" width="914" height="914" rx="202" fill="none" stroke="url(#rim)" stroke-width="24"/>
+  <path d="M113 192 Q220 82 410 80" fill="none" stroke="#d9fbff" stroke-opacity="0.6" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="510" cy="493" r="330" fill="#0a3150" stroke="#3abbd4" stroke-opacity="0.45" stroke-width="13"/>
+
+  <g opacity="0.30" fill="none" stroke="#61bad0" stroke-width="8" stroke-linecap="round">
+    <path d="M236 290 C325 245 366 310 448 278 S607 230 786 273"/>
+    <path d="M211 350 C319 301 383 374 487 327 S654 295 807 338"/>
+    <path d="M220 414 C324 365 395 433 492 397 S651 365 800 407"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M170 665 L315 625 L450 660 L579 628 L825 690 L787 842 L257 846 Z" fill="#202a35" stroke="#33495d" stroke-width="10"/>
+    <path d="M235 758 C340 697 453 800 570 735 C663 684 725 732 820 705 L810 756 C710 784 649 738 559 791 C450 855 349 758 252 811 Z" fill="#0e847e"/>
+    <path d="M246 797 C344 744 443 833 552 782 C650 737 712 780 808 754 L798 799 C704 823 647 785 559 828 C449 882 352 802 265 840 Z" fill="#e3c789"/>
+    <path d="M281 842 C377 802 454 876 553 840 C645 807 699 836 782 820 L764 861 L310 874 Z" fill="#b84d18"/>
+    <path d="M263 707 C349 667 411 724 494 692 C583 657 659 693 735 671" fill="none" stroke="#e9a82d" stroke-width="11" stroke-linecap="round"/>
+
+    <polygon points="301,616 354,405 457,346 485,649 394,696" fill="url(#slate)" stroke="#c9d6e2" stroke-width="8"/>
+    <polygon points="354,405 408,477 485,649 457,346" fill="#30445b" opacity="0.72"/>
+
+    <polygon points="405,635 466,236 572,160 650,287 603,622 512,697" fill="url(#teal)" stroke="#c4ffff" stroke-width="9"/>
+    <polygon points="466,236 545,347 512,697 405,635" fill="#0c8e91" opacity="0.78"/>
+    <polygon points="466,236 572,160 545,347" fill="#c6ffff" opacity="0.83"/>
+    <polygon points="545,347 650,287 603,622 512,697" fill="#0b6671" opacity="0.72"/>
+
+    <polygon points="574,650 618,364 696,301 755,395 718,641 652,691" fill="url(#gold)" stroke="#ffe19a" stroke-width="8"/>
+    <polygon points="618,364 672,432 652,691 574,650" fill="#db6c18" opacity="0.65"/>
+    <polygon points="618,364 696,301 672,432" fill="#fff0a1" opacity="0.72"/>
+  </g>
+
+  <g transform="translate(615 555)" filter="url(#shadow)">
+    <polygon points="130,0 260,225 0,225" fill="#082b48" fill-opacity="0.88" stroke="#f4c25a" stroke-width="15" stroke-linejoin="round"/>
+    <g stroke="#9fd8df" stroke-opacity="0.72" stroke-width="5">
+      <line x1="65" y1="112" x2="195" y2="112"/><line x1="32" y1="169" x2="228" y2="169"/>
+      <line x1="65" y1="112" x2="163" y2="225"/><line x1="195" y1="112" x2="98" y2="225"/>
+      <line x1="130" y1="0" x2="130" y2="225"/>
+    </g>
+    <path d="M58 185 C62 115 97 72 130 91 C159 107 158 143 194 147 C222 151 219 190 183 205 C141 223 83 220 58 185 Z" fill="#1fc3ba" opacity="0.82"/>
+    <path d="M118 195 C132 145 160 124 185 143 C208 160 210 194 185 208 C163 221 131 220 118 195 Z" fill="#f49a20" opacity="0.92"/>
+    <circle cx="130" cy="0" r="18" fill="#ffc238" stroke="#fff2b0" stroke-width="5"/>
+    <circle cx="0" cy="225" r="18" fill="#22d5d0" stroke="#bfffff" stroke-width="5"/>
+    <circle cx="260" cy="225" r="18" fill="#ef7a18" stroke="#ffe1a0" stroke-width="5"/>
+  </g>
 </svg>
