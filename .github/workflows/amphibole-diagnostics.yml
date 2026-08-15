@@ -32,10 +32,12 @@ jobs:
         shell: cmd
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Compile amphibole paths
+      - name: Compile amphibole and classification paths
         shell: cmd
-        run: python -m compileall -q petrolab/minerals/amphibole_ima.py petrolab/amphibole_runtime.py tests_amphibole_ima.py
+        run: python -m compileall -q petrolab/minerals/amphibole_ima.py petrolab/amphibole_runtime.py tests_amphibole_ima.py tests_mineral_classification.py
 
-      - name: Run amphibole IMA screening regressions
+      - name: Run amphibole and classification regressions
         shell: cmd
-        run: python tests_amphibole_ima.py
+        run: |
+          python tests_amphibole_ima.py
+          python tests_mineral_classification.py
