@@ -25,6 +25,9 @@ def install() -> None:
             numeric = pd.to_numeric(pd.Series([raw_value]), errors="coerce").iloc[0]
             if pd.isna(numeric):
                 continue
+            numeric = float(numeric)
+            if not np.isfinite(numeric):
+                raise ValueError(f"Колонка «{column}» содержит бесконечное/некорректное числовое значение")
             if descriptor.quantity_kind == "element_unknown_unit":
                 raise ValueError(
                     f"Колонка «{column}» содержит числовые концентрации элемента без единицы. "
@@ -36,7 +39,7 @@ def install() -> None:
                     f"Колонки «{source_columns[canonical]}» и «{column}» обе обозначают {canonical}. "
                     "Выберите один источник компонента до импорта."
                 )
-            composition[canonical] = float(numeric) * float(descriptor.to_canonical_factor)
+            composition[canonical] = numeric * float(descriptor.to_canonical_factor)
             units[canonical] = descriptor.canonical_unit or descriptor.source_unit
             source_columns[canonical] = str(column)
             if descriptor.warning:
@@ -46,16 +49,86 @@ def install() -> None:
     def existing_composition(rock_id: int):
         frame = repo.get_composition(int(rock_id))
         if frame.empty:
-            return {}, {}
+            return {}, {}, {}, {}
         composition = {
             str(row["analyte"]): float(row["value"])
-            for _, row in frame.iterrows() if pd.notna(row.get("value"))
+            for _, row in frame.iterrows()
+            if pd.notna(row.get("value")) and np.isfinite(float(row["value"]))
         }
         units = {
             str(row["analyte"]): str(row.get("unit") or "")
             for _, row in frame.iterrows() if str(row.get("analyte") or "").strip()
         }
-        return composition, units
+        methods = {
+            str(row["analyte"]): str(row.get("method") or "")
+            for _, row in frame.iterrows() if str(row.get("analyte") or "").strip()
+        }
+        sources = {
+            str(row["analyte"]): str(row.get("source") or "")
+            for _, row in frame.iterrows() if str(row.get("analyte") or "").strip()
+        }
+        return composition, units, methods, sources
+
+    def apply_rock_import_batch(
+        project_id: int,
+        prepared_rows,
+        *,
+        on_conflict: str,
+        chemistry_method: str = "",
+        source: str = "",
+    ):
+        """Atomic import preserving provenance for untouched analytes on partial update."""
+        if on_conflict not in {"update", "skip", "error"}:
+            raise ValueError("Неизвестная политика совпадающих названий пород")
+        rows = list(prepared_rows)
+        created: list[int] = []
+        updated: list[int] = []
+        skipped: list[str] = []
+        with repo.rock_connection() as con:
+            existing_rows = con.execute(
+                "SELECT id, name FROM rock_samples WHERE project_id=?", (int(project_id),)
+            ).fetchall()
+            existing = {str(row["name"]): int(row["id"]) for row in existing_rows}
+            for row in rows:
+                name = str(row["name"]).strip()
+                if not name:
+                    raise ValueError("Название породы не может быть пустым")
+                metadata = dict(row.get("metadata") or {})
+                composition = dict(row.get("composition") or {})
+                units = dict(row.get("units") or {})
+                methods = dict(row.get("methods") or {})
+                sources = dict(row.get("sources") or {})
+                rock_id = existing.get(name)
+                if rock_id is not None:
+                    if on_conflict == "error":
+                        raise ValueError(f"Порода «{name}» уже существует")
+                    if on_conflict == "skip":
+                        skipped.append(name)
+                        continue
+                    repo._update_rock_in_connection(con, rock_id, metadata)
+                    updated.append(rock_id)
+                else:
+                    rock_id = repo._create_rock_in_connection(con, int(project_id), name, metadata)
+                    existing[name] = rock_id
+                    created.append(rock_id)
+                con.execute("DELETE FROM rock_compositions WHERE rock_id=?", (int(rock_id),))
+                now = repo._utcnow()
+                for analyte, value in composition.items():
+                    numeric = repo._nullable_float(value)
+                    if numeric is None:
+                        continue
+                    numeric = float(numeric)
+                    if not np.isfinite(numeric):
+                        raise ValueError(f"Компонент {analyte} содержит бесконечное/некорректное значение")
+                    con.execute(
+                        "INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            int(rock_id), str(analyte), numeric, str(units.get(str(analyte), "")),
+                            str(methods.get(str(analyte), chemistry_method)),
+                            str(sources.get(str(analyte), source)), now,
+                        ),
+                    )
+        return tuple(created), tuple(updated), tuple(skipped)
 
     def import_rocks_wide(
         dataframe: pd.DataFrame, *, project_id: int, name_column: str,
@@ -91,12 +164,26 @@ def install() -> None:
             metadata["laboratory"] = laboratory
             composition, units, row_warnings = canonicalize_rock_row(row, excluded)
             warnings.extend(f"{name}: {message}" for message in row_warnings)
+            new_analytes = set(composition)
+            methods = {analyte: chemistry_method for analyte in composition}
+            sources = {analyte: source for analyte in composition}
             if on_conflict == "update" and name in existing:
-                old_composition, old_units = existing_composition(int(existing[name]["id"]))
+                old_composition, old_units, old_methods, old_sources = existing_composition(int(existing[name]["id"]))
                 old_composition.update(composition)
                 old_units.update(units)
+                for analyte in new_analytes:
+                    old_methods[analyte] = chemistry_method
+                    old_sources[analyte] = source
                 composition, units = old_composition, old_units
-            prepared.append({"name": name, "metadata": metadata, "composition": composition, "units": units})
+                methods, sources = old_methods, old_sources
+            prepared.append({
+                "name": name,
+                "metadata": metadata,
+                "composition": composition,
+                "units": units,
+                "methods": methods,
+                "sources": sources,
+            })
         created, updated, skipped = repo.apply_rock_import_batch(
             project_id, prepared, on_conflict=on_conflict,
             chemistry_method=chemistry_method, source=source,
@@ -108,6 +195,9 @@ def install() -> None:
         numeric = repo._nullable_float(row.get("value"))
         if not analyte or numeric is None:
             return None
+        numeric = float(numeric)
+        if not np.isfinite(numeric):
+            raise ValueError(f"Компонент {analyte} содержит бесконечное/некорректное значение")
         unit = repo._text(row.get("unit")).strip()
         direct = describe_header(analyte)
         if direct.quantity_kind == "element_unknown_unit" and not unit:
@@ -156,12 +246,25 @@ def install() -> None:
             project_id = int(rock["project_id"])
             if ids:
                 marks = ",".join("?" for _ in ids)
-                rows = con.execute(f"SELECT id, project_id FROM datasets WHERE id IN ({marks})", ids).fetchall()
-                found = {int(row["id"]): int(row["project_id"]) for row in rows}
+                rows = con.execute(
+                    f"""
+                    SELECT d.id, CASE WHEN l.dataset_id IS NULL THEN 0 ELSE 1 END AS accessible
+                    FROM datasets d
+                    LEFT JOIN project_dataset_links l
+                      ON l.dataset_id=d.id AND l.project_id=?
+                    WHERE d.id IN ({marks})
+                    """,
+                    (project_id, *ids),
+                ).fetchall()
+                found = {int(row["id"]): bool(row["accessible"]) for row in rows}
                 if any(dataset_id not in found for dataset_id in ids):
                     raise ValueError("Часть mineral datasets больше не существует")
-                if any(found[dataset_id] != project_id for dataset_id in ids):
-                    raise ValueError("Нельзя связать породу с dataset другого проекта")
+                inaccessible = [dataset_id for dataset_id in ids if not found[dataset_id]]
+                if inaccessible:
+                    raise ValueError(
+                        "Нельзя связать породу с dataset, который не подключён к текущему проекту: "
+                        + ", ".join(map(str, inaccessible[:8]))
+                    )
             con.execute("DELETE FROM rock_mineral_links WHERE rock_id=?", (int(rock_id),))
             now = repo._utcnow()
             con.executemany(
@@ -185,5 +288,6 @@ def install() -> None:
     service.canonicalize_rock_row = canonicalize_rock_row
     service.import_rocks_wide = import_rocks_wide
     service._total_fe_as_feo = total_fe_as_feo
+    repo.apply_rock_import_batch = apply_rock_import_batch
     repo.upsert_composition_values = upsert_composition_values
     repo.set_mineral_links = set_mineral_links
