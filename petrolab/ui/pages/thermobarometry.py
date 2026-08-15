@@ -33,7 +33,7 @@ from petrolab.thermobarometry import (
     QC_WARNING,
     list_runs as list_legacy_runs,
 )
-from petrolab.ui.layout import render_badges, render_page_header, render_section_header
+from petrolab.ui.layout import render_badges, render_hint, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project_id
 
 
@@ -118,7 +118,7 @@ def _point_selection(source: pd.DataFrame) -> pd.DataFrame:
     if choice == "Все отфильтрованные":
         st.dataframe(source[columns].head(500), width="stretch", hide_index=True, height=285)
         if len(source) > 500:
-            st.caption(f"Показаны первые 500 из {len(source)} точек; расчёт охватит весь текущий отбор.")
+            render_hint(f"Показаны первые 500 из {len(source)} точек; расчёт охватит весь текущий отбор.")
         return source.copy()
 
     editor = source[columns].copy()
@@ -138,10 +138,7 @@ def _point_selection(source: pd.DataFrame) -> pd.DataFrame:
 
 def _melt_editor() -> dict[str, float]:
     st.markdown("#### Представительный состав расплава")
-    st.caption(
-        "Один явно заданный состав расплава применяется ко всем выбранным olivine. "
-        "Автоматический перебор mineral–melt пар намеренно не выполняется."
-    )
+    render_hint("Один явно заданный состав расплава применяется ко всем выбранным olivine. Автоматический перебор mineral–melt пар не выполняется.")
     fields = ("SiO2", "TiO2", "Al2O3", "FeOt", "MnO", "MgO", "CaO", "Na2O", "K2O", "H2O")
     values: dict[str, float] = {}
     for start in range(0, len(fields), 5):
@@ -166,40 +163,41 @@ def _method_assumptions(method_id: str) -> tuple[dict, dict | None]:
             key="thermodynamics_cpx_pressure",
         ))
         assumptions["applicability_confirmed"] = st.checkbox(
-            "Подтверждаю применимость anhydrous Cpx-only Eq. 32d к этому отбору.",
+            "Применимость Eq. 32d подтверждена",
             key="thermodynamics_cpx_confirm",
+            help="Anhydrous Cpx-only калибровка применима к выбранному петрологическому контексту.",
         )
     elif method_id == PUTIRKA_2016_AMP_EQ5.method_id:
         assumptions["applicability_confirmed"] = st.checkbox(
-            "Подтверждаю, что это магматические calcic amphiboles и текстурный контекст позволяет применять Eq. 5.",
+            "Применимость Eq. 5 подтверждена",
             key="thermodynamics_amp_t_confirm",
+            help="Выбраны магматические calcic amphiboles, а текстурный контекст допускает применение Putirka (2016) Eq. 5.",
         )
     elif method_id == MUTCH_2016_AMP_BAROMETER.method_id:
         assumptions["assemblage_confirmed"] = st.checkbox(
-            "Подтверждаю критерии Mutch et al.: гранитная низковариантная ассоциация, rim-анализы amphibole, контакт/равновесие с plagioclase и near-solidus условия.",
+            "Критерии Mutch et al. подтверждены",
             key="thermodynamics_mutch_confirm",
+            help="Гранитная низковариантная ассоциация; rim-анализы amphibole; контакт/равновесие с plagioclase; near-solidus условия.",
         )
         if not assumptions["assemblage_confirmed"]:
-            st.warning(
-                "Без подтверждения строгой области применимости PetroLab покажет диагностическое P, "
-                "но сохранит результат как WARNING, а не PASS."
-            )
+            st.warning("Строгая область применимости не подтверждена: диагностическое P будет сохранено как WARNING.")
     elif method_id == FERRY_WATSON_2007_TI_ZIRCON.method_id:
         c1, c2 = st.columns(2)
         assumptions["a_sio2"] = float(c1.number_input(
             "aSiO₂", min_value=0.01, max_value=1.0, value=1.0, step=0.05,
             key="thermodynamics_zrn_asio2",
+            help="1.0 для буфера чистой SiO₂-фазы; снижайте только при петрологическом основании.",
         ))
         assumptions["a_tio2"] = float(c2.number_input(
             "aTiO₂", min_value=0.01, max_value=1.0, value=1.0, step=0.05,
             key="thermodynamics_zrn_atio2",
+            help="1.0 для буфера чистой TiO₂-фазы; снижайте только при петрологическом основании.",
         ))
-        st.caption("1.0 означает буфер соответствующей чистой фазы; снижайте активность только при петрологическом основании.")
     elif method_id == LOUCKS_2020_ZIRCON_DFMQ.method_id:
         assumptions["allow_measured_u_as_initial"] = st.checkbox(
-            "Разрешить использовать измеренный U вместо age-corrected Ui, если отдельной колонки Ui нет",
+            "Использовать измеренный U как Ui",
             key="thermodynamics_zrn_u_confirm",
-            help="PetroLab не выполняет скрытую age correction. При этом выборе результат будет WARNING.",
+            help="Только если отдельной колонки age-corrected Ui нет. PetroLab не выполняет скрытую age correction; результат будет WARNING.",
         )
     elif method_id == PUTIRKA_2008_OL_LIQ_EQ22.method_id:
         assumptions["pressure_kbar"] = float(st.number_input(
@@ -207,8 +205,9 @@ def _method_assumptions(method_id: str) -> tuple[dict, dict | None]:
             key="thermodynamics_ol_liq_pressure",
         ))
         assumptions["equilibrium_confirmed"] = st.checkbox(
-            "Подтверждаю, что выбранные olivine и заданный расплав генетически связаны и их сопоставление петрологически оправдано.",
+            "Пара olivine–melt подтверждена",
             key="thermodynamics_ol_liq_confirm",
+            help="Выбранные olivine и заданный расплав генетически связаны; их сопоставление петрологически оправдано.",
         )
         melt = _melt_editor()
     return assumptions, melt
@@ -270,18 +269,15 @@ def _run_history(project_id: int) -> None:
                 "Время": run.calculated_at,
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(520, 70 + 34 * len(rows)))
-        st.caption(
-            "Расчёты привязаны к immutable _analysis_id и отпечаткам исходной химии. "
-            "После изменения входной химии старый run сохраняется как история, но перестаёт считаться актуальным."
-        )
+        render_hint("Расчёты привязаны к immutable _analysis_id и отпечаткам исходной химии. После изменения химии старый run остаётся в истории, но требует пересчёта.")
 
 
 def render_thermobarometry_page() -> None:
     render_page_header(
         "Термодинамика",
-        "Мономинеральные и mineral–melt термометры, барометры и oxybarometers с provenance, QC и историей по каждой аналитической точке.",
+        "Мономинеральные и mineral–melt термометры, барометры и oxybarometers с provenance, QC и историей.",
         eyebrow="Исследование",
-        context="Биминеральные методы пока намеренно отключены",
+        context="Биминеральные методы пока отключены",
     )
     project_id = active_project_id()
     if project_id is None:
@@ -309,20 +305,20 @@ def render_thermobarometry_page() -> None:
 
     if requested_dataset_ids or requested_analysis_ids:
         with st.container(border=True):
-            st.markdown("**Получен отбор из рабочего стола / карточки анализа**")
-            st.caption(
-                f"Наборов: {len(requested_dataset_ids) if requested_dataset_ids else 'не задано'} · "
-                f"точек: {len(requested_analysis_ids) if requested_analysis_ids else 'весь объект'}. "
-                "Можно сохранить этот точный отбор или отключить ограничение ниже."
-            )
+            st.markdown("**Входной отбор**")
+            render_badges([
+                (f"{len(requested_dataset_ids)} наборов" if requested_dataset_ids else "набор не задан", "neutral"),
+                (f"{len(requested_analysis_ids)} точек" if requested_analysis_ids else "весь объект", "accent"),
+            ])
             c1, c2 = st.columns([3, 1])
             limit_incoming = c1.checkbox(
-                "Ограничить расчёт исходным отбором точек",
+                "Ограничить исходным отбором",
                 value=True,
                 key="thermodynamics_limit_incoming",
                 disabled=not requested_analysis_ids,
+                help="Оставить только точки, переданные из рабочего стола или карточки анализа.",
             )
-            if c2.button("Сбросить отбор", width="stretch", key="thermodynamics_clear_context"):
+            if c2.button("Сбросить", width="stretch", key="thermodynamics_clear_context"):
                 _clear_incoming_context()
                 st.rerun()
     else:
@@ -332,8 +328,6 @@ def render_thermobarometry_page() -> None:
         ("Мономинеральные", "accent"),
         ("Минерал–расплав", "accent"),
         ("T · P · ΔFMQ", "neutral"),
-        ("Без биминеральных пар", "neutral"),
-        ("Исходная химия read-only", "success"),
     ])
 
     render_section_header("1. Метод", "Показываются только калибровки для минералов текущего контекста")
@@ -404,7 +398,7 @@ def render_thermobarometry_page() -> None:
     source = _filtered_source(project_id, dataset_ids, method.mineral_key, query)
     if requested_analysis_ids and limit_incoming and "_analysis_id" in source.columns:
         source = source[source["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
-        st.caption(f"Точный входной контекст: {len(source)} подходящих точек для выбранного метода.")
+        render_badges([(f"{len(source)} точек входного отбора", "neutral")])
     if source.empty or "_analysis_id" not in source.columns:
         st.warning("В текущем отборе нет подходящих анализов со стабильным _analysis_id.")
         _run_history(project_id)
@@ -425,7 +419,7 @@ def render_thermobarometry_page() -> None:
         _run_history(project_id)
         return
 
-    render_section_header("4. Предпросмотр и QC", "Число может быть показано диагностически даже при WARNING; статус хранится вместе с результатом")
+    render_section_header("4. Предпросмотр и QC", "Диагностическое число может сопровождаться WARNING; статус сохраняется вместе с результатом")
     _result_badges(result)
     display = pd.concat([
         selection[_identity_columns(selection)].reset_index(drop=True),
@@ -452,9 +446,7 @@ def render_thermobarometry_page() -> None:
         except Exception as exc:
             st.error(f"Расчёт не сохранён: {exc}")
         else:
-            st.success(
-                f"Сохранён run #{saved.id}. Теперь параметры доступны из карточки каждой точки через «＋ Термодинамические параметры»."
-            )
+            st.success(f"Сохранён run #{saved.id}.")
             st.rerun()
 
     csv = display.to_csv(index=False).encode("utf-8-sig")
