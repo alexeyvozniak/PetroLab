@@ -22,6 +22,7 @@ DAILY_NAV = [
 
 TOOL_SECTIONS = {
     "Данные": [
+        ("quick_import", "Быстрый импорт"),
         ("workflow", "Рабочий процесс"),
         ("analyses", "База анализов"),
         ("sources", "Новые анализы"),
