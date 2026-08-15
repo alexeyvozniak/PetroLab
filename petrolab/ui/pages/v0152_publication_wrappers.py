@@ -91,11 +91,23 @@ def _panel_label_controls(panel_count: int) -> list[dict]:
 
 
 def render_multi_panel_page() -> None:
-    panel_count = int(st.session_state.get("multi_panel_count", 4) or 4)
-    labels = _panel_label_controls(panel_count)
     original_build = _multi.build_multi_panel_scatter
+    original_section_header = _multi.render_section_header
+    label_state: dict[str, list[dict]] = {}
+
+    def section_header_with_labels(title: str, subtitle: str = "") -> None:
+        original_section_header(title, subtitle)
+        if title == "Панели":
+            panel_count = int(st.session_state.get("multi_panel_count", 4) or 4)
+            label_state["labels"] = _panel_label_controls(panel_count)
 
     def build_with_labels(dataframe, panels, **kwargs):
+        labels = label_state.get("labels")
+        if labels is None:
+            labels = [
+                default_panel_label(text)
+                for text in panel_label_sequence(len(panels), "latin_upper")
+            ]
         prepared: list[dict] = []
         for index, panel in enumerate(panels):
             item = dict(panel)
@@ -104,8 +116,10 @@ def render_multi_panel_page() -> None:
             prepared.append(item)
         return original_build(dataframe, prepared, **kwargs)
 
+    _multi.render_section_header = section_header_with_labels
     _multi.build_multi_panel_scatter = build_with_labels
     try:
         _render_v0151_multi_panel_page()
     finally:
+        _multi.render_section_header = original_section_header
         _multi.build_multi_panel_scatter = original_build
