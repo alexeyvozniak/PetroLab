@@ -45,9 +45,8 @@ from .thin_section_workspace import render_thin_section_workspace_page
 from .updates import render_updates_page
 from .whole_rock_compare import render_whole_rock_compare_page
 
-# v0.15.1 wrappers keep exact selections persistent across Streamlit reruns and
-# expose explicit marker↔physical-point identity controls. They wrap, rather than
-# fork, the established page implementations above.
+# Обёртки v0.15.1 сохраняют точные выборки между перерисовками Streamlit
+# и дают явное управление связью маркера с физической точкой.
 from .v0151_wrappers import (
     render_composite_points_page,
     render_global_search_page,
@@ -55,18 +54,33 @@ from .v0151_wrappers import (
     render_plots_page,
     render_thin_section_workspace_page,
 )
+
+# Универсальный intake сохраняет project-scoping и provenance-lock,
+# а сложные таблицы при необходимости проходят через staging до записи в базу.
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
-# v0.15.3 publication composer adds labels without bypassing exact-selection.
+# Публикационная мультипанель добавляет метки A/B/C и передачу фигуры в composer.
 from .v0152_publication_wrappers import render_multi_panel_page
 
-# v0.15.4 grain profile extends the exact global-search actions with a profile
-# route while leaving publication and multi-panel wrappers intact.
+# Профиль зерна расширяет точный глобальный поиск, не ломая публикационные обёртки.
 from .v0153_grain_profile_wrappers import render_global_search_page
 
-# v0.15.5 keeps the mature rock editor intact while letting the object workspace
-# open the exact rock selected by the user.
+# Новое рабочее пространство пород остаётся основным интерфейсом,
+# а staging из #71 подменяет только массовый импорт whole-rock данных.
 from .v0154_rock_workspace_wrappers import render_rocks_page
+from .rocks_staging_bridge_v0154 import render_rocks_page
+
+# Whole-rock сравнение получает такой же click/box/lasso связанный отбор,
+# как минералогическая мультипанель, но сохраняет рабочие классы вместо Generation.
+from .whole_rock_compare_linked_v0154 import render_whole_rock_compare_page
+
+# Химический сценарий после импорта начинается с мультипанели и сохраняет
+# отдельные переходы к лассо, PCA/кластеризации и утверждению Generation.
+from petrolab.ui.workflow_cluster_bridge_v0154 import (
+    render_add_data_page_v0154_bridge as render_add_data_page,
+    render_multi_panel_page_v0154_bridge as render_multi_panel_page,
+    render_plots_page_v0154_bridge as render_plots_page,
+)
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
