@@ -52,7 +52,9 @@ from .v0151_wrappers import (
     render_plots_page,
     render_thin_section_workspace_page,
 )
+# The intake wrapper is extended by v0.15.4 staging while preserving the same page API.
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
+from .rocks_v0154 import render_rocks_page
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
