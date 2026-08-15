@@ -5,6 +5,7 @@ import pandas as pd
 from petrolab.minerals.amphibole_ima import attach_amphibole_ima_diagnostics
 from petrolab.minerals.classification import FIELD_COL, SPECIES_COL, attach_mineral_classification
 from petrolab.services.formula_service import calculate_formula_safe
+from petrolab.visualization_presets import SCIENTIFIC_PLOT_PRESETS
 
 
 def row(*, explicit_fe3=True, **apfu):
@@ -77,6 +78,16 @@ assert bool(oxide_result["formula_valid"])
 assert float(oxide_result["amp_Fe3_explicit"]) == 0.0
 assert oxide_result[SPECIES_COL] == ""
 assert "amphibole" in str(oxide_result[FIELD_COL]).lower()
+
+# The old branch had a separate classification page. Recovery keeps the useful A+-C+
+# projection as a preset in the existing scientific XY workflow instead of restoring UI clutter.
+preset = SCIENTIFIC_PLOT_PRESETS["amphibole_ima2012_a_c"]
+assert preset.mineral_key == "amphibole"
+assert preset.plot_type == "xy"
+assert (preset.x, preset.y) == ("amp_A_plus", "amp_C_plus")
+assert preset.overlay_id is None
+assert "not" in preset.note.lower() or "не" in preset.note.lower()
+assert "10.2138/am.2012.4276" in preset.doi
 
 # Site failures and Li-bearing compositions must never look formally classified.
 bad = attach_mineral_classification(pd.DataFrame([row(Si=8, Mg=2, Ca=1)]), "amphibole").iloc[0]
