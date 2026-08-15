@@ -28,7 +28,9 @@ class GrainProfileResult:
     reversed_direction: bool
 
 
-_NUMBER_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
+# A hyphen in labels such as P-5 is a separator, not a minus sign. Grain point
+# numbers are therefore parsed as unsigned numeric tokens from display labels.
+_LABEL_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
 
 def _exact_selection(dataframe: pd.DataFrame, analysis_ids: list[str] | tuple[str, ...] | None) -> pd.DataFrame:
@@ -72,7 +74,7 @@ def _numbers_from_labels(dataframe: pd.DataFrame, column: str) -> pd.Series:
         raise ValueError("Не выбрана колонка с подписями точек")
     parsed: list[float] = []
     for value in dataframe[column]:
-        matches = _NUMBER_RE.findall(str(value or ""))
+        matches = _LABEL_NUMBER_RE.findall(str(value or ""))
         if not matches:
             parsed.append(np.nan)
         else:
@@ -113,8 +115,8 @@ def prepare_grain_profile(
     """Prepare one scientifically explicit traverse through a grain.
 
     Physical ordering is never inferred from unrelated image coordinates. Geometry
-    mode therefore requires one coordinate-frame value and an explicit point-order
-    column; only then is cumulative Euclidean distance calculated.
+    mode therefore requires one non-empty coordinate-frame value and an explicit
+    point-order column; only then is cumulative Euclidean distance calculated.
     """
     if dataframe.empty:
         raise ValueError("Нет точек для профиля")
@@ -155,9 +157,8 @@ def prepare_grain_profile(
     else:  # geometry
         if not coordinate_frame_column or coordinate_frame_column not in work.columns:
             raise ValueError("Для геометрического профиля укажите колонку системы координат/изображения")
-        frames = work[coordinate_frame_column].dropna().astype(str).str.strip()
-        frames = frames[frames != ""].unique().tolist()
-        if len(frames) != 1 or len(work[coordinate_frame_column].dropna()) != len(work):
+        frame_values = work[coordinate_frame_column].fillna("").astype(str).str.strip()
+        if (frame_values == "").any() or int(frame_values.nunique(dropna=False)) != 1:
             raise ValueError("Геометрический профиль разрешён только внутри одной системы координат")
         order = _numeric_series(work, order_column, "порядок точек для геометрии")
         _unique_order(order, order_column)
