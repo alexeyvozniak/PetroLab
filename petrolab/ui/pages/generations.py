@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.analysis_groups import WORK_GROUP_COLUMN, list_work_groups, work_group_map
+from petrolab.analysis_groups import WORK_GROUP_COLUMN, work_group_map
 from petrolab.generations import (
     PETROLAB_GENERATION_COLUMN,
     SOURCE_GENERATION_COLUMN,
@@ -11,22 +11,68 @@ from petrolab.generations import (
     clear_generation,
     generation_history,
     generation_map,
-    promote_work_group,
 )
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
-from petrolab.db import connect
+from petrolab.db import connect, list_accessible_datasets
 
 
 def _project_analysis_ids(project_id: int) -> set[str]:
+    """Return analysis ids visible in the project, including shared-library datasets.
+
+    Dataset ownership is not project membership in PetroLab: one immutable dataset
+    may live in the hidden library and be linked to several projects.  Generation
+    decisions therefore have to follow the same accessible-dataset contract as
+    the rest of the UI.
+    """
+    dataset_ids = [int(item["id"]) for item in list_accessible_datasets(int(project_id))]
+    if not dataset_ids:
+        return set()
+    allowed: set[str] = set()
     with connect() as con:
-        rows = con.execute(
-            """SELECT a.analysis_id FROM analysis_rows a
-               JOIN datasets d ON d.id=a.dataset_id
-               WHERE d.project_id=?""",
-            (int(project_id),),
-        ).fetchall()
-    return {str(row["analysis_id"]) for row in rows}
+        for start in range(0, len(dataset_ids), 800):
+            chunk = dataset_ids[start : start + 800]
+            rows = con.execute(
+                "SELECT analysis_id FROM analysis_rows WHERE dataset_id IN ("
+                + ",".join("?" for _ in chunk)
+                + ")",
+                chunk,
+            ).fetchall()
+            allowed.update(str(row["analysis_id"]) for row in rows)
+    return allowed
+
+
+def _project_work_group_map(allowed_ids: set[str]) -> dict[str, str]:
+    mapping = work_group_map()
+    return {analysis_id: group for analysis_id, group in mapping.items() if analysis_id in allowed_ids}
+
+
+def _project_work_groups(allowed_ids: set[str]) -> list[str]:
+    return sorted(set(_project_work_group_map(allowed_ids).values()), key=str.casefold)
+
+
+def _promote_project_work_group(
+    allowed_ids: set[str],
+    work_group: str,
+    generation_name: str,
+    *,
+    rationale: str = "",
+) -> int:
+    """Promote only the active project's members of a globally named work group."""
+    name = str(work_group).strip()
+    if not name:
+        raise ValueError("Укажите рабочую группу")
+    mapping = _project_work_group_map(allowed_ids)
+    ids = [analysis_id for analysis_id, group in mapping.items() if group == name]
+    if not ids:
+        raise ValueError("В этой рабочей группе нет анализов активного проекта")
+    return assign_generation(
+        ids,
+        generation_name,
+        rationale=rationale,
+        source_kind="work_group",
+        source_value=name,
+    )
 
 
 def render_generations_page() -> None:
@@ -42,7 +88,8 @@ def render_generations_page() -> None:
     project_id = int(project_id)
     allowed_ids = _project_analysis_ids(project_id)
     assignments = {aid: name for aid, name in generation_map().items() if aid in allowed_ids}
-    groups = list_work_groups()
+    work_groups = _project_work_group_map(allowed_ids)
+    groups = sorted(set(work_groups.values()), key=str.casefold)
     render_badges([
         (f"{len(assignments)} размечено", "accent"),
         (f"{len(set(assignments.values()))} поколений", "neutral"),
@@ -62,15 +109,21 @@ def render_generations_page() -> None:
             group_name = st.selectbox("Рабочая группа", groups, key="generation_work_group")
             generation_name = st.text_input("Название Generation", value=group_name, key="generation_name_from_group")
             rationale = st.text_area("Почему вы считаете это отдельным поколением · необязательно", height=80, key="generation_rationale")
+            project_group_size = sum(1 for group in work_groups.values() if group == group_name)
+            st.caption(f"Будут изменены только {project_group_size} анализов этой группы, доступных в активном проекте.")
             if st.button("Утвердить как Generation", type="primary", disabled=not generation_name.strip(), key="promote_generation"):
-                changed = promote_work_group(group_name, generation_name, rationale=rationale)
-                st.success(f"Generation сохранена для {changed} анализов. Исходные данные не изменены.")
+                changed = _promote_project_work_group(
+                    allowed_ids,
+                    group_name,
+                    generation_name,
+                    rationale=rationale,
+                )
+                st.success(f"Generation сохранена для {changed} анализов активного проекта. Исходные данные не изменены.")
                 st.rerun()
 
     with right:
         st.subheader("Назначить / исправить вручную")
-        work_groups = work_group_map()
-        candidate_ids = sorted(aid for aid in work_groups if aid in allowed_ids)
+        candidate_ids = sorted(work_groups)
         if candidate_ids:
             labels = {f"{work_groups[aid]} · {aid[:10]}": aid for aid in candidate_ids}
             selected = st.multiselect("Анализы из рабочих групп", list(labels), key="generation_manual_ids")
@@ -96,7 +149,7 @@ def render_generations_page() -> None:
         st.caption("PetroLab Generation пока не назначены.")
 
     with st.expander("История решений", expanded=False):
-        history = [row for row in generation_history() if str(row["analysis_id"]) in allowed_ids]
+        history = generation_history(allowed_ids)
         if history:
             view = pd.DataFrame(history)
             view = view.rename(columns={
