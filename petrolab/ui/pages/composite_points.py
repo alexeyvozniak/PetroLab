@@ -14,7 +14,8 @@ from petrolab.composite_points import (
 )
 from petrolab.db import connect, list_accessible_datasets, load_dataset_dataframe
 from petrolab.measurement_registry import create_entity, list_entities
-from petrolab.slides import list_slide_images, list_slide_markers
+from petrolab.slide_region_links import list_field_image_links, set_field_image_links
+from petrolab.slides import list_slide_fields, list_slide_images, list_slide_markers
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
@@ -86,6 +87,79 @@ def _create_point(project_id: int, section: dict) -> None:
                 st.rerun()
 
 
+def _render_region_image_links(project_id: int, section_id: int) -> None:
+    """Let one mapped overview region own BSE/EDS/LA detail images without fake registration."""
+    section_images = [
+        image for image in list_slide_images(project_id)
+        if image.thin_section_id == int(section_id)
+    ]
+    image_by_id = {int(image.id): image for image in section_images}
+    image_ids = set(image_by_id)
+    fields = [
+        field for field in list_slide_fields(project_id)
+        if int(field.get("slide_image_id") or -1) in image_ids
+    ]
+    if not fields:
+        st.caption("Чтобы привязать EDS/BSE-снимок к участку, сначала нарисуйте область или контур на обзорном изображении шлифа.")
+        return
+
+    with st.expander("Снимки внутри размеченных областей", expanded=False):
+        st.caption(
+            "Здесь PetroLab фиксирует, что конкретный BSE/EDS/LA-снимок относится к выбранной области. "
+            "Это явная пространственная связь, но не автоматическое пиксель-в-пиксель совмещение."
+        )
+        field_by_id = {int(field["id"]): field for field in fields}
+        field_id = st.selectbox(
+            "Область / зерно",
+            list(field_by_id),
+            format_func=lambda value: str(field_by_id[int(value)].get("name") or f"Поле {value}"),
+            key=f"region_image_field_{section_id}",
+        )
+        field = field_by_id[int(field_id)]
+        current_links = list_field_image_links(project_id, field_id=int(field_id))
+        current_ids = [int(item["image_id"]) for item in current_links]
+        overview_id = int(field.get("slide_image_id") or -1)
+        candidates = [image_id for image_id in image_by_id if image_id != overview_id]
+        options = list(dict.fromkeys([*current_ids, *candidates]))
+        chosen = st.multiselect(
+            "Какие детальные снимки относятся к этой области",
+            options,
+            default=[value for value in current_ids if value in options],
+            format_func=lambda value: (
+                f"{image_by_id[int(value)].title} · {image_by_id[int(value)].image_type}"
+                if int(value) in image_by_id else str(value)
+            ),
+            key=f"region_image_links_{field_id}",
+        )
+        note = st.text_input(
+            "Комментарий к связи",
+            placeholder="EDS map этого зерна; BSE после анализа…",
+            key=f"region_image_note_{field_id}",
+        )
+        if st.button("Сохранить снимки области", type="primary", width="stretch", key=f"region_image_save_{field_id}"):
+            try:
+                set_field_image_links(project_id, int(field_id), chosen, note=note)
+            except Exception as exc:
+                st.error(str(exc))
+            else:
+                st.success("Снимки привязаны к области.")
+                st.rerun()
+
+        linked = list_field_image_links(project_id, field_id=int(field_id))
+        if linked:
+            cols = st.columns(min(3, len(linked)))
+            for index, item in enumerate(linked):
+                image = image_by_id.get(int(item["image_id"]))
+                if image is None:
+                    continue
+                with cols[index % len(cols)]:
+                    preview = Path(image.preview_path)
+                    if preview.is_file():
+                        st.image(str(preview), caption=f"{image.title} · {image.image_type}", width="stretch")
+                    if str(item.get("note") or "").strip():
+                        st.caption(str(item["note"]))
+
+
 def render_composite_points_page() -> None:
     project = active_project()
     render_page_header(
@@ -118,6 +192,7 @@ def render_composite_points_page() -> None:
         key="composite_section",
     )
     section = by_section[int(section_id)]
+    _render_region_image_links(project_id, int(section_id))
     _create_point(project_id, section)
 
     points = list_physical_points(project_id, thin_section_id=int(section_id))
