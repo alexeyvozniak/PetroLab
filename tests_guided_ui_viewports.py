@@ -76,31 +76,52 @@ def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
 
 
 def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
-    """Open and scroll the secondary-tools group so off-screen entries become clickable."""
+    """Open the secondary-tools expander robustly across Streamlit rerenders."""
     if _visible_sidebar_buttons(driver, label):
         return
-    sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
-    expanders = sidebar.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]')
-    for expander in expanders:
-        try:
-            summary = expander.find_element(By.CSS_SELECTOR, "summary")
-        except Exception:
+
+    # Streamlit may replace the expander DOM immediately after a click. Reacquire
+    # elements on every attempt and wait for the requested route itself to appear.
+    for _attempt in range(3):
+        if _visible_sidebar_buttons(driver, label):
+            return
+        sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
+        target_summary = None
+        for expander in sidebar.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
+            try:
+                summary = expander.find_element(By.CSS_SELECTOR, "summary")
+            except Exception:
+                continue
+            if "Все инструменты" in summary.text:
+                target_summary = summary
+                break
+        if target_summary is None:
+            time.sleep(0.4)
             continue
-        if "Все инструменты" not in summary.text:
-            continue
-        try:
-            details = expander.find_element(By.CSS_SELECTOR, "details")
-            opened = details.get_attribute("open") is not None
-        except Exception:
-            opened = False
-        if not opened:
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", summary)
-            time.sleep(0.5)
-        matches = _sidebar_buttons(driver, label)
-        if matches:
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", matches[0])
-            time.sleep(0.25)
-        return
+
+        existing = _sidebar_buttons(driver, label)
+        if not existing:
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", target_summary)
+                target_summary.click()
+            except Exception:
+                # JS click is a fallback for transient overlays/stale layout geometry.
+                try:
+                    driver.execute_script("arguments[0].click();", target_summary)
+                except Exception:
+                    pass
+
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            matches = _sidebar_buttons(driver, label)
+            if matches:
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", matches[0])
+                except Exception:
+                    pass
+                if any(button.is_displayed() for button in matches):
+                    return
+            time.sleep(0.2)
 
 
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
@@ -147,7 +168,9 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, slug: st
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_") as tmp:
+    # Windows may retain the SQLite handle briefly after the Streamlit process exits.
+    # Ignore only cleanup races; all browser assertions and process shutdown still run normally.
+    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         _seed(root)
         output = Path(os.environ.get("PETROLAB_GUIDED_VIEWPORT_ARTIFACTS", "guided_viewport_artifacts"))

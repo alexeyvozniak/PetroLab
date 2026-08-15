@@ -6,12 +6,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.repositories.rock_repository import (
     create_rock,
     get_composition,
     get_isotopes,
-    get_rock,
     list_mineral_links,
     list_rocks,
     replace_isotopes,
@@ -19,17 +18,8 @@ from petrolab.repositories.rock_repository import (
     update_rock,
     upsert_composition_values,
 )
-from petrolab.services.rock_image_service import (
-    delete_rock_image as _delete_rock_image,
-    list_rock_images,
-    save_rock_image,
-)
-from petrolab.services.rock_service import (
-    composition_dict,
-    delete_rock_with_assets,
-    import_rocks_wide,
-    whole_rock_mg_number,
-)
+from petrolab.services.rock_image_service import delete_rock_image as _delete_rock_image, list_rock_images, save_rock_image
+from petrolab.services.rock_service import composition_dict, delete_rock_with_assets, import_rocks_wide, whole_rock_mg_number
 from petrolab.ui.destructive_actions import confirm_then, pending_key, render_pending
 from petrolab.ui.layout import render_page_header
 from petrolab.ui.project_context import active_project_id
@@ -91,11 +81,7 @@ def _read_uploaded_rock_table(uploaded) -> pd.DataFrame:
 
 def _render_bulk_import(project_id: int) -> None:
     with st.expander("Импортировать таблицу валовых составов", expanded=False):
-        uploaded = st.file_uploader(
-            "Excel/CSV с породами",
-            type=["xlsx", "xls", "csv", "tsv"],
-            key="rock_bulk_upload",
-        )
+        uploaded = st.file_uploader("Excel/CSV с породами", type=["xlsx", "xls", "csv", "tsv"], key="rock_bulk_upload")
         if uploaded is None:
             return
         try:
@@ -119,11 +105,7 @@ def _render_bulk_import(project_id: int) -> None:
         c1, c2 = st.columns(2)
         method = c1.text_input("Метод химии", placeholder="XRF + ICP-MS", key="rock_bulk_method")
         laboratory = c2.text_input("Лаборатория", key="rock_bulk_lab")
-        conflict_label = st.selectbox(
-            "Если название уже есть в проекте",
-            list(CONFLICT_OPTIONS),
-            key="rock_bulk_conflict",
-        )
+        conflict_label = st.selectbox("Если название уже есть в проекте", list(CONFLICT_OPTIONS), key="rock_bulk_conflict")
         st.caption(
             "Перед записью ПетроЛаб проверяет повторяющиеся названия внутри файла. "
             "Две строки с одинаковым названием в одной импортируемой таблице считаются неоднозначными."
@@ -143,10 +125,7 @@ def _render_bulk_import(project_id: int) -> None:
             except Exception as exc:
                 st.error(f"Импорт не выполнен: {exc}")
                 return
-            st.success(
-                f"Создано: {len(result.created_ids)} · обновлено: {len(result.updated_ids)} · "
-                f"пропущено: {len(result.skipped_names)}"
-            )
+            st.success(f"Создано: {len(result.created_ids)} · обновлено: {len(result.updated_ids)} · пропущено: {len(result.skipped_names)}")
             if result.warnings:
                 st.warning("\n".join(result.warnings[:30]))
             st.rerun()
@@ -163,36 +142,13 @@ def _render_passport(rock: dict) -> None:
         locality = c4.text_input("Местоположение", value=str(rock.get("locality", "")))
         description = st.text_area("Описание породы", value=str(rock.get("description", "")), height=110)
         a1, a2, a3 = st.columns(3)
-        age_ma = a1.number_input(
-            "Возраст, млн лет",
-            value=float(rock["age_ma"]) if rock.get("age_ma") is not None else None,
-            placeholder="не указан",
-        )
-        age_err = a2.number_input(
-            "±, млн лет",
-            value=float(rock["age_uncertainty_ma"]) if rock.get("age_uncertainty_ma") is not None else None,
-            placeholder="не указана",
-        )
-        age_method = a3.text_input(
-            "Метод возраста",
-            value=str(rock.get("age_method", "")),
-            placeholder="U–Pb zircon, Rb–Sr...",
-        )
+        age_ma = a1.number_input("Возраст, млн лет", value=float(rock["age_ma"]) if rock.get("age_ma") is not None else None, placeholder="не указан")
+        age_err = a2.number_input("±, млн лет", value=float(rock["age_uncertainty_ma"]) if rock.get("age_uncertainty_ma") is not None else None, placeholder="не указана")
+        age_method = a3.text_input("Метод возраста", value=str(rock.get("age_method", "")), placeholder="U–Pb zircon, Rb–Sr...")
         m1, m2 = st.columns(2)
-        chemistry_method = m1.text_area(
-            "Методика химии",
-            value=str(rock.get("chemistry_method", "")),
-            height=90,
-        )
-        isotope_method = m2.text_area(
-            "Методика изотопии",
-            value=str(rock.get("isotope_method", "")),
-            height=90,
-        )
-        laboratory = st.text_input(
-            "Лаборатория / где выполнялись анализы",
-            value=str(rock.get("laboratory", "")),
-        )
+        chemistry_method = m1.text_area("Методика химии", value=str(rock.get("chemistry_method", "")), height=90)
+        isotope_method = m2.text_area("Методика изотопии", value=str(rock.get("isotope_method", "")), height=90)
+        laboratory = st.text_input("Лаборатория / где выполнялись анализы", value=str(rock.get("laboratory", "")))
         notes = st.text_area("Заметки", value=str(rock.get("notes", "")), height=90)
         if st.form_submit_button("Сохранить паспорт", type="primary"):
             try:
@@ -257,10 +213,7 @@ def _render_composition(rock: dict) -> None:
 def _render_isotopes(rock: dict) -> None:
     rock_id = int(rock["id"])
     isotopes = get_isotopes(rock_id)
-    columns = [
-        "system", "ratio_name", "analysis_label", "value", "uncertainty", "initial_value",
-        "age_ma_used", "method", "laboratory", "source", "notes",
-    ]
+    columns = ["system", "ratio_name", "analysis_label", "value", "uncertainty", "initial_value", "age_ma_used", "method", "laboratory", "source", "notes"]
     if isotopes.empty:
         isotopes = pd.DataFrame(columns=columns)
     st.caption(
@@ -298,34 +251,45 @@ def _render_isotopes(rock: dict) -> None:
 
 def _render_links_and_images(rock: dict) -> None:
     rock_id = int(rock["id"])
-    datasets = list_datasets(int(rock["project_id"]))
+    project_id = int(rock["project_id"])
+    datasets = list_accessible_datasets(project_id)
     label_to_id = {
-        f"{dataset['name']} · {dataset['mineral_key']} · {dataset['source_filename']}": int(dataset["id"])
+        f"{dataset['name']} · {dataset['mineral_key']} · {dataset['source_filename']}" + (" · общая база" if bool(dataset.get("linked_to_project")) else ""): int(dataset["id"])
         for dataset in datasets
     }
     current = {int(value) for value in list_mineral_links(rock_id)}
+    visible_ids = set(label_to_id.values())
+    inaccessible_current = sorted(current - visible_ids)
+    if inaccessible_current:
+        st.warning(
+            "Есть сохранённые mineral-связи с datasets, которые больше не подключены к этому проекту: "
+            + ", ".join(map(str, inaccessible_current[:8]))
+            + ". Они не открываются из этого проекта; сохранение текущего списка удалит такие осиротевшие связи после подтверждения."
+        )
     selected_labels = st.multiselect(
         "Минералогические наборы из этой породы",
         list(label_to_id),
         default=[label for label, dataset_id in label_to_id.items() if dataset_id in current],
-        key=f"rock_links_{rock_id}",
+        key=f"rock_links_{project_id}_{rock_id}",
     )
     new_ids = tuple(sorted(label_to_id[label] for label in selected_labels))
     removed = current - set(new_ids)
     link_target = (rock_id, *new_ids)
-    if removed and st.session_state.get(pending_key("rock_links")) == link_target:
-        render_pending(
-            "rock_links",
-            f"Будет удалено связей минерал–порода: {len(removed)}. Нажмите «Сохранить связи минерал–порода» ещё раз или отмените действие.",
-        )
-    if st.button("Сохранить связи минерал–порода", key=f"rock_links_save_{rock_id}"):
+    action_key = f"rock_links_{rock_id}"
+    if removed and st.session_state.get(pending_key(action_key)) == link_target:
+        render_pending(action_key, f"Будет удалено связей минерал–порода: {len(removed)}. Нажмите «Сохранить связи минерал–порода» ещё раз или отмените действие.")
+    if st.button("Сохранить связи минерал–порода", key=f"rock_links_save_{project_id}_{rock_id}"):
         if removed:
-            if confirm_then("rock_links", link_target, lambda: _set_mineral_links(rock_id, new_ids)):
+            if confirm_then(action_key, link_target, lambda: _set_mineral_links(rock_id, new_ids)):
                 st.success("Связи сохранены.")
                 st.rerun()
         else:
-            _set_mineral_links(rock_id, new_ids)
-            st.success("Связи сохранены.")
+            try:
+                _set_mineral_links(rock_id, new_ids)
+            except Exception as exc:
+                st.error(f"Не удалось сохранить связи: {exc}")
+            else:
+                st.success("Связи сохранены.")
 
     st.divider()
     uploads = st.file_uploader(
@@ -355,16 +319,9 @@ def _render_links_and_images(rock: dict) -> None:
         path = Path(str(image["stored_path"]))
         with columns[index % len(columns)]:
             if path.exists():
-                st.image(
-                    str(path),
-                    caption=image["title"] or image["original_filename"],
-                    width="stretch",
-                )
+                st.image(str(path), caption=image["title"] or image["original_filename"], width="stretch")
             if st.session_state.get(pending_key("rock_image")) == image_id:
-                render_pending(
-                    "rock_image",
-                    "Фотография породы будет удалена с диска и из базы. Нажмите «Удалить» ещё раз или отмените действие.",
-                )
+                render_pending("rock_image", "Фотография породы будет удалена с диска и из базы. Нажмите «Удалить» ещё раз или отмените действие.")
             if st.button("Удалить", key=f"rock_image_delete_{image_id}"):
                 if confirm_then("rock_image", image_id, lambda: _delete_rock_image(image_id)):
                     st.rerun()
@@ -372,8 +329,8 @@ def _render_links_and_images(rock: dict) -> None:
 
 def render_rocks_page() -> None:
     render_page_header(
-        "Породы",
-        "Валовые составы, изотопия, возраст, методика, фотографии и связи с минералогическими наборами.",
+        "Редактор пород",
+        "Техническое редактирование валовых составов, изотопии, возраста, методики, фотографий и связей с минералогическими наборами.",
         eyebrow="Материалы",
     )
     project_id = active_project_id()
@@ -388,49 +345,40 @@ def render_rocks_page() -> None:
             if st.button("Создать", type="primary", key="rock_new_create") and name.strip():
                 try:
                     create_rock(project_id, name.strip())
-                    st.success("Порода создана.")
-                    st.rerun()
                 except Exception as exc:
-                    st.error(str(exc))
-    with c2:
-        _render_bulk_import(project_id)
-
-    rocks = list_rocks(project_id)
-    if not rocks:
-        st.info("Создайте породу вручную или импортируйте таблицу валовых составов.")
-        return
-    rock_map = {_rock_label(rock): rock for rock in rocks}
-    selected_label = st.selectbox("Открыть породу", list(rock_map), key="rock_select")
-    selected = get_rock(int(rock_map[selected_label]["id"]))
-    if selected is None:
-        return
-
-    tabs = st.tabs([
-        "Паспорт", "Валовый состав", "Изотопия", "Минералы и фото", "Графики / mineral–rock",
-    ])
-    with tabs[0]:
-        _render_passport(selected)
-        with st.expander("Опасная зона", expanded=False):
-            confirm = st.checkbox(
-                "Я понимаю, что порода и её локальные фотографии будут удалены",
-                key=f"rock_delete_confirm_{selected['id']}",
-            )
-            if st.button(
-                "Удалить породу",
-                disabled=not confirm,
-                key=f"rock_delete_{selected['id']}",
-            ):
-                try:
-                    delete_rock_with_assets(int(selected["id"]))
-                except Exception as exc:
-                    st.error(f"Не удалось удалить породу: {exc}")
+                    st.error(f"Не удалось создать породу: {exc}")
                 else:
                     st.rerun()
-    with tabs[1]:
-        _render_composition(selected)
-    with tabs[2]:
-        _render_isotopes(selected)
-    with tabs[3]:
-        _render_links_and_images(selected)
-    with tabs[4]:
-        render_rock_plots(project_id, selected)
+        _render_bulk_import(project_id)
+        rocks = list_rocks(project_id)
+        if not rocks:
+            st.info("Создайте первую породу или импортируйте таблицу.")
+            return
+        by_id = {int(rock["id"]): rock for rock in rocks}
+        selected_id = st.selectbox(
+            "Порода / образец",
+            list(by_id),
+            format_func=lambda value: _rock_label(by_id[int(value)]),
+            key="rock_selected_id",
+        )
+        selected = by_id[int(selected_id)]
+        mg_value = whole_rock_mg_number(composition_dict(int(selected_id)))
+        st.metric("Whole-rock Mg#", "—" if pd.isna(mg_value) else f"{mg_value:.3f}")
+        if st.session_state.get(pending_key("rock")) == int(selected_id):
+            render_pending("rock", "Порода, её химия, изотопия, фотографии и связи будут удалены. Нажмите «Удалить породу» ещё раз или отмените действие.")
+        if st.button("Удалить породу", key=f"rock_delete_{selected_id}"):
+            if confirm_then("rock", int(selected_id), lambda: delete_rock_with_assets(int(selected_id))):
+                st.rerun()
+
+    with c2:
+        tabs = st.tabs(["Паспорт", "Химия", "Изотопия", "Минералы и фото", "Диаграммы"])
+        with tabs[0]:
+            _render_passport(selected)
+        with tabs[1]:
+            _render_composition(selected)
+        with tabs[2]:
+            _render_isotopes(selected)
+        with tabs[3]:
+            _render_links_and_images(selected)
+        with tabs[4]:
+            render_rock_plots(project_id, selected)

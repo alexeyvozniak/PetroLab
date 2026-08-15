@@ -45,10 +45,12 @@ TOOL_SECTIONS = {
         ("formulae", "Расчёты"),
         ("generations", "Поколения"),
         ("minerals", "Минералогические модули"),
-        ("rocks", "Породы"),
+        ("rock_workspace", "Породы"),
+        ("rocks", "Редактор пород"),
     ],
     "Исследование": [
         ("multi_panel", "Несколько графиков сразу"),
+        ("grain_profile", "Профиль по зерну"),
         ("whole_rock_compare", "Породы + литература"),
         ("thermobarometry", "Термодинамика"),
         ("ternary", "Треугольные"),
@@ -58,6 +60,7 @@ TOOL_SECTIONS = {
         ("distribution", "Распределение элементов"),
     ],
     "Публикация": [
+        ("publication_composer", "Редактор мультипанели"),
         ("export", "Экспорт"),
     ],
     "Система": [

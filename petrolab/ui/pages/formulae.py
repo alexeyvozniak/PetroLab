@@ -5,15 +5,33 @@ import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
-from petrolab.derived import formula_status, save_formula_results, save_point_formula_results
+from petrolab.derived import (
+    formula_status,
+    load_dataset_with_derived,
+    save_formula_results,
+    save_point_formula_results,
+)
 from petrolab.formula_workflow import recommended_method
 from petrolab.mineral_assignments import attach_mineral_assignments
 from petrolab.minerals.classification import CLASSIFICATION_COLUMNS
 from petrolab.minerals.formulae import methods_for
+from petrolab.repositories.rock_repository import composition_wide
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.navigation import navigate
+from petrolab.user_derived import (
+    FORMULA_PRESETS,
+    TARGET_DATASET,
+    TARGET_ROCK_PROJECT,
+    delete_field,
+    evaluate_expression,
+    list_dataset_fields,
+    list_rock_project_fields,
+    save_dataset_field,
+    save_rock_project_field,
+    set_field_enabled,
+)
 
 
 def _derived_columns(source: pd.DataFrame, result: pd.DataFrame) -> list[str]:
@@ -65,44 +83,300 @@ def _render_full_validity_summary(result: pd.DataFrame) -> None:
             st.caption(f"Показано 2000 из {int(invalid.sum())} проблемных строк.")
 
 
+def _formula_token(column: str) -> str:
+    text = str(column)
+    if text.isidentifier() and not text.startswith("_"):
+        return text
+    return f"`{text}`"
+
+
+def _append_formula_token(expression_key: str, column: str) -> None:
+    if column == "—":
+        return
+    current = str(st.session_state.get(expression_key, "")).rstrip()
+    token = _formula_token(column)
+    st.session_state[expression_key] = f"{current} {token}".strip()
+
+
+def _saved_fields(target_kind: str, target_id: int):
+    if target_kind == TARGET_DATASET:
+        return list_dataset_fields(target_id)
+    return list_rock_project_fields(target_id)
+
+
+def _save_user_field(
+    target_kind: str,
+    target_id: int,
+    *,
+    name: str,
+    expression: str,
+    unit: str,
+    dependencies: tuple[str, ...],
+    description: str,
+):
+    if target_kind == TARGET_DATASET:
+        return save_dataset_field(
+            target_id,
+            name=name,
+            expression=expression,
+            unit=unit,
+            dependencies=dependencies,
+            description=description,
+        )
+    return save_rock_project_field(
+        target_id,
+        name=name,
+        expression=expression,
+        unit=unit,
+        dependencies=dependencies,
+        description=description,
+    )
+
+
+def _render_saved_user_fields(target_kind: str, target_id: int, key_prefix: str) -> None:
+    fields = _saved_fields(target_kind, target_id)
+    if not fields:
+        st.caption("Сохранённых пользовательских формул пока нет.")
+        return
+    table = pd.DataFrame([
+        {
+            "Поле": field.name,
+            "Формула": field.expression,
+            "Единица": field.unit or "не определена",
+            "Входы": ", ".join(field.dependencies),
+            "Статус": "включено" if field.enabled else "отключено",
+        }
+        for field in fields
+    ])
+    st.dataframe(table, width="stretch", hide_index=True, height=min(330, 42 + 35 * min(len(table), 8)))
+    field_map = {f"{field.name} · {field.expression}": field for field in fields}
+    selected_label = st.selectbox(
+        "Управление сохранённой формулой",
+        list(field_map),
+        key=f"{key_prefix}_manage_field",
+    )
+    selected = field_map[selected_label]
+    c1, c2 = st.columns(2)
+    toggle_label = "Отключить" if selected.enabled else "Включить"
+    if c1.button(toggle_label, key=f"{key_prefix}_toggle_{selected.id}", width="stretch"):
+        set_field_enabled(selected.id, not selected.enabled)
+        st.rerun()
+    if c2.button("Удалить", key=f"{key_prefix}_delete_{selected.id}", width="stretch"):
+        delete_field(selected.id)
+        st.rerun()
+
+
+def _render_user_field_builder(
+    dataframe: pd.DataFrame,
+    *,
+    target_kind: str,
+    target_id: int,
+    key_prefix: str,
+    identity_columns: list[str],
+) -> None:
+    if dataframe.empty:
+        st.info("Нет строк, на которых можно проверить формулу.")
+        return
+
+    existing_fields = _saved_fields(target_kind, target_id)
+    existing_names = {field.name for field in existing_fields}
+    visible_columns = [str(column) for column in dataframe.columns if not str(column).startswith("_")]
+    expression_key = f"{key_prefix}_expression"
+
+    with st.expander("Создать или изменить вычисляемое поле", expanded=not existing_fields):
+        preset_map = {preset["label"]: preset for preset in FORMULA_PRESETS}
+        preset_label = st.selectbox(
+            "Готовая формула",
+            ["Своя формула", *preset_map],
+            key=f"{key_prefix}_preset",
+        )
+        if preset_label != "Своя формула" and st.button(
+            "Подставить выбранную формулу",
+            key=f"{key_prefix}_apply_preset",
+            width="stretch",
+        ):
+            preset = preset_map[preset_label]
+            st.session_state[f"{key_prefix}_name"] = preset["name"]
+            st.session_state[expression_key] = preset["expression"]
+            st.rerun()
+
+        name = st.text_input("Название новой колонки", key=f"{key_prefix}_name")
+        expression = st.text_area(
+            "Формула",
+            key=expression_key,
+            height=90,
+            help=(
+                "Разрешены +, -, *, /, ** и скобки. Простые имена можно писать напрямую: La / Yb. "
+                "Точное имя сложной колонки заключайте в обратные кавычки, например `La [µg/g]`."
+            ),
+        )
+
+        c1, c2 = st.columns([3, 1])
+        insert_column = c1.selectbox(
+            "Добавить колонку в формулу",
+            ["—", *visible_columns],
+            key=f"{key_prefix}_insert_column",
+        )
+        c2.button(
+            "Добавить",
+            key=f"{key_prefix}_insert_button",
+            width="stretch",
+            disabled=insert_column == "—",
+            on_click=_append_formula_token,
+            args=(expression_key, insert_column),
+        )
+
+        description = st.text_input(
+            "Комментарий / смысл показателя",
+            key=f"{key_prefix}_description",
+        )
+
+        preview = None
+        preview_error = ""
+        clean_name = str(name).strip()
+        if expression.strip():
+            preview_frame = dataframe
+            if clean_name in existing_names and clean_name in preview_frame.columns:
+                preview_frame = preview_frame.drop(columns=[clean_name])
+            try:
+                preview = evaluate_expression(preview_frame, expression)
+            except ValueError as exc:
+                preview_error = str(exc)
+                st.error(preview_error)
+
+        if preview is not None:
+            unit_label = "безразмерная" if preview.unit == "1" else (preview.unit or "не определена")
+            render_badges([
+                (f"Единица: {unit_label}", "accent" if preview.unit else "warning"),
+                (f"Входов: {len(preview.dependencies)}", "neutral"),
+                (f"Строк: {int(preview.values.notna().sum())}/{len(preview.values)}", "success"),
+            ])
+            st.caption("Используются: " + ", ".join(preview.dependencies))
+            for warning in preview.warnings:
+                st.warning(warning)
+            preview_table = dataframe[identity_columns].copy() if identity_columns else pd.DataFrame(index=dataframe.index)
+            preview_table[clean_name or "Результат"] = preview.values
+            st.dataframe(preview_table.head(20), width="stretch", hide_index=True, height=260)
+
+        name_conflict = bool(clean_name and clean_name in dataframe.columns and clean_name not in existing_names)
+        if name_conflict:
+            st.error("Такое имя уже занято исходной или системной колонкой. Выберите другое название.")
+        can_save = bool(clean_name and preview is not None and not preview_error and not name_conflict)
+        if st.button(
+            "Сохранить вычисляемое поле",
+            type="primary",
+            disabled=not can_save,
+            key=f"{key_prefix}_save",
+            width="stretch",
+        ):
+            _save_user_field(
+                target_kind,
+                target_id,
+                name=clean_name,
+                expression=expression,
+                unit=preview.unit,
+                dependencies=preview.dependencies,
+                description=description,
+            )
+            st.success(f"Поле «{clean_name}» сохранено и будет пересчитываться автоматически.")
+            st.rerun()
+
+    _render_saved_user_fields(target_kind, target_id, key_prefix)
+
+
 def render_formulae_page() -> None:
     render_page_header(
         "Расчёты",
-        "Структурные формулы, APFU и end-members сохраняются отдельным слоем и не подменяют исходную химию.",
+        "Пользовательские индексы, отношения и суммы, а также структурные формулы/APFU — без изменения исходной химии.",
         eyebrow="Данные",
     )
     project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
+
     datasets = list_accessible_datasets(project_id)
-    if not datasets:
-        st.info("В активном проекте пока нет анализов.")
+    chosen = None
+    raw_source = pd.DataFrame()
+    dataset_id = None
+
+    render_section_header(
+        "Вычисляемые поля",
+        "Суммы, отношения и произвольная арифметика. Сохранённые выражения пересчитываются при каждом чтении данных.",
+    )
+    if datasets:
+        mapping = {dataset_label(dataset): dataset for dataset in datasets}
+        dataset_labels = list(mapping)
+        requested_dataset = st.session_state.pop("workflow_formula_dataset_id", None)
+        if requested_dataset is not None:
+            st.session_state.pop("formula_dataset", None)
+            st.session_state.pop("formula_method", None)
+        requested_label = next(
+            (label for label, dataset in mapping.items() if int(dataset["id"]) == int(requested_dataset)),
+            None,
+        ) if requested_dataset is not None else None
+        dataset_index = dataset_labels.index(requested_label) if requested_label in dataset_labels else 0
+        chosen = mapping[st.selectbox("Набор анализов", dataset_labels, index=dataset_index, key="formula_dataset")]
+        dataset_id = int(chosen["id"])
+        raw_source = load_dataset_dataframe(dataset_id, include_meta=True)
+        analysis_source = load_dataset_with_derived(dataset_id, include_meta=True)
+        _render_user_field_builder(
+            analysis_source,
+            target_kind=TARGET_DATASET,
+            target_id=dataset_id,
+            key_prefix=f"analysis_formula_{dataset_id}",
+            identity_columns=_identity_columns(analysis_source),
+        )
+        runtime_warnings = analysis_source.attrs.get("user_derived_warnings", [])
+        if runtime_warnings:
+            with st.expander(f"Предупреждения сохранённых формул: {len(runtime_warnings)}", expanded=False):
+                for warning in runtime_warnings:
+                    st.warning(str(warning))
+    else:
+        st.info("В активном проекте пока нет наборов анализов. Формулы для пород доступны ниже.")
+
+    with st.expander("Вычисляемые поля для пород / whole-rock", expanded=not datasets):
+        rock_source = composition_wide(project_id)
+        if rock_source.empty:
+            st.info("В проекте пока нет whole-rock составов.")
+        else:
+            _render_user_field_builder(
+                rock_source,
+                target_kind=TARGET_ROCK_PROJECT,
+                target_id=project_id,
+                key_prefix=f"rock_formula_{project_id}",
+                identity_columns=[column for column in ("Rock", "Massif", "Lithology") if column in rock_source.columns],
+            )
+            rock_warnings = rock_source.attrs.get("user_derived_warnings", [])
+            if rock_warnings:
+                with st.expander(f"Предупреждения формул пород: {len(rock_warnings)}", expanded=False):
+                    for warning in rock_warnings:
+                        st.warning(str(warning))
+        st.caption(
+            "Нормированные REE/Spider отношения здесь намеренно не подменяются простой арифметикой: "
+            "для них нужен явно выбранный reference (например, CI chondrite или primitive mantle)."
+        )
+
+    st.divider()
+    render_section_header(
+        "Структурные формулы минералов",
+        "APFU, end-members и классификация сохраняются отдельным минералоспецифическим слоем.",
+    )
+    if not datasets or chosen is None or dataset_id is None:
+        return
+    if raw_source.empty:
+        st.info("В выбранном наборе нет аналитических строк.")
         return
 
-    mapping = {dataset_label(dataset): dataset for dataset in datasets}
-    dataset_labels = list(mapping)
-    requested_dataset = st.session_state.pop("workflow_formula_dataset_id", None)
-    if requested_dataset is not None:
-        st.session_state.pop("formula_dataset", None)
-        st.session_state.pop("formula_method", None)
-    requested_label = next(
-        (label for label, dataset in mapping.items() if int(dataset["id"]) == int(requested_dataset)),
-        None,
-    ) if requested_dataset is not None else None
-    dataset_index = dataset_labels.index(requested_label) if requested_label in dataset_labels else 0
-    chosen = mapping[st.selectbox("Набор данных", dataset_labels, index=dataset_index, key="formula_dataset")]
-    dataset_id = int(chosen["id"])
-    raw_source = load_dataset_dataframe(dataset_id, include_meta=True)
-    if raw_source.empty:
-        st.info("В наборе нет аналитических строк.")
-        return
     assigned_source = attach_mineral_assignments(
         raw_source, default_mineral_key=str(chosen["mineral_key"])
     )
     mineral_choices = sorted(
         value for value in assigned_source["Минерал"].dropna().astype(str).unique() if value
     )
+    if not mineral_choices:
+        st.warning("В выбранном наборе не удалось определить минералогическую группу для структурного пересчёта.")
+        return
     target_mineral = st.selectbox(
         "Минерал для пересчёта",
         mineral_choices,

@@ -1,4 +1,4 @@
-__version__ = "0.15.2"
+__version__ = "0.15.5"
 
 from .measurement_policy import install as _install_measurement_policy
 _install_measurement_policy()
@@ -31,6 +31,10 @@ del _install_physical_point_safety
 from .amphibole_runtime import install as _install_amphibole_runtime
 _install_amphibole_runtime()
 del _install_amphibole_runtime
+
+from .user_derived_runtime import install as _install_user_derived_runtime
+_install_user_derived_runtime()
+del _install_user_derived_runtime
 
 from .textural_runtime import install as _install_textural_runtime
 _install_textural_runtime()

@@ -7,6 +7,7 @@ import pandas as pd
 
 from petrolab.group_styles import display_group_series
 from petrolab.plotting import _draw_group_field, _resolve_style
+from petrolab.publication_composer import apply_panel_label
 
 
 def _numeric_panel(dataframe: pd.DataFrame, x: str, y: str, log_x: bool, log_y: bool) -> pd.DataFrame:
@@ -38,7 +39,12 @@ def build_multi_panel_scatter(
     show_legend: bool = True,
     grid: bool = False,
 ):
-    """Render several XY views from one immutable selection and one shared style map."""
+    """Render several XY views from one immutable selection and one shared style map.
+
+    A panel may include a `panel_label` dictionary created by
+    `publication_composer.default_panel_label`. The label uses normalized axes
+    coordinates, which makes its position stable across journal presets and DPI.
+    """
     valid = [panel for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
     if not valid:
         raise ValueError("Нет валидных панелей для построения")
@@ -104,6 +110,7 @@ def build_multi_panel_scatter(
             ax.tick_params(direction="out", width=float(spine_width))
             for spine in ax.spines.values():
                 spine.set_linewidth(float(spine_width))
+            apply_panel_label(ax, panel.get("panel_label"))
 
         for index in range(len(valid), nrows * ncols):
             axes.flat[index].axis("off")

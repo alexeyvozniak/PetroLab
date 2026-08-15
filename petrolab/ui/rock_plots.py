@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+from petrolab.db import dataset_is_accessible
 from petrolab.derived import load_unified_with_derived
 from petrolab.extended_plotting import (
     NORMALIZATION_REFERENCES,
@@ -15,12 +16,7 @@ from petrolab.extended_plotting import (
 )
 from petrolab.repositories.rock_repository import composition_wide, isotope_wide, list_mineral_links
 from petrolab.rock_plotting import build_rhodes_figure, build_rock_scatter, build_tas_figure, figure_bytes
-from petrolab.services.rock_service import (
-    composition_dict,
-    inferred_whole_rock_fe3_fraction,
-    measured_olivine_kd,
-    whole_rock_mg_number,
-)
+from petrolab.services.rock_service import composition_dict, inferred_whole_rock_fe3_fraction, measured_olivine_kd, whole_rock_mg_number
 from petrolab.ui.plot_style_controls import render_figure_style_controls
 from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
@@ -28,18 +24,12 @@ from petrolab.visualization_presets import POINT_STYLE_PRESETS
 def _download_figure(fig, filename_stem: str, style, key_prefix: str) -> None:
     c1, c2 = st.columns(2)
     c1.download_button(
-        "PNG",
-        figure_bytes(fig, "png", style.dpi),
-        file_name=f"{filename_stem}.png",
-        mime="image/png",
-        key=f"{key_prefix}_png",
+        "PNG", figure_bytes(fig, "png", style.dpi), file_name=f"{filename_stem}.png",
+        mime="image/png", key=f"{key_prefix}_png",
     )
     c2.download_button(
-        "SVG",
-        figure_bytes(fig, "svg", style.dpi),
-        file_name=f"{filename_stem}.svg",
-        mime="image/svg+xml",
-        key=f"{key_prefix}_svg",
+        "SVG", figure_bytes(fig, "svg", style.dpi), file_name=f"{filename_stem}.svg",
+        mime="image/svg+xml", key=f"{key_prefix}_svg",
     )
 
 
@@ -126,13 +116,13 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             st.info("Для бинарной диаграммы нужны минимум две числовые колонки в нескольких породах.")
 
     with tab_pattern:
-        mode = st.segmented_control("Тип", ["REE", "Spider"], default="REE", key="rock_pattern_mode")
+        mode = st.segmented_control("Тип", ["REE", "Spider"], default="REE", key="rock_pattern_mode") or "REE"
         order = REE_ORDER if mode == "REE" else SPIDER_ORDER
         reference_names = list(NORMALIZATION_REFERENCES)
         ref_name = st.selectbox(
             "Нормировка",
             reference_names,
-            index=1 if mode == "REE" else 2,
+            index=1 if mode == "REE" else min(2, len(reference_names) - 1),
             key="rock_pattern_ref",
         )
         reference = NORMALIZATION_REFERENCES[ref_name]
@@ -204,15 +194,25 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             st.info("Добавьте как минимум две числовые изотопные величины у нескольких пород.")
 
     with tab_rhodes:
-        links = list_mineral_links(int(selected_rock["id"]))
-        if not links:
+        all_links = [int(value) for value in list_mineral_links(int(selected_rock["id"]))]
+        if not all_links:
             st.info("Свяжите породу с минералогическим dataset.")
             return
-        minerals = load_unified_with_derived(int(selected_rock["project_id"]), links)
-        olivine = (
-            minerals[minerals["Минерал"].astype(str).eq("olivine")].copy()
-            if "Минерал" in minerals else pd.DataFrame()
-        )
+        accessible_links = [
+            dataset_id for dataset_id in all_links
+            if dataset_is_accessible(int(selected_rock["project_id"]), dataset_id)
+        ]
+        inaccessible_links = sorted(set(all_links) - set(accessible_links))
+        if inaccessible_links:
+            st.warning(
+                "Rhodes не использует datasets, которые больше не подключены к текущему проекту: "
+                + ", ".join(map(str, inaccessible_links[:8]))
+            )
+        if not accessible_links:
+            st.info("Связанные mineral datasets сейчас недоступны в рабочем контексте проекта.")
+            return
+        minerals = load_unified_with_derived(int(selected_rock["project_id"]), accessible_links)
+        olivine = minerals[minerals["Минерал"].astype(str).eq("olivine")].copy() if "Минерал" in minerals else pd.DataFrame()
         if olivine.empty or "Fo" not in olivine.columns:
             st.info("Для Rhodes нужен связанный набор оливинов с сохранённым Fo.")
             return
@@ -225,11 +225,8 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             st.caption("Валентностное распределение total Fe не задано: Fe³⁺/ΣFe — пользовательское допущение для Mg# proxy.")
         fe3 = st.slider(
             "Доля Fe³⁺ в total Fe породы для Mg# proxy",
-            0.0,
-            1.0,
-            default_fe3,
-            0.01,
-            key="rock_rhodes_fe3",
+            0.0, 1.0, default_fe3, 0.01,
+            key=f"rock_rhodes_fe3_{int(selected_rock['id'])}",
         )
         mgnum = whole_rock_mg_number(comp, fe3_fraction=fe3)
         if pd.isna(mgnum):
@@ -237,11 +234,7 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             return
         rock_row = pd.DataFrame([{"Rock": selected_rock["name"], "Mg#_rock": mgnum}])
         style = render_figure_style_controls(olivine, key_prefix="rock_rhodes")
-        fig = build_rhodes_figure(
-            rock_row,
-            olivine,
-            **_rock_scatter_style_kwargs(style),
-        )
+        fig = build_rhodes_figure(rock_row, olivine, **_rock_scatter_style_kwargs(style))
         st.pyplot(fig, width="stretch")
         _download_figure(fig, "rhodes_olivine_rock", style, "rock_rhodes")
         kd = measured_olivine_kd(olivine["Fo"], mgnum)
@@ -252,7 +245,6 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
         st.caption(
             "Rhodes-style screening использует Kd-линии 0.27/0.30/0.33 вокруг классического "
             "оливин–жидкость Fe–Mg обмена. Whole-rock состав не всегда равен составу расплава: "
-            "особая осторожность нужна для кумулятов, ксенокристов, контаминированных "
-            "лампрофиров и кимберлитов."
+            "особая осторожность нужна для кумулятов, ксенокристов, контаминированных лампрофиров и кимберлитов."
         )
         plt.close(fig)
