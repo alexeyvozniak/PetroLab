@@ -30,7 +30,6 @@ class ExactRoutePersistenceTests(unittest.TestCase):
         self.assertEqual(datasets, [17])
         self.assertEqual(context, {"scope": "search"})
 
-        # Simulate what the page implementation does on the first render.
         state.pop("workflow_edit_analysis_ids", None)
         state.pop("workflow_edit_dataset_ids", None)
         state.pop("workflow_edit_context", None)
@@ -82,6 +81,16 @@ class ProjectIsolationTests(unittest.TestCase):
             "thin_polygon_55": [(0.1, 0.2)],
             "mixed_dataset": 19,
             "thermodynamics_pressure": 4.0,
+            "equilibrium_points": ["old-analysis"],
+            "ratio_left": "old-dataset",
+            "ternary_interactive_excluded_ids": ["old-analysis"],
+            "loaded_ternary_recipe": {"dataset_ids": [19]},
+            "partition_rock_context": "lamprophyre",
+            "exchange_package_bytes": b"old-package",
+            "compare_dataset_ids": [19],
+            "history_interpretation_undo": 7,
+            "raw_history_undo_id": 99,
+            "session_morph_points_3": ["old-point"],
             "_v0151_plot_exact_analysis_ids": ["old"],
             "_pending_destructive_audit_slide_image_3": 3,
             "db_selection_Sample": ["OLD"],
@@ -97,6 +106,16 @@ class ProjectIsolationTests(unittest.TestCase):
             "thin_polygon_55",
             "mixed_dataset",
             "thermodynamics_pressure",
+            "equilibrium_points",
+            "ratio_left",
+            "ternary_interactive_excluded_ids",
+            "loaded_ternary_recipe",
+            "partition_rock_context",
+            "exchange_package_bytes",
+            "compare_dataset_ids",
+            "history_interpretation_undo",
+            "raw_history_undo_id",
+            "session_morph_points_3",
             "_v0151_plot_exact_analysis_ids",
             "_pending_destructive_audit_slide_image_3",
             "db_selection_Sample",
