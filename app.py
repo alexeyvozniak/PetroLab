@@ -13,16 +13,18 @@ from petrolab.ui.pages import (
     render_add_data_page, render_analyses_page, render_analytical_sessions_page,
     render_article_tables_page, render_attention_page, render_batch_edit_page,
     render_calculate_page, render_change_log_page, render_collaboration_page,
-    render_compare_page, render_data_intake_page, render_database_browser_page,
-    render_distribution_page, render_equilibrium_page, render_export_page,
-    render_formulae_page, render_generations_page, render_global_search_page,
-    render_guided_workflow_page, render_help_page, render_home_page, render_images_page,
-    render_measurements_page, render_minerals_page, render_mixed_minerals_page,
+    render_compare_page, render_composite_points_page, render_data_intake_page,
+    render_database_browser_page, render_distribution_page, render_equilibrium_page,
+    render_export_page, render_formulae_page, render_generations_page,
+    render_global_search_page, render_guided_workflow_page, render_help_page,
+    render_home_page, render_images_page, render_measurements_page,
+    render_minerals_page, render_mixed_minerals_page, render_multi_panel_page,
     render_object_workspace_page, render_plots_page, render_projects_page,
     render_publish_page, render_quick_import_page, render_rocks_page,
     render_science_plots_page, render_settings_page, render_slides_page,
     render_sources_page, render_statistics_page, render_ternary_page,
     render_thermobarometry_page, render_thin_section_workspace_page, render_updates_page,
+    render_whole_rock_compare_page,
 )
 from petrolab.ui.release_chrome import apply_release_chrome
 from petrolab.ui.theme import apply_theme
@@ -76,6 +78,8 @@ apply_smart_plot_defaults()
 ROUTES = {
     "home": render_home_page, "search": render_global_search_page,
     "workspace": render_object_workspace_page, "thin_section": render_thin_section_workspace_page,
+    "composite_points": render_composite_points_page, "multi_panel": render_multi_panel_page,
+    "whole_rock_compare": render_whole_rock_compare_page,
     "compare": render_compare_page, "calculate": render_calculate_page, "publish": render_publish_page,
     "workflow": render_guided_workflow_page, "add_data": render_add_data_page,
     "quick_import": render_quick_import_page,
