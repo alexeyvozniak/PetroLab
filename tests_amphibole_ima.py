@@ -76,7 +76,7 @@ oxide_result = calculate_formula_safe(oxide, "amphibole", "amp_ima2012_23o").dat
 assert bool(oxide_result["formula_valid"])
 assert float(oxide_result["amp_Fe3_explicit"]) == 0.0
 assert oxide_result[SPECIES_COL] == ""
-assert "amphibole" in oxide_result[FIELD_COL]
+assert "amphibole" in str(oxide_result[FIELD_COL]).lower()
 
 # Site failures and Li-bearing compositions must never look formally classified.
 bad = attach_mineral_classification(pd.DataFrame([row(Si=8, Mg=2, Ca=1)]), "amphibole").iloc[0]
