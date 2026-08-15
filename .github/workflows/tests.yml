@@ -21,6 +21,11 @@ jobs:
   windows-smoke:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -212,12 +217,7 @@ jobs:
 
       - name: Run science workbench and whole-rock tests
         shell: cmd
-        run: |
-          set OMP_NUM_THREADS=1
-          set MKL_NUM_THREADS=1
-          set OPENBLAS_NUM_THREADS=1
-          set NUMEXPR_NUM_THREADS=1
-          python tests_science_workbench.py
+        run: python tests_science_workbench.py
 
       - name: Run real-browser multi-viewport UI checks
         shell: cmd
