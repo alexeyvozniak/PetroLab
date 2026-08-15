@@ -45,7 +45,7 @@ class WindowsInstallerContractTests(unittest.TestCase):
             'browser.UseShellExecute = true',
             'server.BeginErrorReadLine()',
             'Path.Combine(logDir, "launcher.log")',
-            '@"Local\\PetroLab-Native-Launcher"',
+            '@"Local\PetroLab-Native-Launcher"',
             'TryExistingServer',
             'FindFreePort',
         ]:
