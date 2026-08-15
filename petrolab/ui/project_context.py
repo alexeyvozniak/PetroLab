@@ -78,7 +78,11 @@ _PROJECT_TRANSIENT_PREFIXES = (
     "equilibrium_",
     "ratio_",
     "ternary_",
+    "partition_",
     "exchange_",
+    "compare_",
+    "history_",
+    "raw_history_",
     # Destructive confirmation must never carry into a different project.
     "_pending_destructive_",
     # Import wizards contain dataset/project identities.
