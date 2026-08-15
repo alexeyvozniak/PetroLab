@@ -34,8 +34,10 @@ jobs:
 
       - name: Compile rock workspace paths
         shell: cmd
-        run: python -m compileall -q petrolab/rock_runtime.py petrolab/rock_workspace_model.py petrolab/ui/pages/rock_workspace.py petrolab/ui/pages/v0154_rock_workspace_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_rock_workspace.py
+        run: python -m compileall -q petrolab/rock_runtime.py petrolab/rock_workspace_model.py petrolab/ui/pages/rock_workspace.py petrolab/ui/pages/v0154_rock_workspace_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_rock_workspace.py tests_rock_workspace_hardening.py
 
       - name: Run rock workspace regressions
         shell: cmd
-        run: python tests_rock_workspace.py
+        run: |
+          python tests_rock_workspace.py
+          python tests_rock_workspace_hardening.py
