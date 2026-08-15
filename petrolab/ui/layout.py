@@ -10,12 +10,15 @@ def _escape(value: object) -> str:
     return html.escape(str(value or ""))
 
 
-def _details(text: str, css_class: str, *, label: str = "ⓘ") -> str:
+def _details(text: str, css_class: str, *, label: str = "i") -> str:
     if not text:
         return ""
+    safe_label = _escape(label)
     return (
         f'<details class="{css_class}">'
-        f'<summary title="Подробнее" aria-label="Подробнее">{_escape(label)}</summary>'
+        f'<summary title="Подробнее" aria-label="Подробнее">'
+        f'<span class="petrolab-info-dot" aria-hidden="true">{safe_label}</span>'
+        f'</summary>'
         f'<div>{_escape(text)}</div>'
         "</details>"
     )

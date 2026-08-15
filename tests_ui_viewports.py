@@ -19,9 +19,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 PORT = 8517
-VIEWPORTS = ((1440, 900), (1024, 768), (768, 900), (390, 844))
+# 968x516 повторяет реальное короткое desktop-окно, на котором раньше
+# не срабатывали стандартные landscape/tablet проверки интерфейса.
+VIEWPORTS = ((1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844))
 PAGES = (
     ("home", "Главная"),
+    ("add_data", "Добавить данные"),
     ("workspace", "Рабочий стол"),
     ("thin_section", "Работать со шлифом"),
     ("graphs", "XY-диаграммы"),
@@ -120,6 +123,87 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
         raise
 
 
+def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int, height: int) -> None:
+    geometry = driver.execute_script("""
+        const sidebar = document.querySelector('[data-testid="stSidebar"]');
+        const sidebarRect = sidebar ? sidebar.getBoundingClientRect() : null;
+        const selectors = [
+          '.petrolab-sidebar-brand',
+          '.petrolab-sidebar-version',
+          '.petrolab-nav-section',
+          '[data-testid="stTextInput"]',
+          '[data-testid="stSelectbox"]',
+          '.stButton'
+        ];
+        const nodes = sidebar ? Array.from(sidebar.querySelectorAll(selectors.join(','))) : [];
+        const items = nodes
+          .filter(el => {
+            const style = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            const intersectsViewport =
+              r.right > 0 && r.left < window.innerWidth &&
+              r.bottom > 0 && r.top < window.innerHeight;
+            const intersectsVisibleSidebar = sidebarRect &&
+              r.right > Math.max(0, sidebarRect.left) &&
+              r.left < Math.min(window.innerWidth, sidebarRect.right) &&
+              r.bottom > Math.max(0, sidebarRect.top) &&
+              r.top < Math.min(window.innerHeight, sidebarRect.bottom);
+            // На tablet/mobile Streamlit оставляет свернутый sidebar в DOM и
+            // сдвигает его влево за viewport. Такие элементы не видны пользователю
+            // и не должны считаться пересечением интерфейса.
+            return style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              r.width > 1 && r.height > 1 &&
+              intersectsViewport && intersectsVisibleSidebar;
+          })
+          .map((el, index) => {
+            const r = el.getBoundingClientRect();
+            return {
+              index,
+              tag: el.tagName,
+              cls: el.className || '',
+              text: (el.innerText || '').trim().slice(0, 80),
+              left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+              width: r.width, height: r.height
+            };
+          });
+        const overlaps = [];
+        for (let i = 0; i < items.length; i++) {
+          for (let j = i + 1; j < items.length; j++) {
+            const a = items[i], b = items[j];
+            const horizontal = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            const vertical = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            // Две реально видимые строки оболочки не должны занимать один line-box.
+            // Игнорируем только погрешность округления и почти касающиеся края.
+            if (horizontal > 12 && vertical > 2) overlaps.push({a, b, horizontal, vertical});
+          }
+        }
+        const info = document.querySelector('.petrolab-info-dot');
+        let infoRect = null;
+        if (info) {
+          const r = info.getBoundingClientRect();
+          infoRect = {width: r.width, height: r.height, text: (info.textContent || '').trim()};
+        }
+        const exceptions = Array.from(document.querySelectorAll('[data-testid="stException"]'))
+          .filter(el => el.offsetParent !== null)
+          .map(el => (el.innerText || '').slice(0, 400));
+        return {overlaps, infoRect, exceptions};
+    """)
+    assert not geometry["overlaps"], (
+        f"Sidebar controls overlap on {page_name} at {width}x{height}: "
+        f"{geometry['overlaps'][:4]}"
+    )
+    assert not geometry["exceptions"], (
+        f"Streamlit exception visible on {page_name} at {width}x{height}: {geometry['exceptions']}"
+    )
+    info = geometry.get("infoRect")
+    if info is not None:
+        assert info["text"] == "i", f"Unstable information glyph on {page_name}: {info}"
+        assert 12 <= float(info["width"]) <= 24 and 12 <= float(info["height"]) <= 24, (
+            f"Information icon has unstable geometry on {page_name}: {info}"
+        )
+
+
 def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_name: str, output: Path) -> None:
     driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
     time.sleep(0.8)
@@ -138,6 +222,7 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
     assert metrics["scrollWidth"] <= allowed, f"Global horizontal overflow on {page_name} at {width}x{height}: {metrics}"
     assert metrics["mainWidth"] > 0, f"Main Streamlit container missing on {page_name}"
     assert metrics["mainRight"] <= allowed + 2, f"Main content escapes viewport on {page_name}: {metrics}"
+    _assert_shell_geometry(driver, page_name, width, height)
     output.mkdir(parents=True, exist_ok=True)
     driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 

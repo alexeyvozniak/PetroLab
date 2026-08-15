@@ -113,8 +113,16 @@ def _nav_button(route: str, label: str, current: str, *, prefix: str = "nav") ->
 
 
 def render_sidebar(version: str) -> str:
-    st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
+    # Бренд и версия намеренно находятся в одном HTML-блоке. Так их вертикальная
+    # геометрия рассчитывается браузером как единое целое и не зависит от того,
+    # какую высоту Streamlit заранее выделил двум соседним markdown-элементам.
+    st.markdown(
+        '<div class="petrolab-sidebar-brand-block">'
+        '<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>'
+        f'<div class="petrolab-sidebar-version">v{version} | локальные данные</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     projects = list_projects()
     st.markdown('<div class="petrolab-nav-section">Проект</div>', unsafe_allow_html=True)
