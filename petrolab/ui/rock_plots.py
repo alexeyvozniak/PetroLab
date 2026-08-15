@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+from petrolab.db import dataset_is_accessible
 from petrolab.derived import load_unified_with_derived
 from petrolab.extended_plotting import (
     NORMALIZATION_REFERENCES,
@@ -204,11 +205,24 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             st.info("Добавьте как минимум две числовые изотопные величины у нескольких пород.")
 
     with tab_rhodes:
-        links = list_mineral_links(int(selected_rock["id"]))
-        if not links:
+        all_links = [int(value) for value in list_mineral_links(int(selected_rock["id"]))]
+        if not all_links:
             st.info("Свяжите породу с минералогическим dataset.")
             return
-        minerals = load_unified_with_derived(int(selected_rock["project_id"]), links)
+        accessible_links = [
+            dataset_id for dataset_id in all_links
+            if dataset_is_accessible(int(selected_rock["project_id"]), dataset_id)
+        ]
+        inaccessible_links = sorted(set(all_links) - set(accessible_links))
+        if inaccessible_links:
+            st.warning(
+                "Rhodes не использует datasets, которые больше не подключены к текущему проекту: "
+                + ", ".join(map(str, inaccessible_links[:8]))
+            )
+        if not accessible_links:
+            st.info("Связанные mineral datasets сейчас недоступны в рабочем контексте проекта.")
+            return
+        minerals = load_unified_with_derived(int(selected_rock["project_id"]), accessible_links)
         olivine = (
             minerals[minerals["Минерал"].astype(str).eq("olivine")].copy()
             if "Минерал" in minerals else pd.DataFrame()
@@ -237,11 +251,7 @@ def render_rock_plots(project_id: int, selected_rock: dict) -> None:
             return
         rock_row = pd.DataFrame([{"Rock": selected_rock["name"], "Mg#_rock": mgnum}])
         style = render_figure_style_controls(olivine, key_prefix="rock_rhodes")
-        fig = build_rhodes_figure(
-            rock_row,
-            olivine,
-            **_rock_scatter_style_kwargs(style),
-        )
+        fig = build_rhodes_figure(rock_row, olivine, **_rock_scatter_style_kwargs(style))
         st.pyplot(fig, width="stretch")
         _download_figure(fig, "rhodes_olivine_rock", style, "rock_rhodes")
         kd = measured_olivine_kd(olivine["Fo"], mgnum)
