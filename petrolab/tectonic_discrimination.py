@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from petrolab.column_schema import describe_header
 from petrolab.plotting import _resolve_style
 
 
@@ -78,14 +79,16 @@ TECTONIC_PRESETS: dict[str, TectonicPreset] = {
 
 
 def _element_column(dataframe: pd.DataFrame, element: str) -> str | None:
-    if element in dataframe.columns:
-        return element
+    """Resolve only an explicit concentration column; bare unknown-unit elements are unsafe."""
     wanted = str(element).casefold()
     for column in dataframe.columns:
-        text = str(column)
-        base = text.split(" [", 1)[0].strip().casefold()
-        if base == wanted:
-            return text
+        descriptor = describe_header(column)
+        if descriptor.quantity_kind not in {"trace_element", "element_concentration"}:
+            continue
+        canonical = str(descriptor.canonical_name)
+        base = canonical.split(" [", 1)[0].strip().casefold()
+        if base == wanted and descriptor.canonical_unit:
+            return str(column)
     return None
 
 
@@ -96,7 +99,7 @@ def prepare_tectonic_dataframe(dataframe: pd.DataFrame, preset_id: str) -> pd.Da
     y_col = _element_column(work, "Y")
     nb_col = _element_column(work, "Nb")
     if y_col is None or nb_col is None:
-        raise ValueError("Для диаграммы нужны Y и Nb с распознанными concentration columns")
+        raise ValueError("Для диаграммы нужны Y и Nb с явно распознанными concentration units (например µg/g или ppm)")
     y = pd.to_numeric(work[y_col], errors="coerce")
     nb = pd.to_numeric(work[nb_col], errors="coerce")
     if preset_id == "pearce_y_nb":
@@ -105,7 +108,7 @@ def prepare_tectonic_dataframe(dataframe: pd.DataFrame, preset_id: str) -> pd.Da
     elif preset_id == "pearce_rb_ynb":
         rb_col = _element_column(work, "Rb")
         if rb_col is None:
-            raise ValueError("Для Rb–(Y+Nb) нужны Rb, Y и Nb")
+            raise ValueError("Для Rb–(Y+Nb) нужны Rb, Y и Nb с явно распознанными concentration units")
         rb = pd.to_numeric(work[rb_col], errors="coerce")
         work["_tectonic_x"] = y + nb
         work["_tectonic_y"] = rb
