@@ -43,7 +43,7 @@ def _scenario_card(title: str, note: str, route: str, *, primary: bool = False) 
         st.caption(note)
         if st.button(
             "Открыть",
-            key=f"home_scenario_{route}",
+            key=f"home_{route}",
             type="primary" if primary else "secondary",
             width="stretch",
         ):
