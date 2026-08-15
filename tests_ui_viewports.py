@@ -19,8 +19,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 PORT = 8517
-# 968x516 mirrors a real short desktop/browser window where shell compression bugs
-# previously escaped the standard landscape/tablet checks.
+# 968x516 повторяет реальное короткое desktop-окно, на котором раньше
+# не срабатывали стандартные landscape/tablet проверки интерфейса.
 VIEWPORTS = ((1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844))
 PAGES = (
     ("home", "Главная"),
@@ -126,6 +126,7 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
 def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int, height: int) -> None:
     geometry = driver.execute_script("""
         const sidebar = document.querySelector('[data-testid="stSidebar"]');
+        const sidebarRect = sidebar ? sidebar.getBoundingClientRect() : null;
         const selectors = [
           '.petrolab-sidebar-brand',
           '.petrolab-sidebar-version',
@@ -139,7 +140,21 @@ def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int,
           .filter(el => {
             const style = getComputedStyle(el);
             const r = el.getBoundingClientRect();
-            return style.display !== 'none' && style.visibility !== 'hidden' && r.width > 1 && r.height > 1;
+            const intersectsViewport =
+              r.right > 0 && r.left < window.innerWidth &&
+              r.bottom > 0 && r.top < window.innerHeight;
+            const intersectsVisibleSidebar = sidebarRect &&
+              r.right > Math.max(0, sidebarRect.left) &&
+              r.left < Math.min(window.innerWidth, sidebarRect.right) &&
+              r.bottom > Math.max(0, sidebarRect.top) &&
+              r.top < Math.min(window.innerHeight, sidebarRect.bottom);
+            // На tablet/mobile Streamlit оставляет свернутый sidebar в DOM и
+            // сдвигает его влево за viewport. Такие элементы не видны пользователю
+            // и не должны считаться пересечением интерфейса.
+            return style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              r.width > 1 && r.height > 1 &&
+              intersectsViewport && intersectsVisibleSidebar;
           })
           .map((el, index) => {
             const r = el.getBoundingClientRect();
@@ -158,8 +173,8 @@ def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int,
             const a = items[i], b = items[j];
             const horizontal = Math.min(a.right, b.right) - Math.max(a.left, b.left);
             const vertical = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-            // Shell rows should never occupy the same visible line box.  Ignore tiny
-            // anti-alias/rounding intersections and elements that barely touch sideways.
+            // Две реально видимые строки оболочки не должны занимать один line-box.
+            // Игнорируем только погрешность округления и почти касающиеся края.
             if (horizontal > 12 && vertical > 2) overlaps.push({a, b, horizontal, vertical});
           }
         }
