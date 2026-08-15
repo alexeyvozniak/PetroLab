@@ -1,0 +1,38 @@
+name: Science workbench diagnostic
+
+on:
+  push:
+    branches:
+      - "feature/final-workflows-thin-section-search"
+
+jobs:
+  science-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+      - name: Install exact Windows verification dependencies
+        shell: cmd
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
+      - name: Capture package versions
+        shell: cmd
+        run: python -m pip freeze > science-packages.log
+      - name: Run science workbench with captured output
+        shell: cmd
+        run: python tests_science_workbench.py > science-workbench.log 2>&1
+      - name: Upload diagnostic output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: science-workbench-diagnostic
+          path: |
+            science-workbench.log
+            science-packages.log
+          if-no-files-found: error
