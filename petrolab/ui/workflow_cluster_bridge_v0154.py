@@ -5,6 +5,7 @@ import streamlit as st
 
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
+from petrolab.ui import universal_intake_extensions as _extensions
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui import workflow_continuity_v0154 as _flow
@@ -61,6 +62,17 @@ def _chemistry_entry_route(route: str, chemical_mode: bool) -> str:
 def render_add_data_page_v0154_bridge() -> None:
     """Перенаправить кнопку «Исследовать химию» с одиночного XY сразу на мультипанель."""
     original_navigate = _flow.navigate
+    original_flow_batch_token = _flow._batch_token
+    project_id = active_project_id()
+    original_extension_batch_token = _extensions._batch_token
+
+    # После синхронизации с новым intake transient-ключи изображений разделены по проектам.
+    # Textural zone должна вычислять тот же ключ, иначе фото и выбранные точки окажутся в разных state-ветках.
+    if project_id is not None:
+        def scoped_flow_batch_token(image_files: list[tuple[str, bytes]]) -> str:
+            return f"p{int(project_id)}_{original_extension_batch_token(image_files)}"
+
+        _flow._batch_token = scoped_flow_batch_token
 
     def navigate_from_import(route: str) -> None:
         target = _chemistry_entry_route(
@@ -80,6 +92,33 @@ def render_add_data_page_v0154_bridge() -> None:
         _flow.render_add_data_page_v0154()
     finally:
         _flow.navigate = original_navigate
+        _flow._batch_token = original_flow_batch_token
+
+
+def _render_multi_panel_with_texture() -> None:
+    """Сохранить новый Textural zone поверх актуальной публикационной мультипанели, если она уже есть."""
+    from petrolab.ui.pages import multi_panel as _multi
+
+    try:
+        from petrolab.ui.pages import v0152_publication_wrappers as _publication
+    except ImportError:
+        _publication = None
+
+    if _publication is None:
+        _flow.render_multi_panel_page_v0154()
+        return
+
+    original_raw = _multi._raw_dataframe
+
+    def raw_with_texture(project_id: int):
+        dataframe, dataset_ids = original_raw(project_id)
+        return _flow.overlay_textural_zone(dataframe), dataset_ids
+
+    _multi._raw_dataframe = raw_with_texture
+    try:
+        _publication.render_multi_panel_page()
+    finally:
+        _multi._raw_dataframe = original_raw
 
 
 def render_multi_panel_page_v0154_bridge() -> None:
@@ -89,7 +128,7 @@ def render_multi_panel_page_v0154_bridge() -> None:
     if notice:
         st.success(str(notice))
 
-    _flow.render_multi_panel_page_v0154()
+    _render_multi_panel_with_texture()
 
     if not chemical_mode:
         return
