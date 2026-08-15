@@ -1,4 +1,4 @@
-name: v0.15.4 universal staging import
+name: Universal staging import verification
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
           tests_rock_staging_v0154.py
           tests_source_visibility_v0154.py
 
-      - name: Run v0.15.4 staging regressions
+      - name: Run staging regressions
         shell: cmd
         run: |
           python tests_import_staging.py
