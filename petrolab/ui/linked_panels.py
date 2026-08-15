@@ -168,7 +168,9 @@ def build_linked_panel_figure(
                 hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
                 selectedpoints=selectedpoints,
                 marker={"size": 8, "opacity": 0.88, "color": colors.get(group_name)},
-                selected={"marker": {"size": 12, "opacity": 1.0, "line": {"width": 2, "color": "black"}}},
+                # Scattergl позволяет для выбранных точек менять размер, цвет и прозрачность,
+                # но не поддерживает отдельную обводку внутри selected.marker.
+                selected={"marker": {"size": 13, "opacity": 1.0, "color": colors.get(group_name)}},
                 unselected={"marker": {"opacity": 0.18}} if selected else None,
             )
             figure.add_trace(trace, row=row, col=col)
