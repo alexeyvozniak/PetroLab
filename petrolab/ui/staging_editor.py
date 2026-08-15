@@ -37,6 +37,14 @@ def _state_key(token: str, sheet: str) -> str:
     return f"staging_frame_{token}_{sheet}"
 
 
+def _source_signature_key(token: str, sheet: str) -> str:
+    return f"staging_source_signature_{token}_{sheet}"
+
+
+def _source_signature(dataframe: pd.DataFrame) -> tuple[int, tuple[str, ...]]:
+    return len(dataframe), tuple(str(column) for column in dataframe.columns)
+
+
 def _selection_key(token: str, sheet: str) -> str:
     return f"staging_selection_{token}_{sheet}"
 
@@ -44,14 +52,23 @@ def _selection_key(token: str, sheet: str) -> str:
 def _reset_frame(token: str, sheet: str, dataframe: pd.DataFrame) -> pd.DataFrame:
     key = _state_key(token, sheet)
     st.session_state[key] = dataframe.copy()
+    st.session_state[_source_signature_key(token, sheet)] = _source_signature(dataframe)
     st.session_state.pop(_selection_key(token, sheet), None)
     return st.session_state[key]
 
 
 def _current_frame(token: str, sheet: str, dataframe: pd.DataFrame) -> pd.DataFrame:
     key = _state_key(token, sheet)
+    signature_key = _source_signature_key(token, sheet)
+    signature = _source_signature(dataframe)
+    # Compare only the immutable source signature. The working staging frame is allowed
+    # to change length and columns after block fill or custom-field assignment.
+    if st.session_state.get(signature_key) != signature:
+        st.session_state[key] = dataframe.copy()
+        st.session_state[signature_key] = signature
+        st.session_state.pop(_selection_key(token, sheet), None)
     stored = st.session_state.get(key)
-    if not isinstance(stored, pd.DataFrame) or list(stored.columns) != list(dataframe.columns) or len(stored) != len(dataframe):
+    if not isinstance(stored, pd.DataFrame):
         st.session_state[key] = dataframe.copy()
     return st.session_state[key].copy()
 
