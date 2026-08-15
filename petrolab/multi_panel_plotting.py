@@ -108,10 +108,13 @@ def build_multi_panel_scatter(
         for index in range(len(valid), nrows * ncols):
             axes.flat[index].axis("off")
         if show_legend and legend_handles:
+            # bbox_to_anchor is supported by older Matplotlib versions used by some
+            # Windows installations, unlike the newer "outside upper center" loc syntax.
             fig.legend(
                 legend_handles,
                 legend_labels,
-                loc="outside upper center",
+                loc="upper center",
+                bbox_to_anchor=(0.5, 1.01),
                 ncol=min(5, max(1, len(legend_labels))),
                 frameon=False,
             )
