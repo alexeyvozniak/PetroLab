@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+
 import streamlit as st
 
+from petrolab.plotting import figure_png_bytes
 from petrolab.publication_composer import LABEL_MODE_TITLES, default_panel_label, panel_label_sequence
+from petrolab.ui.navigation import navigate
 
 from . import multi_panel as _multi
 from .v0151_wrappers import render_multi_panel_page as _render_v0151_multi_panel_page
@@ -90,16 +94,43 @@ def _panel_label_controls(panel_count: int) -> list[dict]:
     return labels
 
 
+def _send_current_figure_to_composer(figure) -> None:
+    content = figure_png_bytes(figure, 600)
+    digest = hashlib.sha256(content).hexdigest()[:20]
+    source = {
+        "source_id": f"generated:multi_panel:{digest}",
+        "source_name": "Multi-panel PetroLab",
+        "group": "Графики PetroLab",
+        "note": "",
+        "image_bytes": content,
+    }
+    inbox = list(st.session_state.get("publication_composer_inbox", []))
+    existing = {str(item.get("source_id")) for item in inbox if isinstance(item, dict)}
+    if source["source_id"] not in existing:
+        inbox.append(source)
+    st.session_state["publication_composer_inbox"] = inbox
+    navigate("publication_composer")
+    st.rerun()
+
+
 def render_multi_panel_page() -> None:
     original_build = _multi.build_multi_panel_scatter
     original_section_header = _multi.render_section_header
     label_state: dict[str, list[dict]] = {}
+    figure_state: dict[str, object] = {}
 
     def section_header_with_labels(title: str, subtitle: str = "") -> None:
         original_section_header(title, subtitle)
         if title == "Панели":
             panel_count = int(st.session_state.get("multi_panel_count", 4) or 4)
             label_state["labels"] = _panel_label_controls(panel_count)
+        elif title == "Экспорт" and figure_state.get("figure") is not None:
+            if st.button(
+                "Добавить этот рисунок в редактор мультипанели",
+                key="multi_panel_send_to_publication_composer",
+                width="stretch",
+            ):
+                _send_current_figure_to_composer(figure_state["figure"])
 
     def build_with_labels(dataframe, panels, **kwargs):
         labels = label_state.get("labels")
@@ -114,7 +145,9 @@ def render_multi_panel_page() -> None:
             if index < len(labels):
                 item["panel_label"] = labels[index]
             prepared.append(item)
-        return original_build(dataframe, prepared, **kwargs)
+        figure = original_build(dataframe, prepared, **kwargs)
+        figure_state["figure"] = figure
+        return figure
 
     _multi.render_section_header = section_header_with_labels
     _multi.build_multi_panel_scatter = build_with_labels
