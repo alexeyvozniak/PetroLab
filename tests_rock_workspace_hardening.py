@@ -30,10 +30,18 @@ def main() -> None:
             link_dataset_to_project,
             unlink_dataset_from_project,
         )
-        from petrolab.repositories.rock_repository import create_rock, get_composition, set_mineral_links
+        from petrolab.repositories.rock_repository import (
+            create_rock,
+            get_composition,
+            get_rock,
+            replace_isotopes,
+            set_mineral_links,
+            update_rock,
+        )
         from petrolab.rock_workspace_model import rock_workspace_snapshot
         from petrolab.services.rock_service import import_rocks_wide
         from petrolab.storage import ensure_storage
+        from petrolab.ui.pages.whole_rock_compare import _apply_plot_groups
 
         ensure_storage()
         project_id = create_project("Rock hardening", "")
@@ -110,7 +118,49 @@ def main() -> None:
         assert float(after_failure.loc["SiO2", "value"]) == 45.0
         assert after_failure.loc["SiO2", "source"] == "major.xlsx"
 
-        del snapshot, orphaned, composition, after_failure
+        # All numeric rock metadata/isotope values share one finite-number boundary.
+        old_age = get_rock(rock_id)["age_ma"]
+        _expect_value_error(lambda: update_rock(rock_id, age_ma=np.inf), "должно быть конечным")
+        assert get_rock(rock_id)["age_ma"] == old_age
+        _expect_value_error(
+            lambda: replace_isotopes(
+                rock_id,
+                pd.DataFrame([{
+                    "system": "Sr", "ratio_name": "87Sr/86Sr", "value": np.inf,
+                    "uncertainty": 0.00002, "initial_value": None, "age_ma_used": 380.0,
+                    "method": "TIMS", "laboratory": "Lab", "source": "bad", "notes": "",
+                }]),
+            ),
+            "должно быть конечным",
+        )
+        no_iso = rock_workspace_snapshot(project_id, rock_id)
+        assert no_iso.isotope_systems == ()
+
+        # A deliberately incomplete isotope row is visible as incomplete, not as a
+        # false positive isotope-system badge.
+        replace_isotopes(
+            rock_id,
+            pd.DataFrame([{
+                "system": "Sr", "ratio_name": "87Sr/86Sr", "value": None,
+                "uncertainty": None, "initial_value": None, "age_ma_used": None,
+                "method": "TIMS", "laboratory": "Lab", "source": "draft", "notes": "",
+            }]),
+        )
+        incomplete_iso = rock_workspace_snapshot(project_id, rock_id)
+        assert incomplete_iso.isotope_systems == ()
+        assert any("87Sr/86Sr" in warning and "конечного" in warning for warning in incomplete_iso.warnings)
+
+        # Focus is presentation metadata only: it must never overwrite provenance.
+        plot_frame = pd.DataFrame({
+            "_rock_id": [rock_id, rock_id + 1],
+            "Rock": ["R1", "Literature 1"],
+            "Источник данных": ["major.xlsx | trace.xlsx", "Smith et al. 2024"],
+        })
+        grouped = _apply_plot_groups(plot_frame, [rock_id])
+        assert grouped["Источник данных"].tolist() == plot_frame["Источник данных"].tolist()
+        assert grouped["_rock_plot_group"].tolist() == ["★ R1", "Smith et al. 2024"]
+
+        del snapshot, orphaned, composition, after_failure, no_iso, incomplete_iso, grouped
         gc.collect()
 
     print("rock workspace hardening tests: OK")
