@@ -12,6 +12,7 @@ from petrolab.textural_runtime import (
     SOURCE_TEXTURAL_ZONE_COLUMN,
     TEXTURAL_ZONE_COLUMN,
 )
+from petrolab.ui.workflow_cluster_bridge_v0154 import _chemistry_entry_route
 from petrolab.ui.workflow_continuity_v0154 import (
     apply_persistent_selection_to_figure,
     overlay_textural_zone,
@@ -76,6 +77,15 @@ class PersistentChemicalSelectionTests(unittest.TestCase):
         ))
         apply_persistent_selection_to_figure(figure, ["outside"])
         self.assertIsNone(figure.data[0].selectedpoints)
+
+
+class ChemistryEntryRouteTests(unittest.TestCase):
+    def test_chemical_research_starts_from_multi_panel(self) -> None:
+        self.assertEqual(_chemistry_entry_route("plots", True), "multi_panel")
+
+    def test_regular_xy_navigation_is_not_rewritten(self) -> None:
+        self.assertEqual(_chemistry_entry_route("plots", False), "plots")
+        self.assertEqual(_chemistry_entry_route("statistics", True), "statistics")
 
 
 if __name__ == "__main__":
