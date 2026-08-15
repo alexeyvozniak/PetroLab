@@ -31,6 +31,7 @@ from .plots_dashboard import render_plots_dashboard_page as render_plots_page
 from .projects import render_projects_page
 from .publication_composer import render_publication_composer_page
 from .quick_import import render_quick_import_page
+from .rock_workspace import render_rock_workspace_page
 from .rocks import render_rocks_page
 from .scenario_hubs import render_calculate_page, render_compare_page, render_publish_page
 from .science_plots import render_science_plots_page
@@ -63,6 +64,10 @@ from .v0152_publication_wrappers import render_multi_panel_page
 # route while leaving publication and multi-panel wrappers intact.
 from .v0153_grain_profile_wrappers import render_global_search_page
 
+# v0.15.5 keeps the mature rock editor intact while letting the object workspace
+# open the exact rock selected by the user.
+from .v0154_rock_workspace_wrappers import render_rocks_page
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",
@@ -75,8 +80,8 @@ __all__ = [
     "render_minerals_page", "render_mixed_minerals_page", "render_multi_panel_page",
     "render_object_workspace_page", "render_plots_page", "render_projects_page",
     "render_publication_composer_page", "render_publish_page", "render_quick_import_page",
-    "render_rocks_page", "render_science_plots_page", "render_settings_page",
-    "render_slides_page", "render_sources_page", "render_statistics_page",
+    "render_rock_workspace_page", "render_rocks_page", "render_science_plots_page",
+    "render_settings_page", "render_slides_page", "render_sources_page", "render_statistics_page",
     "render_ternary_page", "render_thermobarometry_page",
     "render_thin_section_workspace_page", "render_updates_page",
     "render_whole_rock_compare_page",

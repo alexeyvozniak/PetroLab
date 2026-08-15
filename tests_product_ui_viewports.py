@@ -48,7 +48,9 @@ def _wait_for_page_content(driver: webdriver.Chrome, expected: tuple[str, ...], 
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_product_ui_") as tmp:
+    # Windows may retain the SQLite handle briefly after the Streamlit process exits.
+    # Cleanup must never turn an otherwise successful browser regression into a false red.
+    with tempfile.TemporaryDirectory(prefix="petrolab_product_ui_", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         _seed(root)
         output = Path(os.environ.get("PETROLAB_PRODUCT_VIEWPORT_ARTIFACTS", "product_viewport_artifacts"))
