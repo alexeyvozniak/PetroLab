@@ -49,6 +49,7 @@ jobs:
           petrolab/ui/staged_intake.py
           petrolab/ui/source_controls.py
           petrolab/ui/workflow_continuity_v0154.py
+          petrolab/ui/workflow_cluster_bridge_v0154.py
           petrolab/ui/pages/__init__.py
           petrolab/ui/pages/rocks_v0154.py
           petrolab/ui/pages/v0151_intake_wrappers.py
