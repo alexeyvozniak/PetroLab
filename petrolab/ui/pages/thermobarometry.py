@@ -26,7 +26,13 @@ from petrolab.thermodynamics import (
     method_by_id,
     save_thermodynamic_run,
 )
-from petrolab.thermobarometry import QC_FAIL, QC_INSUFFICIENT_INPUT, QC_PASS, QC_WARNING, list_runs as list_legacy_runs
+from petrolab.thermobarometry import (
+    QC_FAIL,
+    QC_INSUFFICIENT_INPUT,
+    QC_PASS,
+    QC_WARNING,
+    list_runs as list_legacy_runs,
+)
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project_id
 
@@ -41,6 +47,7 @@ _MODE_LABELS = {
     MODE_SINGLE_MINERAL: "Мономинеральные",
     MODE_MINERAL_MELT: "Минерал–расплав",
 }
+_CONTEXT_TOKEN_KEY = "_thermodynamics_context_token"
 
 
 def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
@@ -55,6 +62,27 @@ def _method_label(method_id: str) -> str:
 def _candidate_method_ids(datasets: list[dict]) -> list[str]:
     minerals = {str(item.get("mineral_key") or "") for item in datasets}
     return [method.method_id for method in METHODS if method.mineral_key in minerals]
+
+
+def _incoming_context() -> tuple[list[int], set[str]]:
+    dataset_ids = [
+        int(value) for value in st.session_state.get("thermodynamics_workspace_dataset_ids", [])
+        if value is not None
+    ]
+    analysis_ids = {
+        str(value) for value in st.session_state.get("thermodynamics_workspace_analysis_ids", [])
+        if str(value)
+    }
+    return list(dict.fromkeys(dataset_ids)), analysis_ids
+
+
+def _clear_incoming_context() -> None:
+    st.session_state.pop("thermodynamics_workspace_dataset_ids", None)
+    st.session_state.pop("thermodynamics_workspace_analysis_ids", None)
+    st.session_state.pop(_CONTEXT_TOKEN_KEY, None)
+    st.session_state.pop("thermodynamics_limit_incoming", None)
+    st.session_state.pop("thermodynamics_datasets", None)
+    st.session_state.pop("thermodynamics_selection_mode", None)
 
 
 def _filtered_source(project_id: int, dataset_ids: list[int], mineral_key: str, query: str) -> pd.DataFrame:
@@ -111,8 +139,8 @@ def _point_selection(source: pd.DataFrame) -> pd.DataFrame:
 def _melt_editor() -> dict[str, float]:
     st.markdown("#### Представительный состав расплава")
     st.caption(
-        "Сейчас PetroLab применяет один явно заданный состав расплава ко всем выбранным olivine. "
-        "Автоматический перебор всех mineral–melt пар намеренно не выполняется."
+        "Один явно заданный состав расплава применяется ко всем выбранным olivine. "
+        "Автоматический перебор mineral–melt пар намеренно не выполняется."
     )
     fields = ("SiO2", "TiO2", "Al2O3", "FeOt", "MnO", "MgO", "CaO", "Na2O", "K2O", "H2O")
     values: dict[str, float] = {}
@@ -153,7 +181,8 @@ def _method_assumptions(method_id: str) -> tuple[dict, dict | None]:
         )
         if not assumptions["assemblage_confirmed"]:
             st.warning(
-                "Без этого подтверждения PetroLab покажет диагностическое P, но сохранит результат со статусом WARNING, а не PASS."
+                "Без подтверждения строгой области применимости PetroLab покажет диагностическое P, "
+                "но сохранит результат как WARNING, а не PASS."
             )
     elif method_id == FERRY_WATSON_2007_TI_ZIRCON.method_id:
         c1, c2 = st.columns(2)
@@ -242,7 +271,8 @@ def _run_history(project_id: int) -> None:
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(520, 70 + 34 * len(rows)))
         st.caption(
-            "Расчёты привязаны к immutable _analysis_id и отпечаткам исходной химии. После изменения входной химии старый run сохраняется как история, но перестаёт считаться актуальным."
+            "Расчёты привязаны к immutable _analysis_id и отпечаткам исходной химии. "
+            "После изменения входной химии старый run сохраняется как история, но перестаёт считаться актуальным."
         )
 
 
@@ -264,11 +294,39 @@ def render_thermobarometry_page() -> None:
         _run_history(project_id)
         return
 
-    method_ids = _candidate_method_ids(datasets)
+    requested_dataset_ids, requested_analysis_ids = _incoming_context()
+    accessible_ids = {int(item["id"]) for item in datasets}
+    requested_dataset_ids = [value for value in requested_dataset_ids if value in accessible_ids]
+    context_datasets = [item for item in datasets if int(item["id"]) in requested_dataset_ids]
+    method_scope = context_datasets or datasets
+    method_ids = _candidate_method_ids(method_scope)
+    if not method_ids:
+        method_ids = _candidate_method_ids(datasets)
     if not method_ids:
         st.info("Для минералов активного проекта пока нет зарегистрированных термодинамических калибровок.")
         _run_history(project_id)
         return
+
+    if requested_dataset_ids or requested_analysis_ids:
+        with st.container(border=True):
+            st.markdown("**Получен отбор из рабочего стола / карточки анализа**")
+            st.caption(
+                f"Наборов: {len(requested_dataset_ids) if requested_dataset_ids else 'не задано'} · "
+                f"точек: {len(requested_analysis_ids) if requested_analysis_ids else 'весь объект'}. "
+                "Можно сохранить этот точный отбор или отключить ограничение ниже."
+            )
+            c1, c2 = st.columns([3, 1])
+            limit_incoming = c1.checkbox(
+                "Ограничить расчёт исходным отбором точек",
+                value=True,
+                key="thermodynamics_limit_incoming",
+                disabled=not requested_analysis_ids,
+            )
+            if c2.button("Сбросить отбор", width="stretch", key="thermodynamics_clear_context"):
+                _clear_incoming_context()
+                st.rerun()
+    else:
+        limit_incoming = False
 
     render_badges([
         ("Мономинеральные", "accent"),
@@ -278,16 +336,26 @@ def render_thermobarometry_page() -> None:
         ("Исходная химия read-only", "success"),
     ])
 
-    render_section_header("1. Метод", "Показываются только калибровки для минералов, которые есть в активном проекте")
-    kind_options = [kind for kind in (KIND_TEMPERATURE, KIND_PRESSURE, KIND_FUGACITY) if any(method_by_id(mid).parameter_kind == kind for mid in method_ids)]
+    render_section_header("1. Метод", "Показываются только калибровки для минералов текущего контекста")
+    kind_options = [
+        kind for kind in (KIND_TEMPERATURE, KIND_PRESSURE, KIND_FUGACITY)
+        if any(method_by_id(mid).parameter_kind == kind for mid in method_ids)
+    ]
+    preferred_kind = method_by_id(method_ids[0]).parameter_kind
+    current_kind = st.session_state.get("thermodynamics_kind")
+    if current_kind not in kind_options:
+        st.session_state["thermodynamics_kind"] = preferred_kind
     kind = st.segmented_control(
         "Что считать",
         kind_options,
-        default=kind_options[0],
+        default=preferred_kind,
         format_func=lambda value: _KIND_LABELS[value],
         key="thermodynamics_kind",
-    ) or kind_options[0]
+    ) or preferred_kind
     filtered_methods = [mid for mid in method_ids if method_by_id(mid).parameter_kind == kind]
+    current_method = st.session_state.get("thermodynamics_method")
+    if current_method not in filtered_methods:
+        st.session_state["thermodynamics_method"] = filtered_methods[0]
     method_id = st.selectbox(
         "Калибровка",
         filtered_methods,
@@ -300,10 +368,28 @@ def render_thermobarometry_page() -> None:
     render_section_header("2. Данные", f"Минерал: {method.mineral_key} · режим: {_MODE_LABELS[method.input_mode]}")
     candidate_datasets = [item for item in datasets if str(item.get("mineral_key") or "") == method.mineral_key]
     labels = {dataset_label(item): int(item["id"]) for item in candidate_datasets}
+    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_dataset_ids]
+    context_token = (
+        tuple(sorted(requested_dataset_ids)),
+        tuple(sorted(requested_analysis_ids)),
+        method.mineral_key,
+    )
+    if (requested_dataset_ids or requested_analysis_ids) and st.session_state.get(_CONTEXT_TOKEN_KEY) != context_token:
+        st.session_state[_CONTEXT_TOKEN_KEY] = context_token
+        if requested_labels:
+            st.session_state["thermodynamics_datasets"] = requested_labels
+        else:
+            st.session_state.pop("thermodynamics_datasets", None)
+        st.session_state["thermodynamics_selection_mode"] = "Все отфильтрованные"
+    current_dataset_labels = st.session_state.get("thermodynamics_datasets")
+    if isinstance(current_dataset_labels, list):
+        valid_dataset_labels = [value for value in current_dataset_labels if value in labels]
+        if valid_dataset_labels != current_dataset_labels:
+            st.session_state["thermodynamics_datasets"] = valid_dataset_labels or (requested_labels or list(labels))
     selected_labels = st.multiselect(
         "Наборы",
         list(labels),
-        default=list(labels),
+        default=requested_labels or list(labels),
         key="thermodynamics_datasets",
     )
     if not selected_labels:
@@ -316,6 +402,9 @@ def render_thermobarometry_page() -> None:
         key="thermodynamics_search",
     )
     source = _filtered_source(project_id, dataset_ids, method.mineral_key, query)
+    if requested_analysis_ids and limit_incoming and "_analysis_id" in source.columns:
+        source = source[source["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
+        st.caption(f"Точный входной контекст: {len(source)} подходящих точек для выбранного метода.")
     if source.empty or "_analysis_id" not in source.columns:
         st.warning("В текущем отборе нет подходящих анализов со стабильным _analysis_id.")
         _run_history(project_id)
