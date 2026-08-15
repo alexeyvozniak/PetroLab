@@ -196,6 +196,12 @@ jobs:
         shell: cmd
         run: python tests_ternary_overlays.py
 
+      - name: Reset transient artifacts before science workbench
+        shell: cmd
+        run: |
+          git reset --hard HEAD
+          git clean -fdx
+
       - name: Run science workbench and whole-rock tests
         shell: cmd
         run: python tests_science_workbench.py
