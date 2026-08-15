@@ -42,6 +42,17 @@ from .thin_section_workspace import render_thin_section_workspace_page
 from .updates import render_updates_page
 from .whole_rock_compare import render_whole_rock_compare_page
 
+# v0.15.1 wrappers keep exact selections persistent across Streamlit reruns and
+# expose explicit marker↔physical-point identity controls. They wrap, rather than
+# fork, the established page implementations above.
+from .v0151_wrappers import (
+    render_composite_points_page,
+    render_global_search_page,
+    render_multi_panel_page,
+    render_plots_page,
+    render_thin_section_workspace_page,
+)
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",
