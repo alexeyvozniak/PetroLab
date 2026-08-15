@@ -1,4 +1,4 @@
-__version__ = "0.15.0"
+__version__ = "0.15.1"
 
 from .measurement_policy import install as _install_measurement_policy
 _install_measurement_policy()
@@ -23,3 +23,7 @@ del _install_formula_policy
 from .rock_runtime import install as _install_rock_runtime
 _install_rock_runtime()
 del _install_rock_runtime
+
+from .physical_point_safety import install as _install_physical_point_safety
+_install_physical_point_safety()
+del _install_physical_point_safety

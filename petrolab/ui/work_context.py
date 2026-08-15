@@ -126,17 +126,77 @@ def list_recent_work_contexts(project_id: int, limit: int = 4) -> list[dict[str,
     return result
 
 
+def _table_exists(con, name: str) -> bool:
+    return bool(con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (str(name),)
+    ).fetchone())
+
+
+def _thin_section_analysis_ids(project_id: int, thin_section_id: int) -> set[str]:
+    """Resolve explicit links for a thin section; never broaden to the whole Sample."""
+    result: set[str] = set()
+    with connect() as con:
+        if _table_exists(con, "physical_point_analysis_links") and _table_exists(con, "physical_entities"):
+            rows = con.execute(
+                """SELECT l.analysis_id
+                   FROM physical_point_analysis_links l
+                   JOIN physical_entities e ON e.id=l.entity_id
+                   WHERE e.project_id=? AND e.parent_id=?""",
+                (int(project_id), int(thin_section_id)),
+            ).fetchall()
+            result.update(str(row["analysis_id"]) for row in rows)
+        if all(_table_exists(con, name) for name in (
+            "slide_images", "slide_markers", "slide_marker_analysis_links"
+        )):
+            rows = con.execute(
+                """SELECT ml.analysis_id
+                   FROM slide_marker_analysis_links ml
+                   JOIN slide_markers m ON m.id=ml.marker_id
+                   JOIN slide_images i ON i.id=m.slide_image_id
+                   WHERE m.project_id=? AND i.thin_section_id=?""",
+                (int(project_id), int(thin_section_id)),
+            ).fetchall()
+            result.update(str(row["analysis_id"]) for row in rows)
+    return result
+
+
+def _sample_name_for_id(project_id: int, sample_id: int) -> str:
+    with connect() as con:
+        if not _table_exists(con, "samples"):
+            return ""
+        row = con.execute(
+            "SELECT name FROM samples WHERE id=? AND project_id=?",
+            (int(sample_id), int(project_id)),
+        ).fetchone()
+    return str(row["name"]) if row else ""
+
+
 def filter_dataframe_to_context(dataframe: pd.DataFrame, context: dict[str, Any] | None) -> pd.DataFrame:
+    """Apply every available context selector as an intersection, never first-match wins."""
     if dataframe.empty or not context:
         return dataframe
+    result = dataframe.copy()
+    project_id = int(context.get("project_id", -1))
+
     analysis_ids = {str(value) for value in context.get("analysis_ids", []) if str(value)}
-    if analysis_ids and "_analysis_id" in dataframe.columns:
-        return dataframe[dataframe["_analysis_id"].astype(str).isin(analysis_ids)].copy()
+    if analysis_ids and "_analysis_id" in result.columns:
+        result = result[result["_analysis_id"].astype(str).isin(analysis_ids)].copy()
+
     dataset_ids = {int(value) for value in context.get("dataset_ids", [])}
-    if dataset_ids and "_dataset_id" in dataframe.columns:
-        numeric = pd.to_numeric(dataframe["_dataset_id"], errors="coerce")
-        return dataframe[numeric.isin(dataset_ids)].copy()
+    if dataset_ids and "_dataset_id" in result.columns:
+        numeric = pd.to_numeric(result["_dataset_id"], errors="coerce")
+        result = result[numeric.isin(dataset_ids)].copy()
+
+    thin_section_id = context.get("thin_section_id")
+    if thin_section_id is not None and "_analysis_id" in result.columns:
+        linked_ids = _thin_section_analysis_ids(project_id, int(thin_section_id))
+        # An empty explicit link set means the thin section has no linked analyses yet.
+        # Returning all analyses from its Sample would be a scientifically unsafe broadening.
+        result = result[result["_analysis_id"].astype(str).isin(linked_ids)].copy()
+
     sample = str(context.get("sample") or "").strip()
-    if sample and "Sample" in dataframe.columns:
-        return dataframe[dataframe["Sample"].astype(str).str.casefold() == sample.casefold()].copy()
-    return dataframe
+    if not sample and context.get("sample_id") is not None and project_id >= 0:
+        sample = _sample_name_for_id(project_id, int(context["sample_id"]))
+    if sample and "Sample" in result.columns:
+        result = result[result["Sample"].astype(str).str.casefold() == sample.casefold()].copy()
+    return result

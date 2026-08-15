@@ -72,6 +72,17 @@ def _row_count(dataset_id: int) -> int:
     return int(dataset.get("row_count") or 0) if dataset else 0
 
 
+def _assert_dataset_in_project(project_id: int, dataset_id: int) -> None:
+    """Refuse stale/cross-project IDs before any automatic row movement occurs."""
+    with connect() as con:
+        row = con.execute(
+            "SELECT 1 FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
+            (int(project_id), int(dataset_id)),
+        ).fetchone()
+    if not row:
+        raise ValueError("Dataset не входит в рабочий контекст этого проекта")
+
+
 def _mark_auto_annotations(analysis_ids: list[str]) -> None:
     if not analysis_ids:
         return
@@ -120,6 +131,7 @@ def _calculate_default_formula(dataset_id: int) -> tuple[bool, int, str]:
 
 
 def auto_process_dataset(project_id: int, dataset_id: int) -> AutoDatasetReport:
+    _assert_dataset_in_project(int(project_id), int(dataset_id))
     dataset = get_dataset(int(dataset_id))
     if not dataset:
         raise ValueError("Импортированный dataset не найден")
