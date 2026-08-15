@@ -123,7 +123,9 @@ assert fsp_r[SPECIES_COL] == "albite"
 assert fsp_r[FIELD_COL] == "Albite"
 assert "Gündüz" in fsp_r[METHOD_COL]
 
-# Until full Locock-style site allocation is validated, amphibole must refuse a guessed species.
+# Amphibole now exposes conservative IMA site/subgroup diagnostics, but routine
+# EPMA without independently supplied Fe3+ or W-site H/O must still refuse a
+# formal species name.
 amp = pd.DataFrame([{
     "SiO2": 45.0,
     "Al2O3": 10.0,
@@ -134,11 +136,15 @@ amp = pd.DataFrame([{
     "FeO": 12.0,
 }])
 amp_r = calculate_formula_safe(amp, "amphibole", "amp_ima2012_23o").data.iloc[0]
+assert bool(amp_r["formula_valid"])
 assert amp_r[SPECIES_COL] == ""
-assert "formal species not yet assigned" in amp_r[FIELD_COL]
-assert amp_r[LEVEL_COL] == "insufficient for formal IMA species"
-assert "A/B/C/T/W" in amp_r[NOTE_COL]
+assert "amphibole" in str(amp_r[FIELD_COL]).lower()
+assert "IMA 2012" in amp_r[LEVEL_COL]
+assert float(amp_r["amp_Fe3_explicit"]) == 0.0
+assert "Formal amphibole species is deliberately not assigned" in amp_r[NOTE_COL]
+assert "W site unresolved" in amp_r[NOTE_COL]
 assert "Hawthorne" in amp_r[METHOD_COL]
+assert "Locock" in amp_r[METHOD_COL]
 
 # Apatite reports useful X-anion dominance without pretending the full subgroup is known.
 apt = pd.DataFrame([{"P2O5": 42.0, "CaO": 55.0, "F": 3.0, "Cl": 0.0}])
