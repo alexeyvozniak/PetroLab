@@ -55,6 +55,9 @@ from .v0151_wrappers import (
 )
 from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
+# v0.15.2 adds publication labels without bypassing the exact-selection wrapper.
+from .v0152_publication_wrappers import render_multi_panel_page
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",
