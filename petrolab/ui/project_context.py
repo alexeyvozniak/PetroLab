@@ -10,28 +10,31 @@ from petrolab.db import list_projects
 ACTIVE_PROJECT_KEY = "active_project_id"
 SIDEBAR_PROJECT_KEY = "sidebar_project"
 
-# Identity-bearing state must never survive a real project switch.  Keep
-# presentation preferences (styles, density, presets) out of this list.
+# Identity-bearing state must never survive a real project switch. Keep
+# presentation preferences (colors, publication presets, generic appearance)
+# out of this list, but reset scientific object/data identities and assumptions.
 _PROJECT_TRANSIENT_EXACT = {
     "pending_study_id",
     "thin_section_selected",
     "thin_image_selected",
+    "thin_image_focus_id_pending",
     "composite_section",
     "composite_point",
     "multi_panel_section",
     "mixed_dataset",
     "formula_dataset",
+    "formula_method",
     "img_dataset",
     "workflow_dataset",
     "workspace_sample",
     "workspace_dataset",
     "db_datasets_dashboard",
+    "db_search_dashboard",
     "batch_edit_datasets",
-    "thermodynamics_datasets",
-    "thermodynamics_selection_mode",
-    "thermodynamics_limit_incoming",
     "quick_plot_datasets",
     "multi_panel_datasets",
+    "unified_editor_dashboard",
+    "analysis_table_thermodynamic_point",
     "workflow_recent_import_target",
     "workflow_image_dataset_id",
     "whole_rock_workspace_context",
@@ -55,24 +58,36 @@ _PROJECT_TRANSIENT_EXACT = {
     "_audit_batch_exact_dataset_ids",
 }
 _PROJECT_TRANSIENT_PREFIXES = (
-    # All workflow_* keys describe a project-local hand-off or recent action.
+    # workflow_* is exclusively project-local hand-off/recent-action state.
     "workflow_",
+    # Object/annotation widgets contain project-local ids or scientific choices.
+    "workspace_",
+    "thin_",
+    "slide_",
+    "composite_",
+    "mixed_",
+    "batch_",
+    "imgwiz_",
     "grain_profile_",
-    "thermodynamics_workspace_",
+    "thermodynamics_",
+    # Destructive confirmation must never carry into a different project.
+    "_pending_destructive_",
+    # Import wizards contain dataset/project identities.
     "quick_import_",
     "universal_",
     "univimg_",
     "v0151_post_import_",
+    # Database-browser filters are a selection of rows in one project.
+    "db_selection_",
 )
 
 
 def _clear_transient_project_state(state: MutableMapping) -> list[str]:
-    """Remove identity-bearing workflow state when the active project changes.
+    """Remove project-bound workflow state on a real project switch.
 
-    The rule is deliberately conservative about presentation state: colors,
-    presets and general UI preferences survive.  Exact object/dataset/analysis
-    identities do not, because reusing them in another project can silently
-    select the wrong object or make a routed selection appear empty.
+    This is a data-integrity boundary, not cosmetic cleanup. Streamlit widget
+    state can otherwise override a freshly routed id or silently keep an old
+    filter/selection after the user changes projects.
     """
     removed: list[str] = []
     for key in list(state.keys()):
