@@ -10,6 +10,21 @@ def install() -> None:
     from petrolab.repositories import rock_repository as repo
     from petrolab.services import rock_service as service
 
+    def finite_nullable_float(value):
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(value, str) and not value.strip():
+            return None
+        numeric = float(value)
+        if not np.isfinite(numeric):
+            raise ValueError("Числовое значение породы должно быть конечным")
+        return numeric
+
     def canonicalize_rock_row(row: pd.Series, excluded_columns: set[str] | None = None):
         excluded = excluded_columns or set()
         composition: dict[str, float] = {}
@@ -117,9 +132,6 @@ def install() -> None:
                     numeric = repo._nullable_float(value)
                     if numeric is None:
                         continue
-                    numeric = float(numeric)
-                    if not np.isfinite(numeric):
-                        raise ValueError(f"Компонент {analyte} содержит бесконечное/некорректное значение")
                     con.execute(
                         "INSERT INTO rock_compositions(rock_id, analyte, value, unit, method, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (
@@ -195,9 +207,6 @@ def install() -> None:
         numeric = repo._nullable_float(row.get("value"))
         if not analyte or numeric is None:
             return None
-        numeric = float(numeric)
-        if not np.isfinite(numeric):
-            raise ValueError(f"Компонент {analyte} содержит бесконечное/некорректное значение")
         unit = repo._text(row.get("unit")).strip()
         direct = describe_header(analyte)
         if direct.quantity_kind == "element_unknown_unit" and not unit:
@@ -285,6 +294,7 @@ def install() -> None:
         fe2o3 = service._finite_value(composition, "Fe2O3")
         return feo + (fe2o3 or 0.0) * service.FE2O3_TO_FEO_EQUIVALENT
 
+    repo._nullable_float = finite_nullable_float
     service.canonicalize_rock_row = canonicalize_rock_row
     service.import_rocks_wide = import_rocks_wide
     service._total_fe_as_feo = total_fe_as_feo
