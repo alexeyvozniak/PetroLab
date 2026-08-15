@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import os
 import sqlite3
 import tempfile
@@ -142,6 +143,12 @@ def main() -> None:
         assert "87Sr/86Sr [aliquot B]" in wide.columns
         assert float(wide.loc[0, "87Sr/86Sr [aliquot A]"]) == 0.70310
         assert float(wide.loc[0, "87Sr/86Sr [aliquot B]"]) == 0.70318
+
+        # Windows may keep sqlite cursor/row objects alive until cyclic GC even though every
+        # explicit connection above is closed. Clear local result holders and collect before
+        # TemporaryDirectory removes the database file; assertions are already complete.
+        del wide, stored, repeated, legacy, columns, table_sql, con
+        gc.collect()
 
     print("storage/bootstrap/repeated-isotope tests: OK")
 
