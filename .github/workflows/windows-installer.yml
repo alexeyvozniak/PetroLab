@@ -103,9 +103,17 @@ jobs:
           $installer = Join-Path $PWD "dist\PetroLab-Setup-x64.exe"
           $installRoot = Join-Path $env:RUNNER_TEMP "PetroLabInstallSmoke"
           $smokeData = Join-Path $env:RUNNER_TEMP "PetroLabInstalledData"
+
+          # Windows GitHub runners do not always expose MyDocuments through .NET.
+          # Fall back to the conventional per-user Documents folder so the uninstall
+          # preservation check still exercises a real user-data location outside {app}.
           $documents = [Environment]::GetFolderPath("MyDocuments")
+          if ([string]::IsNullOrWhiteSpace($documents)) {
+              $documents = Join-Path $env:USERPROFILE "Documents"
+          }
+          New-Item -ItemType Directory -Force -Path $documents | Out-Null
           $preservedData = Join-Path $documents "PetroLab Data"
-          $marker = Join-Path $preservedData "installer-preservation-marker.txt"
+          $marker = Join-Path $preservedData ("installer-preservation-marker-" + $env:GITHUB_RUN_ID + ".txt")
 
           Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
@@ -173,13 +181,20 @@ jobs:
               }
           }
 
-          # Exercise the installed updater with Windows PowerShell 5.1 without changing
-          # the public verified channel while this commit is still a pull request.
+          # Force one actual transactional app update rather than accepting the
+          # already-up-to-date fast path. The target is still this exact PR SHA,
+          # so the public windows-latest channel remains untouched.
+          Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value ("0" * 40) -NoNewline -Encoding ASCII
           $env:PETROLAB_UPDATE_TARGET_SHA = $env:GITHUB_SHA
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -NoLaunch
           $updaterExit = $LASTEXITCODE
           Remove-Item Env:PETROLAB_UPDATE_TARGET_SHA -ErrorAction SilentlyContinue
           if ($updaterExit -ne 0) { throw "Windows PowerShell 5.1 updater smoke failed with exit code $updaterExit." }
+          $updatedSha = (Get-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Raw).Trim()
+          if ($updatedSha -ne $env:GITHUB_SHA) { throw "Transactional updater did not activate the requested build." }
+          if (-not (Test-Path -LiteralPath (Join-Path $installRoot "previous\app.py") -PathType Leaf)) {
+              throw "Transactional updater did not retain a rollback application copy."
+          }
 
           $uninstaller = Join-Path $installRoot "unins000.exe"
           if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
@@ -189,7 +204,7 @@ jobs:
               throw "Uninstall removed user scientific data marker."
           }
 
-          Remove-Item -LiteralPath $preservedData -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath $smokeData -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Upload installer artifact
