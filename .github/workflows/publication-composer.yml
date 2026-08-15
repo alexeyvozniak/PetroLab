@@ -34,7 +34,7 @@ jobs:
 
       - name: Compile publication composer paths
         shell: cmd
-        run: python -m compileall -q petrolab/publication_composer.py petrolab/multi_panel_plotting.py petrolab/ui/pages/publication_composer.py petrolab/ui/pages/v0152_publication_wrappers.py petrolab/ui/pages/scenario_hubs.py petrolab/ui/navigation.py app.py tests_publication_composer.py
+        run: python -m compileall -q petrolab/publication_composer.py petrolab/publication_sources.py petrolab/multi_panel_plotting.py petrolab/ui/pages/publication_composer.py petrolab/ui/pages/v0152_publication_wrappers.py petrolab/ui/pages/scenario_hubs.py petrolab/ui/navigation.py app.py tests_publication_composer.py
 
       - name: Run publication composer regressions
         shell: cmd
