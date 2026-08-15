@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from petrolab.column_schema import describe_header
-from petrolab.db import list_datasets
+from petrolab.db import list_accessible_datasets
 from petrolab.repositories.rock_repository import (
     get_composition,
     get_isotopes,
@@ -41,7 +42,6 @@ class RockWorkspaceSnapshot:
         return float(self.major_present) / float(self.major_expected) if self.major_expected else 0.0
 
 
-
 def _clean_values(series: pd.Series) -> tuple[str, ...]:
     values = []
     for value in series.tolist() if not series.empty else []:
@@ -51,18 +51,27 @@ def _clean_values(series: pd.Series) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
-def _composition_roles(composition: pd.DataFrame) -> tuple[set[str], int]:
+def _composition_roles(composition: pd.DataFrame) -> tuple[set[str], int, tuple[str, ...]]:
     if composition.empty or "analyte" not in composition.columns:
-        return set(), 0
+        return set(), 0, ()
     canonical: set[str] = set()
     trace_count = 0
-    for analyte in composition["analyte"].astype(str):
+    warnings: list[str] = []
+    for _, row in composition.iterrows():
+        analyte = str(row.get("analyte") or "").strip()
         descriptor = describe_header(analyte)
         name = str(descriptor.canonical_name or analyte)
+        numeric = pd.to_numeric(pd.Series([row.get("value")]), errors="coerce").iloc[0]
+        if pd.isna(numeric) or not np.isfinite(float(numeric)):
+            warnings.append(f"Компонент {analyte or '?'} не имеет конечного числового значения")
+            continue
         canonical.add(name)
+        unit = str(row.get("unit") or "").strip()
+        if descriptor.quantity_kind in {"oxide", "trace_element", "element_concentration"} and not unit:
+            warnings.append(f"Для компонента {name} не указана единица")
         if descriptor.quantity_kind in {"trace_element", "element_concentration"}:
             trace_count += 1
-    return canonical, trace_count
+    return canonical, trace_count, tuple(dict.fromkeys(warnings))
 
 
 def _major_completeness(canonical: set[str]) -> tuple[int, int]:
@@ -84,13 +93,12 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
     composition = get_composition(rock_id)
     isotopes = get_isotopes(rock_id)
     linked_ids = set(list_mineral_links(rock_id))
-    datasets = [
-        dataset for dataset in list_datasets(project_id)
-        if int(dataset["id"]) in linked_ids
-    ]
+    accessible = {int(dataset["id"]): dataset for dataset in list_accessible_datasets(project_id)}
+    datasets = [accessible[dataset_id] for dataset_id in linked_ids if dataset_id in accessible]
+    inaccessible_link_ids = sorted(linked_ids - set(accessible))
     images = list_rock_images(rock_id)
 
-    canonical, trace_count = _composition_roles(composition)
+    canonical, trace_count, composition_warnings = _composition_roles(composition)
     major_present, major_expected = _major_completeness(canonical)
     isotope_systems = ()
     if not isotopes.empty and "system" in isotopes.columns:
@@ -98,7 +106,7 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
     methods = _clean_values(composition.get("method", pd.Series(dtype=object)))
     sources = _clean_values(composition.get("source", pd.Series(dtype=object)))
 
-    warnings: list[str] = []
+    warnings: list[str] = list(composition_warnings)
     if composition.empty:
         warnings.append("Нет валового химического состава")
     elif major_present < major_expected:
@@ -107,6 +115,11 @@ def rock_workspace_snapshot(project_id: int, rock_id: int) -> RockWorkspaceSnaps
         warnings.append("Нет распознанных trace-element концентраций")
     if not isotope_systems:
         warnings.append("Изотопные определения не добавлены")
+    if inaccessible_link_ids:
+        warnings.append(
+            "Есть mineral-связи с datasets, которые больше не подключены к проекту: "
+            + ", ".join(map(str, inaccessible_link_ids[:8]))
+        )
     if not datasets:
         warnings.append("Минералогические datasets пока не связаны с этой породой")
     if not images:
