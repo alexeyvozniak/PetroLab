@@ -172,7 +172,13 @@ def _sample_name_for_id(project_id: int, sample_id: int) -> str:
 
 
 def filter_dataframe_to_context(dataframe: pd.DataFrame, context: dict[str, Any] | None) -> pd.DataFrame:
-    """Apply every available context selector as an intersection, never first-match wins."""
+    """Apply compatible context selectors together without silently broadening a physical scope.
+
+    For Sample/dataset contexts the selectors are intersections. For a thin section,
+    an explicit physical/marker link is the authoritative membership relation; raw
+    ``Sample`` text in the imported analytical row is provenance and may legitimately
+    differ by alias or spelling, so it must not throw out a physically linked analysis.
+    """
     if dataframe.empty or not context:
         return dataframe
     result = dataframe.copy()
@@ -188,15 +194,17 @@ def filter_dataframe_to_context(dataframe: pd.DataFrame, context: dict[str, Any]
         result = result[numeric.isin(dataset_ids)].copy()
 
     thin_section_id = context.get("thin_section_id")
+    physical_scope_applied = False
     if thin_section_id is not None and "_analysis_id" in result.columns:
         linked_ids = _thin_section_analysis_ids(project_id, int(thin_section_id))
         # An empty explicit link set means the thin section has no linked analyses yet.
         # Returning all analyses from its Sample would be a scientifically unsafe broadening.
         result = result[result["_analysis_id"].astype(str).isin(linked_ids)].copy()
+        physical_scope_applied = True
 
     sample = str(context.get("sample") or "").strip()
     if not sample and context.get("sample_id") is not None and project_id >= 0:
         sample = _sample_name_for_id(project_id, int(context["sample_id"]))
-    if sample and "Sample" in result.columns:
+    if sample and "Sample" in result.columns and not physical_scope_applied:
         result = result[result["Sample"].astype(str).str.casefold() == sample.casefold()].copy()
     return result
