@@ -32,7 +32,8 @@ class LinkedSelectionEventTests(unittest.TestCase):
 
 
 class LinkedTenPanelTests(unittest.TestCase):
-    def test_same_selected_id_is_highlighted_on_all_ten_panels(self) -> None:
+    @staticmethod
+    def _frame_and_panels() -> tuple[pd.DataFrame, list[dict]]:
         frame = pd.DataFrame({
             "_analysis_id": ["a", "b", "c"],
             "x": [1.0, 2.0, 3.0],
@@ -42,6 +43,10 @@ class LinkedTenPanelTests(unittest.TestCase):
             {"x": "x", "y": f"y{i}", "title": f"P{i + 1}", "log_x": False, "log_y": False}
             for i in range(10)
         ]
+        return frame, panels
+
+    def test_same_selected_id_is_highlighted_on_all_ten_panels(self) -> None:
+        frame, panels = self._frame_and_panels()
         figure = build_linked_panel_figure(
             frame,
             panels,
@@ -52,6 +57,18 @@ class LinkedTenPanelTests(unittest.TestCase):
         self.assertEqual(len(figure.data), 10)
         for trace in figure.data:
             self.assertEqual(list(trace.selectedpoints), [1])
+
+    def test_invisible_old_selection_does_not_dim_new_dataset(self) -> None:
+        frame, panels = self._frame_and_panels()
+        figure = build_linked_panel_figure(
+            frame,
+            panels[:2],
+            id_column="_analysis_id",
+            selected_ids=["analysis-from-previous-import"],
+            columns=2,
+        )
+        for trace in figure.data:
+            self.assertIsNone(trace.selectedpoints)
 
     def test_panel_defaults_can_fill_up_to_ten_pairs(self) -> None:
         numeric = ["SiO2", "TiO2", "Al2O3", "MgO", "FeOt", "CaO", "Na2O", "K2O", "Rb", "Sr", "Nb"]
