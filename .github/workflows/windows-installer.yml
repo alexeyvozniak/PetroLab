@@ -84,9 +84,33 @@ jobs:
           $version = $versionLine.Matches[0].Groups[1].Value
           "PETROLAB_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Install Inno Setup
+      - name: Install Windows packaging tools
         shell: pwsh
-        run: choco install innosetup -y --no-progress
+        run: |
+          choco install innosetup -y --no-progress
+          choco install imagemagick -y --no-progress
+
+      - name: Build branded native PetroLab launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dist = Join-Path $PWD "dist"
+          $icon = Join-Path $dist "PetroLab.ico"
+          $launcher = Join-Path $dist "PetroLab.exe"
+
+          magick -background none installer\petrolab-icon.svg -define icon:auto-resize=256,128,64,48,32,24,16 $icon
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $icon -PathType Leaf)) {
+              throw "Could not build PetroLab.ico from the SVG source."
+          }
+
+          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path -LiteralPath $csc -PathType Leaf)) {
+              throw "The .NET Framework C# compiler required for PetroLab.exe was not found."
+          }
+          & $csc /nologo /target:winexe /platform:x64 /optimize+ "/win32icon:$icon" "/out:$launcher" /reference:System.dll /reference:System.Windows.Forms.dll installer\PetroLabLauncher.cs
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+              throw "Native PetroLab launcher compilation failed."
+          }
 
       - name: Compile PetroLab installer
         shell: pwsh
@@ -99,7 +123,7 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  PetroLab-Setup-x64.exe" | Set-Content -LiteralPath "dist\PetroLab-Setup-x64.sha256" -Encoding ASCII
 
-      - name: Smoke-test installed EXE, Streamlit and Windows PowerShell updater
+      - name: Smoke-test installed PetroLab.exe, Streamlit and Windows PowerShell updater
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -128,11 +152,16 @@ jobs:
 
           $python = Join-Path $installRoot "runtime\python.exe"
           $app = Join-Path $installRoot "current\app.py"
+          $launcherExe = Join-Path $installRoot "PetroLab.exe"
+          $stateFile = Join-Path $installRoot "petrolab-server.state"
+          $launcherLog = Join-Path $installRoot "logs\launcher.log"
           $updater = Join-Path $installRoot "update_petrolab.ps1"
           foreach ($required in @(
               $python,
               (Join-Path $installRoot "runtime\pythonw.exe"),
               $app,
+              $launcherExe,
+              (Join-Path $installRoot "PetroLab.ico"),
               (Join-Path $installRoot "launch_petrolab.vbs"),
               $updater,
               (Join-Path $installRoot "update_petrolab.cmd"),
@@ -144,26 +173,30 @@ jobs:
           }
 
           $env:PETROLAB_DATA_DIR = $smokeData
+          $env:PETROLAB_LAUNCHER_NO_BROWSER = "1"
           New-Item -ItemType Directory -Force -Path $smokeData | Out-Null
           & $python -c "import sys; sys.path.insert(0, r'$($installRoot)\current'); import petrolab; from petrolab.storage import ensure_storage; ensure_storage(); print('installed payload OK', petrolab.__version__)"
           if ($LASTEXITCODE -ne 0) { throw "Installed payload smoke failed." }
 
-          $port = 8765
-          $server = $null
+          Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
+          $launcherProcess = $null
+          $serverPid = $null
           try {
-              $server = Start-Process -FilePath $python -ArgumentList @(
-                  "-m", "streamlit", "run", $app,
-                  "--server.headless=true",
-                  "--server.port=$port",
-                  "--browser.gatherUsageStats=false"
-              ) -WindowStyle Hidden -PassThru
-
+              $launcherProcess = Start-Process -FilePath $launcherExe -PassThru
               $healthy = $false
-              for ($attempt = 0; $attempt -lt 60; $attempt++) {
-                  Start-Sleep -Seconds 1
-                  if ($server.HasExited) {
-                      throw "Installed Streamlit process exited before becoming healthy (code $($server.ExitCode))."
+              $port = $null
+              for ($attempt = 0; $attempt -lt 120; $attempt++) {
+                  Start-Sleep -Milliseconds 500
+                  if ($launcherProcess.HasExited) {
+                      $tail = if (Test-Path $launcherLog) { (Get-Content $launcherLog -Tail 40) -join "`n" } else { "launcher.log missing" }
+                      throw "Installed PetroLab.exe exited before becoming healthy (code $($launcherProcess.ExitCode)).`n$tail"
                   }
+                  if (-not (Test-Path -LiteralPath $stateFile -PathType Leaf)) { continue }
+                  $stateText = (Get-Content -LiteralPath $stateFile -Raw).Trim()
+                  $parts = $stateText -split '\|'
+                  if ($parts.Count -ne 2) { continue }
+                  $serverPid = [int]$parts[0]
+                  $port = [int]$parts[1]
                   try {
                       $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/_stcore/health" -UseBasicParsing -TimeoutSec 2
                       if ($response.StatusCode -eq 200) {
@@ -174,13 +207,34 @@ jobs:
                   catch {
                   }
               }
-              if (-not $healthy) { throw "Installed PetroLab did not become healthy on Streamlit." }
+              if (-not $healthy) {
+                  $tail = if (Test-Path $launcherLog) { (Get-Content $launcherLog -Tail 40) -join "`n" } else { "launcher.log missing" }
+                  throw "Installed PetroLab.exe did not make Streamlit healthy.`n$tail"
+              }
+
+              if (-not (Select-String -LiteralPath $launcherLog -Pattern "Server healthy" -Quiet)) {
+                  throw "Native launcher did not record a healthy startup in launcher.log."
+              }
+
+              $stateBeforeSecondLaunch = (Get-Content -LiteralPath $stateFile -Raw).Trim()
+              $secondLaunch = Start-Process -FilePath $launcherExe -Wait -PassThru
+              if ($secondLaunch.ExitCode -ne 0) { throw "Second PetroLab.exe launch returned $($secondLaunch.ExitCode)." }
+              $stateAfterSecondLaunch = (Get-Content -LiteralPath $stateFile -Raw).Trim()
+              if ($stateAfterSecondLaunch -ne $stateBeforeSecondLaunch) {
+                  throw "Second PetroLab.exe launch started a different server instead of reopening the healthy one."
+              }
           }
           finally {
-              if ($server -and -not $server.HasExited) {
-                  Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
-                  $server.WaitForExit(10000) | Out-Null
+              if ($serverPid) {
+                  Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
               }
+              if ($launcherProcess) {
+                  $launcherProcess.WaitForExit(10000) | Out-Null
+                  if (-not $launcherProcess.HasExited) {
+                      Stop-Process -Id $launcherProcess.Id -Force -ErrorAction SilentlyContinue
+                  }
+              }
+              Remove-Item Env:PETROLAB_LAUNCHER_NO_BROWSER -ErrorAction SilentlyContinue
           }
 
           Set-Content -LiteralPath (Join-Path $installRoot "current\.petrolab_build_sha") -Value ("0" * 40) -NoNewline -Encoding ASCII
@@ -215,6 +269,8 @@ jobs:
           path: |
             dist/PetroLab-Setup-x64.exe
             dist/PetroLab-Setup-x64.sha256
+            dist/PetroLab.exe
+            dist/PetroLab.ico
           if-no-files-found: error
           retention-days: 14
 
