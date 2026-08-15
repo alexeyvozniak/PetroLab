@@ -11,6 +11,7 @@ import pandas as pd
 
 import petrolab.db as db
 import petrolab.repositories.rock_repository as rock_repository
+import petrolab.rock_comparison as rock_comparison
 import petrolab.rock_determinations as determinations
 import petrolab.rock_staged_service as rock_staging
 import petrolab.sample_registry as samples
@@ -78,6 +79,13 @@ class RockStagingTests(unittest.TestCase):
             by_analyte = {str(row["analyte"]): float(row["value"]) for _, row in legacy.iterrows()}
             self.assertEqual(by_analyte["SiO2"], 40.0)
             self.assertEqual(by_analyte["MgO"], 8.0)
+
+            # Comparison workspaces see both analytical determinations, not just the
+            # legacy preferred/default composition.
+            comparison = rock_comparison.whole_rock_comparison_dataframe(ws.project_id)
+            self.assertEqual(len(comparison), 2)
+            self.assertEqual(set(comparison[rock_comparison.ROCK_SOURCE_COLUMN]), {"Smith 2014", "Jones 2018"})
+            self.assertEqual(set(comparison["SiO2"].astype(float)), {40.0, 42.0})
 
     def test_confirmed_russian_alias_reuses_canonical_sample(self):
         with tempfile.TemporaryDirectory() as temp_dir, Workspace(Path(temp_dir)) as ws:
