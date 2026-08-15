@@ -127,7 +127,7 @@ def render_publish_page() -> None:
     project = active_project()
     render_page_header(
         "Подготовить рисунок или таблицу",
-        "Один вход для публикационной работы: одиночный или multi-panel график, треугольная диаграмма, таблица или финальный экспорт.",
+        "Один вход для публикационной работы: научные графики, сборка мультипанели из любых изображений, таблица и финальный экспорт.",
         eyebrow="Сценарий",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -136,17 +136,27 @@ def render_publish_page() -> None:
         return
 
     cards = [
+        ("Редактор мультипанели", "Собрать один рисунок из любых картинок или готовых графиков; A/B/C или А/Б/В ставятся автоматически и редактируются.", "publication_composer"),
         ("XY-рисунок", "Собрать выборку, настроить серии и экспортировать рисунок.", "plots"),
-        ("Multi-panel", "Собрать несколько диаграмм с общей выборкой, легендой и стилями.", "multi_panel"),
+        ("Multi-panel графиков", "Собрать несколько диаграмм с общей выборкой, легендой и стилями.", "multi_panel"),
         ("Треугольная диаграмма", "Построить и сохранить треугольную классификационную диаграмму.", "ternary"),
         ("Таблица для статьи", "Собрать точный отбор анализов в публикационную таблицу.", "article_tables"),
         ("Экспорт", "Скачать подготовленные результаты и файлы.", "export"),
     ]
-    cols = st.columns(5)
-    for index, (col, (title, note, route)) in enumerate(zip(cols, cards)):
-        with col:
-            with st.container(border=True):
-                st.markdown(f"**{title}**")
-                st.caption(note)
-                if st.button("Открыть", key=f"publish_{route}", width="stretch", type="primary" if index == 0 else "secondary"):
-                    _go(route)
+    for row_start in range(0, len(cards), 3):
+        cols = st.columns(3)
+        for index, (col, (title, note, route)) in enumerate(
+            zip(cols, cards[row_start:row_start + 3]),
+            start=row_start,
+        ):
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"**{title}**")
+                    st.caption(note)
+                    if st.button(
+                        "Открыть",
+                        key=f"publish_{route}",
+                        width="stretch",
+                        type="primary" if route == "publication_composer" else "secondary",
+                    ):
+                        _go(route)
