@@ -20,20 +20,26 @@ from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 
 
+IRON_CHOICES = {
+    "FeO": {
+        "Всё железо, выраженное как FeO total": "FeOt",
+        "Отдельно измеренное Fe²⁺ как FeO": "FeO",
+    },
+    "Fe2O3": {
+        "Всё железо, выраженное как Fe₂O₃ total": "Fe2O3t",
+        "Отдельно измеренное Fe³⁺ как Fe₂O₃": "Fe2O3",
+    },
+}
+
+
 def _safe_automatic_mapping(preview: ImportSchemaPreview) -> tuple[dict[str, str], list[str]]:
-    """Return only high-confidence semantic mappings; never infer ambiguous iron semantics."""
+    """Return only high-confidence semantic mappings; iron meaning is confirmed inline."""
     blockers: list[str] = []
     if preview.duplicate_canonical_columns:
         blockers.append(
             "конфликтующие научные колонки после нормализации: "
             + ", ".join(preview.duplicate_canonical_columns)
         )
-    columns = {str(column) for column in preview.schema.columns}
-    for iron in ("FeO", "Fe2O3"):
-        if iron in columns:
-            blockers.append(
-                f"{iron} требует явного подтверждения: это отдельная валентность или total Fe"
-            )
     if not preview.recognized_oxides and not preview.recognized_traces:
         blockers.append("не распознано ни одной химической колонки с однозначной семантикой")
 
@@ -73,9 +79,8 @@ def _finish_import(project_id: int, dataset_ids: list[int]) -> None:
             purpose="working",
         )
 
-    # The automatic pass is intentionally conservative: only chemically high-confidence,
-    # non-outlier probe rows are materialized into phases. Ambiguous/trace-only rows remain
-    # unresolved, and formula/APFU values are stored as derived results with provenance.
+    # Only chemically high-confidence, non-outlier probe rows are materialized into
+    # phases. Ambiguous/trace-only rows remain unresolved; APFU stays a derived layer.
     report = auto_process_imported_datasets(int(project_id), dataset_ids)
     working = list(report.working_dataset_ids) or [int(value) for value in dataset_ids]
     warnings = [warning for item in report.datasets for warning in item.warnings]
@@ -93,11 +98,47 @@ def _finish_import(project_id: int, dataset_ids: list[int]) -> None:
     st.rerun()
 
 
+def _iron_semantics(previews: dict[str, ImportSchemaPreview]) -> tuple[dict[str, dict[str, str]], bool]:
+    measurement_maps: dict[str, dict[str, str]] = {}
+    needed = [
+        (sheet, iron)
+        for sheet, preview in previews.items()
+        for iron in IRON_CHOICES
+        if iron in {str(column) for column in preview.schema.columns}
+    ]
+    if not needed:
+        return {sheet: {} for sheet in previews}, True
+
+    render_section_header("Один научный вопрос", "PetroLab не угадывает смысл FeO / Fe₂O₃")
+    st.caption(
+        "Это единственное обязательное уточнение для типичного зондового файла, если заголовок не говорит, total это Fe или отдельная валентность. После ответа импорт продолжится здесь же."
+    )
+    ready = True
+    for sheet, preview in previews.items():
+        columns = {str(column) for column in preview.schema.columns}
+        mapping: dict[str, str] = {}
+        for iron in IRON_CHOICES:
+            if iron not in columns:
+                continue
+            choice = st.radio(
+                f"{sheet or 'CSV'} · что означает {iron}?",
+                list(IRON_CHOICES[iron]),
+                index=None,
+                key=f"quick_iron_{sheet}_{iron}",
+            )
+            if choice is None:
+                ready = False
+            else:
+                mapping[iron] = IRON_CHOICES[iron][choice]
+        measurement_maps[sheet] = mapping
+    return measurement_maps, ready
+
+
 def render_quick_import_page() -> None:
     project = active_project()
     render_page_header(
         "Быстрый импорт",
-        "Однозначный зондовый файл проходит от нормализации до фаз и APFU автоматически; PetroLab спрашивает только там, где научно нельзя угадывать.",
+        "Зондовый файл проходит от нормализации до фаз и APFU автоматически; PetroLab спрашивает только там, где научно нельзя угадывать.",
         eyebrow="Добавить данные",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -145,7 +186,7 @@ def render_quick_import_page() -> None:
 
     render_badges([
         ("Preview до записи", "neutral"),
-        ("Fe не угадывается", "warning"),
+        ("Fe — один вопрос при необходимости", "warning"),
         ("High-confidence фазы → автоматически", "success"),
     ])
 
@@ -219,7 +260,7 @@ def render_quick_import_page() -> None:
         st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
 
     if blockers:
-        st.warning("Быстрый импорт остановлен: нужны ваши решения. Данные ещё не записывались.")
+        st.warning("В файле есть неоднозначность, которую короткий импорт не может безопасно решить. Данные ещё не записывались.")
         for sheet, reasons in blockers.items():
             with st.expander(f"{sheet or 'CSV'} · уточнить", expanded=True):
                 for reason in reasons:
@@ -230,36 +271,47 @@ def render_quick_import_page() -> None:
             st.rerun()
         return
 
-    for sheet in selected:
-        try:
-            normalized[sheet] = preview_uploaded_source(
-                data,
-                uploaded.name,
-                sheet,
-                header_row,
-                "generic",
-                semantic_maps.get(sheet, {}),
-                {},
-            )
-        except Exception as exc:
-            st.error(f"{sheet or 'CSV'}: preflight не пройден — {exc}")
-            return
+    measurement_maps, iron_ready = _iron_semantics(previews)
+    if not iron_ready:
+        st.info("Ответьте на вопрос о представлении железа — после этого можно сразу импортировать файл.")
 
-    st.success("Схема однозначна.")
-    for index, sheet in enumerate(selected):
-        frame = normalized[sheet]
-        with st.expander(
-            f"{sheet or 'CSV'} · {len(frame)} строк · preview",
-            expanded=index == 0,
-        ):
-            st.dataframe(frame.head(40), width="stretch", hide_index=True)
-            if len(frame) > 40:
-                render_hint(f"В preview показаны первые 40 из {len(frame)} строк.")
+    if iron_ready:
+        for sheet in selected:
+            try:
+                normalized[sheet] = preview_uploaded_source(
+                    data,
+                    uploaded.name,
+                    sheet,
+                    header_row,
+                    "generic",
+                    semantic_maps.get(sheet, {}),
+                    measurement_maps.get(sheet, {}),
+                )
+            except Exception as exc:
+                st.error(f"{sheet or 'CSV'}: preflight не пройден — {exc}")
+                return
+
+        st.success("Схема однозначна и готова к записи.")
+        for index, sheet in enumerate(selected):
+            frame = normalized[sheet]
+            with st.expander(
+                f"{sheet or 'CSV'} · {len(frame)} строк · preview",
+                expanded=index == 0,
+            ):
+                st.dataframe(frame.head(40), width="stretch", hide_index=True)
+                if len(frame) > 40:
+                    render_hint(f"В preview показаны первые 40 из {len(frame)} строк.")
 
     render_hint(
-        "Сначала файл сохраняется как mixed без минералогической догадки по имени. После записи химически high-confidence точки автоматически переходят в фазовые наборы и получают рекомендуемый APFU; всё неоднозначное остаётся mixed."
+        "Сначала файл сохраняется как mixed без догадки по имени. Затем химически high-confidence точки автоматически переходят в фазовые наборы и получают рекомендуемый APFU; всё неоднозначное остаётся mixed."
     )
-    if st.button("Импортировать и подготовить к работе", type="primary", width="stretch", key="quick_import_commit"):
+    if st.button(
+        "Импортировать и подготовить к работе",
+        type="primary",
+        width="stretch",
+        key="quick_import_commit",
+        disabled=not iron_ready,
+    ):
         try:
             result = import_uploaded_sheets(
                 project_id=get_or_create_library_project(),
@@ -270,7 +322,7 @@ def render_quick_import_page() -> None:
                 dataset_name=dataset_name,
                 header_row=header_row,
                 semantic_maps=semantic_maps,
-                measurement_maps={},
+                measurement_maps=measurement_maps,
                 header_rows={sheet: header_row for sheet in selected},
                 mineral_keys={sheet: "generic" for sheet in selected},
             )
