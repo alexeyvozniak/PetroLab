@@ -8,10 +8,13 @@ import streamlit as st
 
 from petrolab.import_staging import (
     ROLE_ALIASES,
+    SimilarName,
     apply_block_fill,
     assign_value_to_rows,
     detect_block_header_rows,
     detect_role_columns,
+    name_similarity,
+    normalized_name_key,
     similar_name_candidates,
 )
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
@@ -169,6 +172,35 @@ def _block_assistant(frame: pd.DataFrame, token: str, sheet: str, chemistry_colu
     return frame
 
 
+def _reason(left: str, right: str) -> str:
+    if left.casefold() == right.casefold():
+        return "отличается только регистром"
+    if normalized_name_key(left) == normalized_name_key(right):
+        return "совпадает после нормализации/транслитерации"
+    return "похожее написание"
+
+
+def _intra_file_candidates(incoming: list[str], threshold: float = 0.82) -> list[SimilarName]:
+    ordered: list[str] = []
+    for value in incoming:
+        if value and value not in ordered:
+            ordered.append(value)
+    result: list[SimilarName] = []
+    for index, candidate in enumerate(ordered):
+        previous = ordered[:index]
+        if not previous:
+            continue
+        scored = sorted(
+            ((name_similarity(candidate, current), current) for current in previous if current != candidate),
+            reverse=True,
+        )
+        if not scored or scored[0][0] < threshold:
+            continue
+        score, canonical = scored[0]
+        result.append(SimilarName(candidate, canonical, float(score), _reason(candidate, canonical)))
+    return result
+
+
 def _duplicate_reconciliation(
     frame: pd.DataFrame,
     *,
@@ -180,22 +212,37 @@ def _duplicate_reconciliation(
     if field not in frame.columns:
         return {}
     incoming = [str(value).strip() for value in frame[field].dropna().tolist() if str(value).strip()]
-    candidates = similar_name_candidates(incoming, existing_names)
+    candidates = [*similar_name_candidates(incoming, existing_names), *_intra_file_candidates(incoming)]
     if not candidates:
         return {}
+
+    grouped: dict[str, list[SimilarName]] = {}
+    for item in candidates:
+        items = grouped.setdefault(item.incoming, [])
+        if not any(existing.existing == item.existing for existing in items):
+            items.append(item)
     resolved: dict[str, str] = {}
-    with st.expander(f"Похожие названия · {field} · {len(candidates)}", expanded=True):
+    with st.expander(f"Похожие названия · {field} · {len(grouped)}", expanded=True):
         st.caption(
             "Регистр и русско-английская транслитерация учитываются при поиске. "
-            "Похожие научные объекты не объединяются молча — подтвердите совпадение."
+            "Похожие научные объекты не объединяются молча — подтвердите совпадение. "
+            "Проверяются и уже существующая база, и дубли внутри этого файла."
         )
-        for index, item in enumerate(candidates[:50]):
-            label = f"{item.incoming}  →  {item.existing} · {item.reason} · {item.score:.0%}"
-            same = st.checkbox("Это одно и то же · " + label, key=f"staging_dup_{token}_{sheet}_{field}_{index}")
-            if same:
-                resolved[item.incoming] = item.existing
-        if len(candidates) > 50:
-            st.caption(f"Ещё кандидатов: {len(candidates) - 50}. Сузьте данные или нормализуйте крупные группы отдельно.")
+        for index, (incoming_name, options_found) in enumerate(grouped.items()):
+            options_found = sorted(options_found, key=lambda item: (-item.score, item.existing.casefold()))
+            labels = ["— оставить отдельным —", *[item.existing for item in options_found]]
+            choice = st.selectbox(
+                f"{incoming_name} похоже на…",
+                labels,
+                key=f"staging_dup_{token}_{sheet}_{field}_{index}",
+                help=" · ".join(
+                    f"{item.existing}: {item.reason}, {item.score:.0%}" for item in options_found[:5]
+                ),
+            )
+            if choice != "— оставить отдельным —":
+                resolved[incoming_name] = choice
+        if len(grouped) > 50:
+            st.caption("Кандидатов много: после подтверждения одинаковые варианты будут сведены до импорта.")
     return resolved
 
 
@@ -222,8 +269,8 @@ def render_staging_editor(
     if len(frame) > 100:
         st.caption(f"Показаны первые 100 из {len(frame)} строк staging-копии.")
 
-    sample_column = role_columns.get("Sample")
-    source_column = role_columns.get("Source")
+    sample_column = role_columns.get("Sample") or ("Sample" if "Sample" in frame.columns else None)
+    source_column = role_columns.get("Source") or ("Source" if "Source" in frame.columns else None)
     sample_confirmations = _duplicate_reconciliation(
         frame, field=sample_column or "Sample", existing_names=existing_samples, token=token, sheet=sheet,
     )
