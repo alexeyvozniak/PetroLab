@@ -12,6 +12,14 @@ from petrolab.physical_point_safety import (
     ambiguous_marker_entity_ids,
     set_slide_marker_entity,
 )
+from petrolab.source_registry import (
+    SOURCE_CITATION_COLUMN,
+    SOURCE_DOI_COLUMN,
+    SOURCE_LABEL_COLUMN,
+    SOURCE_TABLE_COLUMN,
+    SOURCE_TITLE_COLUMN,
+    SOURCE_TYPE_COLUMN,
+)
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 
@@ -25,6 +33,19 @@ from . import thin_section_workspace as _thin
 
 _PLOT_EXACT_KEY = "_v0151_plot_exact_analysis_ids"
 _MULTI_EXACT_KEY = "_v0151_multi_exact_analysis_ids"
+_SOURCE_SEARCH_ALIASES = (
+    SOURCE_LABEL_COLUMN,
+    SOURCE_TYPE_COLUMN,
+    SOURCE_TITLE_COLUMN,
+    SOURCE_CITATION_COLUMN,
+    SOURCE_DOI_COLUMN,
+    SOURCE_TABLE_COLUMN,
+    "Источник / статья",
+    "Источник",
+    "Статья",
+    "Citation",
+    "DOI",
+)
 
 
 def _query_tokens(query: str) -> list[str]:
@@ -38,12 +59,26 @@ def _query_tokens(query: str) -> list[str]:
     return [str(value).casefold() for value in values if str(value).strip()]
 
 
+def _token_search_columns(dataframe: pd.DataFrame) -> list[str]:
+    """Return identity/search columns plus explicit source-metadata aliases.
+
+    Literary source metadata is attached as a derived layer and can use either the
+    canonical PetroLab names or common imported labels. A multi-word query must be
+    able to match a mineral in one column and an author/source in another.
+    """
+    columns = list(_search._searchable_columns(dataframe))
+    for column in _SOURCE_SEARCH_ALIASES:
+        if column in dataframe.columns and column not in columns:
+            columns.append(column)
+    return columns
+
+
 def _tokenized_literal_search(dataframe: pd.DataFrame, query: str) -> pd.DataFrame:
     """AND across query tokens, OR across searchable columns for each token."""
     tokens = _query_tokens(query)
     if not tokens or dataframe.empty:
         return dataframe.iloc[0:0].copy()
-    columns = _search._searchable_columns(dataframe)
+    columns = _token_search_columns(dataframe)
     if not columns:
         return dataframe.iloc[0:0].copy()
     result_mask = pd.Series(True, index=dataframe.index, dtype=bool)
