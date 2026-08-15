@@ -22,6 +22,7 @@ from petrolab.ui.pages import (
     render_settings_page, render_slides_page, render_sources_page, render_statistics_page,
     render_ternary_page, render_thermobarometry_page, render_updates_page,
 )
+from petrolab.ui.release_chrome import apply_release_chrome
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import apply_smart_plot_defaults, route_fresh_import_to_workflow
 
@@ -30,6 +31,7 @@ st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide"
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
+apply_release_chrome()
 st.session_state.setdefault("loaded_recipe", None)
 st.session_state.setdefault("loaded_ternary_recipe", None)
 
