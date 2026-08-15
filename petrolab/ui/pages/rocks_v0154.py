@@ -34,13 +34,22 @@ _IRON_CHOICES = {
 }
 
 
-def _read_table(uploaded) -> tuple[pd.DataFrame, str]:
+def _read_tables(uploaded) -> dict[str, pd.DataFrame]:
     suffix = Path(uploaded.name).suffix.lower()
     content = uploaded.getvalue()
     if suffix in {".xlsx", ".xlsm", ".xls"}:
         workbook = pd.ExcelFile(io.BytesIO(content))
-        sheet = st.selectbox("Лист", workbook.sheet_names, key="rock_staging_sheet")
-        return pd.read_excel(io.BytesIO(content), sheet_name=sheet), str(sheet)
+        selected = st.multiselect(
+            "Листы",
+            workbook.sheet_names,
+            default=workbook.sheet_names,
+            key="rock_staging_sheets",
+        )
+        return {
+            str(sheet): pd.read_excel(io.BytesIO(content), sheet_name=sheet)
+            for sheet in selected
+        }
+
     left, right = st.columns(2)
     separator_name = left.selectbox(
         "Разделитель",
@@ -55,15 +64,13 @@ def _read_table(uploaded) -> tuple[pd.DataFrame, str]:
         "Табуляция": "\t",
     }
     separator = separators[separator_name]
-    return (
-        pd.read_csv(
-            io.BytesIO(content),
-            sep=separator,
-            engine="python" if separator is None else "c",
-            decimal="." if decimal_name == "Точка" else ",",
-        ),
-        "CSV",
+    frame = pd.read_csv(
+        io.BytesIO(content),
+        sep=separator,
+        engine="python" if separator is None else "c",
+        decimal="." if decimal_name == "Точка" else ",",
     )
+    return {"CSV": frame}
 
 
 def _canonicalize_roles(frame: pd.DataFrame, role_map: Mapping[str, str]) -> pd.DataFrame:
@@ -72,6 +79,16 @@ def _canonicalize_roles(frame: pd.DataFrame, role_map: Mapping[str, str]) -> pd.
         if source in result.columns and role != source:
             result[role] = result[source]
     return result
+
+
+def _merge_confirmations(
+    target: dict[str, dict[str, str]],
+    incoming: Mapping[str, Mapping[str, str]],
+) -> None:
+    for field, mappings in incoming.items():
+        target.setdefault(str(field), {}).update(
+            {str(alias): str(canonical) for alias, canonical in mappings.items()}
+        )
 
 
 def _replace_confirmed_values(
@@ -103,7 +120,7 @@ def _apply_iron_semantics(frame: pd.DataFrame, token: str) -> tuple[pd.DataFrame
         if source not in result.columns:
             continue
         choice = st.radio(
-            f"Что означает {source} в whole-rock таблице?",
+            f"Что означает {source}?",
             list(choices),
             index=None,
             key=f"rock_staging_iron_{token}_{source}",
@@ -131,7 +148,6 @@ def _existing_source_labels(project_id: int) -> list[str]:
 
 
 def _existing_terms(project_id: int) -> dict[str, list[str]]:
-    """Seed alias suggestions from both the new term dictionary and existing rock passports."""
     values = {domain: list(term_values(int(project_id), domain)) for domain in DEFAULT_TERM_DOMAINS}
     passport_map = {
         "Lithology": "lithology",
@@ -173,6 +189,31 @@ def _persist_sample_aliases(project_id: int, mappings: Mapping[str, str]) -> Non
             add_sample_alias(int(sample_id), str(alias).strip(), source="staging_confirmed")
 
 
+def _extend_seen_values(
+    frame: pd.DataFrame,
+    sample_values: list[str],
+    source_values: list[str],
+    term_values_by_domain: dict[str, list[str]],
+) -> None:
+    if "Sample" in frame.columns:
+        for value in frame["Sample"].dropna().astype(str):
+            clean = value.strip()
+            if clean and clean not in sample_values:
+                sample_values.append(clean)
+    if "Source" in frame.columns:
+        for value in frame["Source"].dropna().astype(str):
+            clean = value.strip()
+            if clean and clean not in source_values:
+                source_values.append(clean)
+    for domain in DEFAULT_TERM_DOMAINS:
+        if domain not in frame.columns:
+            continue
+        for value in frame[domain].dropna().astype(str):
+            clean = value.strip()
+            if clean and clean not in term_values_by_domain[domain]:
+                term_values_by_domain[domain].append(clean)
+
+
 def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -> None:
     with st.expander("Импортировать таблицу валовых составов", expanded=False):
         mode = st.radio(
@@ -189,8 +230,8 @@ def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -
             return
 
         render_hint(
-            "Staging подходит для своих и литературных whole-rock таблиц: блоки, разные источники, повторные определения, "
-            "русские/английские названия и произвольные метаданные исправляются до записи в базу."
+            "Staging подходит для своих и литературных whole-rock таблиц: несколько листов, блоки, разные источники, "
+            "повторные определения, русские/английские названия и произвольные метаданные исправляются до записи в базу."
         )
         uploaded = st.file_uploader(
             "Excel/CSV с породами",
@@ -199,94 +240,168 @@ def _staged_bulk_import(project_id: int, legacy_import: Callable[[int], None]) -
         )
         if uploaded is None:
             return
+
         try:
-            raw, sheet = _read_table(uploaded)
-            raw = raw.dropna(how="all").reset_index(drop=True)
-            frame, _ = normalize_columns_with_map(raw)
+            raw_tables = _read_tables(uploaded)
         except Exception as exc:
             st.error(f"Не удалось прочитать таблицу: {exc}")
             return
-        if frame.empty:
-            st.warning("Таблица пуста.")
+        if not raw_tables:
+            st.info("Выберите хотя бы один лист.")
             return
 
-        frame, iron_ready = _apply_iron_semantics(frame, f"{uploaded.name}_{sheet}")
-        if not iron_ready:
-            st.info("Перед импортом нужно подтвердить форму представления железа.")
+        existing_samples = [str(item["name"]) for item in list_samples(int(project_id))]
+        existing_sources = _existing_source_labels(int(project_id))
+        existing_terms = _existing_terms(int(project_id))
+        staged_frames: dict[str, pd.DataFrame] = {}
+        all_confirmations: dict[str, dict[str, str]] = {}
+        all_ready = True
+
+        for sheet, raw in raw_tables.items():
+            with st.container(border=True):
+                st.markdown(f"### {sheet}")
+                try:
+                    clean_raw = raw.dropna(how="all").reset_index(drop=True)
+                    frame, _ = normalize_columns_with_map(clean_raw)
+                except Exception as exc:
+                    st.error(f"{sheet}: не удалось нормализовать таблицу — {exc}")
+                    all_ready = False
+                    continue
+                if frame.empty:
+                    st.warning("Лист пуст.")
+                    continue
+
+                frame, iron_ready = _apply_iron_semantics(frame, f"{uploaded.name}_{sheet}")
+                if not iron_ready:
+                    st.info("Подтвердите форму представления железа для этого листа.")
+                    all_ready = False
+                    continue
+
+                chemistry = [
+                    str(column) for column in frame.columns
+                    if describe_header(column).quantity_kind in {
+                        "oxide", "trace_element", "element_concentration", "element_unknown_unit",
+                    }
+                ]
+                detected = detect_role_columns(frame.columns)
+                if detected:
+                    st.caption("Автоматически распознано: " + " · ".join(f"{role} ← {column}" for role, column in detected.items()))
+
+                result, _, _ = render_staging_editor(
+                    frame,
+                    token=f"rock_{uploaded.name}",
+                    sheet=sheet,
+                    chemistry_columns=chemistry,
+                    existing_samples=existing_samples,
+                    existing_sources=existing_sources,
+                    existing_terms=existing_terms,
+                )
+                staged = _canonicalize_roles(result.dataframe, result.role_columns)
+                staged_frames[sheet] = staged
+                _merge_confirmations(all_confirmations, result.confirmations)
+                _extend_seen_values(staged, existing_samples, existing_sources, existing_terms)
+
+        if not staged_frames:
             return
 
-        chemistry = [
-            str(column) for column in frame.columns
-            if describe_header(column).quantity_kind in {
-                "oxide", "trace_element", "element_concentration", "element_unknown_unit",
-            }
-        ]
-        detected = detect_role_columns(frame.columns)
-        if detected:
-            st.caption("Автоматически распознано: " + " · ".join(f"{role} ← {column}" for role, column in detected.items()))
-
-        result, _, _ = render_staging_editor(
-            frame,
-            token=f"rock_{uploaded.name}",
-            sheet=sheet,
-            chemistry_columns=chemistry,
-            existing_samples=[str(item["name"]) for item in list_samples(int(project_id))],
-            existing_sources=_existing_source_labels(int(project_id)),
-            existing_terms=_existing_terms(int(project_id)),
-        )
-        staged = _canonicalize_roles(result.dataframe, result.role_columns)
-        staged = _replace_confirmed_values(staged, result.confirmations)
-        if "Sample" not in staged.columns:
+        staged_frames = {
+            sheet: _replace_confirmed_values(frame, all_confirmations)
+            for sheet, frame in staged_frames.items()
+        }
+        missing_sample = [sheet for sheet, frame in staged_frames.items() if "Sample" not in frame.columns]
+        if missing_sample:
             st.warning(
-                "Назначьте колонку Sample или создайте поле Sample массовым действием — без физического образца импорт пород не выполняется."
+                "Назначьте Sample на листах: " + ", ".join(missing_sample)
+                + ". Без физического образца эти листы не будут импортированы."
             )
-            return
+            all_ready = False
 
-        sources = len({str(value).strip() for value in staged.get("Source", pd.Series(dtype=str)).dropna().tolist() if str(value).strip()})
-        samples = len({str(value).strip() for value in staged["Sample"].dropna().tolist() if str(value).strip()})
+        total_rows = sum(len(frame) for frame in staged_frames.values())
+        all_samples = {
+            str(value).strip()
+            for frame in staged_frames.values() if "Sample" in frame.columns
+            for value in frame["Sample"].dropna().tolist() if str(value).strip()
+        }
+        all_sources = {
+            str(value).strip()
+            for frame in staged_frames.values() if "Source" in frame.columns
+            for value in frame["Source"].dropna().tolist() if str(value).strip()
+        }
         render_badges([
-            (f"строк · {len(staged)}", "neutral"),
-            (f"образцов · {samples}", "accent"),
-            (f"источников · {sources}", "neutral"),
-            (f"химических полей · {len(chemistry)}", "success"),
+            (f"листов · {len(staged_frames)}", "neutral"),
+            (f"строк · {total_rows}", "neutral"),
+            (f"образцов · {len(all_samples)}", "accent"),
+            (f"источников · {len(all_sources)}", "neutral"),
         ])
-        st.dataframe(staged.head(100), hide_index=True, width="stretch", height=min(460, 45 + 32 * min(100, len(staged))))
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Лист": sheet,
+                    "Строк": len(frame),
+                    "Sample": "Sample" in frame.columns,
+                    "Lithology": "Lithology" in frame.columns,
+                    "Source": "Source" in frame.columns,
+                }
+                for sheet, frame in staged_frames.items()
+            ]),
+            hide_index=True,
+            width="stretch",
+        )
 
-        if not st.button("Импортировать whole-rock staging", type="primary", width="stretch", key="rock_staging_save"):
+        if not st.button(
+            "Импортировать whole-rock staging",
+            type="primary",
+            width="stretch",
+            disabled=not all_ready,
+            key="rock_staging_save",
+        ):
             return
 
-        sample_names = result.confirmations.get("Sample", {})
-        source_names = result.confirmations.get("Source", {})
+        sample_names = all_confirmations.get("Sample", {})
+        source_names = all_confirmations.get("Source", {})
         confirmed_samples, confirmed_sources = _confirmation_ids(
             int(project_id), sample_names, source_names,
         )
+
+        imported_rock_ids: set[int] = set()
+        determination_count = created_count = reused_count = source_links = custom_attributes = 0
+        warnings: list[str] = []
+        remembered_terms = 0
         try:
-            imported = import_staged_rocks(
-                staged,
-                project_id=int(project_id),
-                source_file=uploaded.name,
-                source_sheet=sheet,
-                confirmed_samples=confirmed_samples,
-                confirmed_sources=confirmed_sources,
-            )
+            for sheet, staged in staged_frames.items():
+                imported = import_staged_rocks(
+                    staged,
+                    project_id=int(project_id),
+                    source_file=uploaded.name,
+                    source_sheet=sheet,
+                    confirmed_samples=confirmed_samples,
+                    confirmed_sources=confirmed_sources,
+                )
+                imported_rock_ids.update(imported.rock_ids)
+                determination_count += len(imported.determination_ids)
+                created_count += imported.created_rocks
+                reused_count += imported.reused_rocks
+                source_links += imported.source_links
+                custom_attributes += imported.custom_attributes
+                warnings.extend(imported.warnings)
+                remembered_terms += persist_staged_terms(int(project_id), staged, all_confirmations)
             _persist_sample_aliases(int(project_id), sample_names)
-            remembered_terms = persist_staged_terms(int(project_id), staged, result.confirmations)
         except Exception as exc:
             st.error(f"Импорт пород остановлен: {exc}")
             return
 
         st.success(
-            f"Физических образцов: {len(imported.rock_ids)} · новых: {imported.created_rocks} · "
-            f"повторно использовано: {imported.reused_rocks} · определений состава: {len(imported.determination_ids)}."
+            f"Физических образцов: {len(imported_rock_ids)} · новых: {created_count} · "
+            f"повторно использовано: {reused_count} · определений состава: {determination_count}."
         )
-        if imported.source_links:
-            st.caption(f"Связей с литературными источниками: {imported.source_links}.")
-        if imported.custom_attributes:
-            st.caption(f"Сохранено пользовательских метаполей: {imported.custom_attributes}.")
+        if source_links:
+            st.caption(f"Связей с литературными источниками: {source_links}.")
+        if custom_attributes:
+            st.caption(f"Сохранено пользовательских метаполей: {custom_attributes}.")
         if remembered_terms:
             st.caption(f"Канонических терминов/категорий запомнено: {remembered_terms}.")
-        if imported.warnings:
-            st.warning("\n".join(imported.warnings[:30]))
+        if warnings:
+            st.warning("\n".join(warnings[:30]))
         st.rerun()
 
 
