@@ -70,6 +70,10 @@ from .v0153_grain_profile_wrappers import render_global_search_page
 from .v0154_rock_workspace_wrappers import render_rocks_page
 from .rocks_staging_bridge_v0154 import render_rocks_page
 
+# Whole-rock сравнение получает такой же click/box/lasso связанный отбор,
+# как минералогическая мультипанель, но сохраняет рабочие классы вместо Generation.
+from .whole_rock_compare_linked_v0154 import render_whole_rock_compare_page
+
 # Химический сценарий после импорта начинается с мультипанели и сохраняет
 # отдельные переходы к лассо, PCA/кластеризации и утверждению Generation.
 from petrolab.ui.workflow_cluster_bridge_v0154 import (
