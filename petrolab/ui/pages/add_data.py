@@ -93,10 +93,10 @@ def render_add_data_page() -> None:
     with c1:
         with st.container(border=True):
             st.markdown("### Мои анализы")
-            st.caption("EPMA/WDS, EDS, LA-ICP-MS, XRF, ICP-MS и другие собственные измерения.")
+            st.caption("Сначала быстрый безопасный импорт; если схема неоднозначна, PetroLab сам предложит полный мастер.")
             if st.button("Загрузить файл", type="primary", key="add_data_own", width="stretch"):
                 st.session_state["add_data_mode"] = "own"
-                _go("sources")
+                _go("quick_import")
     with c2:
         with st.container(border=True):
             st.markdown("### Статья / коллега")
