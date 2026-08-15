@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import io
 import os
 import tempfile
@@ -152,6 +153,14 @@ def main() -> None:
             assert "не относится" in str(exc)
         else:
             raise AssertionError("A rock workspace must reject a rock from another project")
+
+        # All scientific/data assertions are complete. On Windows sqlite Row/DataFrame
+        # objects and imported module globals can otherwise keep a file handle alive
+        # until cyclic GC, making TemporaryDirectory teardown fail despite closed
+        # repository connections. Drop local holders and collect deterministically.
+        image.close()
+        del incomplete, traces, majors, snapshot, mineral_rows, composition, units, image
+        gc.collect()
 
     print("rock workspace tests: OK")
 
