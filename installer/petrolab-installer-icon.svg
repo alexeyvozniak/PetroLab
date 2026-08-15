@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#082c52"/>
+      <stop offset="0.55" stop-color="#0b3558"/>
+      <stop offset="1" stop-color="#061d35"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#42d9ef"/>
+      <stop offset="0.42" stop-color="#167aa5"/>
+      <stop offset="0.74" stop-color="#164b74"/>
+      <stop offset="1" stop-color="#f4a52c"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9ffff"/>
+      <stop offset="0.26" stop-color="#42e0dc"/>
+      <stop offset="0.7" stop-color="#0d8c94"/>
+      <stop offset="1" stop-color="#07515d"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0a6"/>
+      <stop offset="0.3" stop-color="#ffc33d"/>
+      <stop offset="0.74" stop-color="#e66d14"/>
+      <stop offset="1" stop-color="#8d3613"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="18"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="42" y="42" width="940" height="940" rx="215" fill="url(#tile)"/>
+  <rect x="55" y="55" width="914" height="914" rx="202" fill="none" stroke="url(#rim)" stroke-width="24"/>
+  <path d="M113 192 Q220 82 410 80" fill="none" stroke="#d9fbff" stroke-opacity="0.6" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="486" cy="472" r="320" fill="#0a3150" stroke="#3abbd4" stroke-opacity="0.42" stroke-width="13"/>
+
+  <g opacity="0.28" fill="none" stroke="#61bad0" stroke-width="8" stroke-linecap="round">
+    <path d="M215 298 C315 246 377 318 470 278 S638 245 774 284"/>
+    <path d="M198 366 C308 311 388 381 484 340 S648 307 791 350"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M160 674 L316 625 L460 663 L585 632 L782 691 L750 835 L247 846 Z" fill="#202a35" stroke="#33495d" stroke-width="10"/>
+    <path d="M226 764 C334 703 443 802 559 741 C643 697 698 729 779 711 L771 759 C684 784 637 748 552 795 C449 852 350 768 246 815 Z" fill="#0e847e"/>
+    <path d="M244 808 C346 756 440 842 548 791 C638 749 688 781 766 761 L758 805 C683 824 632 794 551 834 C446 885 356 812 266 848 Z" fill="#e3c789"/>
+    <path d="M288 849 C378 809 455 879 545 846 C629 815 676 839 745 827 L728 866 L315 875 Z" fill="#b84d18"/>
+
+    <polygon points="300,622 351,420 442,357 470,651 388,700" fill="#34495f" stroke="#c9d6e2" stroke-width="8"/>
+    <polygon points="399,642 458,250 555,176 626,296 587,628 506,702" fill="url(#teal)" stroke="#c4ffff" stroke-width="9"/>
+    <polygon points="458,250 528,354 506,702 399,642" fill="#0c8e91" opacity="0.74"/>
+    <polygon points="458,250 555,176 528,354" fill="#c6ffff" opacity="0.82"/>
+    <polygon points="548,655 590,388 660,326 713,411 681,645 620,696" fill="url(#gold)" stroke="#ffe19a" stroke-width="8"/>
+  </g>
+
+  <g transform="translate(596 575)" filter="url(#shadow)">
+    <path d="M30 119 L155 58 L280 119 L253 269 L155 325 L57 269 Z" fill="#0c4771" stroke="#f0ba4b" stroke-width="15" stroke-linejoin="round"/>
+    <polygon points="30,119 155,181 280,119 155,58" fill="#efb33f"/>
+    <polygon points="30,119 155,181 57,269" fill="#123b5d"/>
+    <polygon points="280,119 155,181 253,269" fill="#082d4c"/>
+    <path d="M155 20 L155 158" stroke="#fff4b0" stroke-width="62" stroke-linecap="round"/>
+    <path d="M100 112 L155 168 L210 112" fill="none" stroke="#fff4b0" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M155 20 L155 158" stroke="#26d7d0" stroke-width="42" stroke-linecap="round"/>
+    <path d="M100 112 L155 168 L210 112" fill="none" stroke="#26d7d0" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 149 L155 198 L248 149" fill="none" stroke="#ffe09a" stroke-width="8"/>
+  </g>
+</svg>
