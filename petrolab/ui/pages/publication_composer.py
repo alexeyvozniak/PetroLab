@@ -15,6 +15,7 @@ from petrolab.publication_composer import (
     publication_recipe,
     recipe_json_bytes,
 )
+from petrolab.publication_sources import project_publication_sources, source_bytes
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project
 from petrolab.visualization_presets import FIGURE_PRESETS
@@ -23,24 +24,41 @@ from petrolab.visualization_presets import FIGURE_PRESETS
 _ALLOWED_TYPES = ["png", "jpg", "jpeg", "tif", "tiff", "webp"]
 
 
-def _upload_fingerprint(uploads) -> str:
-    digest = hashlib.sha256()
+def _upload_sources(uploads) -> list[dict]:
+    sources: list[dict] = []
     for index, upload in enumerate(uploads or []):
         content = upload.getvalue()
+        digest = hashlib.sha256(content).hexdigest()[:20]
+        sources.append({
+            "source_id": f"upload:{digest}:{index}",
+            "source_name": str(upload.name),
+            "group": "Загружено сейчас",
+            "note": "",
+            "image_bytes": content,
+        })
+    return sources
+
+
+def _source_fingerprint(sources: list[dict]) -> str:
+    digest = hashlib.sha256()
+    for index, source in enumerate(sources):
         digest.update(str(index).encode("ascii"))
-        digest.update(str(upload.name).encode("utf-8", errors="replace"))
-        digest.update(str(len(content)).encode("ascii"))
-        digest.update(hashlib.sha256(content).digest())
+        digest.update(str(source.get("source_id", "")).encode("utf-8", errors="replace"))
+        content = source.get("image_bytes")
+        if isinstance(content, (bytes, bytearray)):
+            digest.update(hashlib.sha256(bytes(content)).digest())
+        else:
+            digest.update(str(source.get("path", "")).encode("utf-8", errors="replace"))
     return digest.hexdigest()
 
 
-def _default_editor(uploads, mode: str, font_size: float) -> pd.DataFrame:
-    labels = panel_label_sequence(len(uploads), mode)
+def _default_editor(sources: list[dict], mode: str, font_size: float) -> pd.DataFrame:
+    labels = panel_label_sequence(len(sources), mode)
     rows: list[dict] = []
-    for index, upload in enumerate(uploads):
+    for index, source in enumerate(sources):
         rows.append({
             "Порядок": index + 1,
-            "Файл": str(upload.name),
+            "Источник": f"{source.get('group', '')} · {source.get('source_name', '')}".strip(" ·"),
             "Заголовок": "",
             "Метка": labels[index],
             "Показывать метку": bool(labels[index]),
@@ -49,7 +67,7 @@ def _default_editor(uploads, mode: str, font_size: float) -> pd.DataFrame:
             "Размер метки": float(font_size),
             "Жирная": True,
             "Заполнение": "Вместить",
-            "_source_index": index,
+            "_source_id": str(source.get("source_id", "")),
         })
     return pd.DataFrame(rows)
 
@@ -63,17 +81,25 @@ def _reset_auto_labels(dataframe: pd.DataFrame, mode: str, show_all: bool) -> pd
     return updated
 
 
-def _panels_from_editor(uploads, editor: pd.DataFrame, show_all: bool) -> list[dict]:
+def _read_source(source: dict) -> bytes:
+    content = source.get("image_bytes")
+    if isinstance(content, (bytes, bytearray)):
+        return bytes(content)
+    return source_bytes(source)
+
+
+def _panels_from_editor(sources: list[dict], editor: pd.DataFrame, show_all: bool) -> list[dict]:
+    source_map = {str(source.get("source_id")): source for source in sources}
     rows = editor.copy()
     rows["Порядок"] = pd.to_numeric(rows["Порядок"], errors="coerce")
     rows["_stable"] = range(len(rows))
     rows = rows.sort_values(["Порядок", "_stable"], kind="mergesort", na_position="last")
     panels: list[dict] = []
     for _, row in rows.iterrows():
-        source_index = int(row.get("_source_index", 0))
-        if source_index < 0 or source_index >= len(uploads):
+        source_id = str(row.get("_source_id", ""))
+        source = source_map.get(source_id)
+        if source is None:
             continue
-        upload = uploads[source_index]
         crop_mode = "cover" if str(row.get("Заполнение", "Вместить")) == "Заполнить" else "contain"
         label = default_panel_label(
             str(row.get("Метка", "")),
@@ -83,15 +109,47 @@ def _panels_from_editor(uploads, editor: pd.DataFrame, show_all: bool) -> list[d
             font_size=float(row.get("Размер метки", 11.0)),
             font_weight="bold" if bool(row.get("Жирная", True)) else "normal",
         )
+        try:
+            image_bytes = _read_source(source)
+        except Exception:
+            # Keep the panel cell in place. The composer engine will draw an
+            # explicit broken-source message instead of shifting later panels.
+            image_bytes = b""
         panels.append({
-            "source_id": f"upload:{source_index}",
-            "source_name": str(upload.name),
-            "image_bytes": upload.getvalue(),
+            "source_id": source_id,
+            "source_name": str(source.get("source_name") or source_id),
+            "image_bytes": image_bytes,
             "title": str(row.get("Заголовок", "") or ""),
             "crop_mode": crop_mode,
             "label": label,
         })
     return panels
+
+
+def _project_source_selector(project: dict | None) -> list[dict]:
+    if project is None:
+        return []
+    try:
+        available = project_publication_sources(int(project["id"]))
+    except Exception as exc:
+        st.warning(f"Не удалось прочитать изображения проекта: {exc}")
+        return []
+    if not available:
+        st.caption("В проекте пока нет сохранённых изображений, пригодных для панели.")
+        return []
+    by_id = {str(source["source_id"]): source for source in available}
+    selected_ids = st.multiselect(
+        "Взять из текущего проекта",
+        list(by_id),
+        format_func=lambda value: f"{by_id[str(value)]['group']} · {by_id[str(value)]['source_name']}",
+        key="publication_composer_project_sources",
+        placeholder="Фото пород, изображения анализов, шлифы…",
+    )
+    selected = [by_id[str(value)] for value in selected_ids if str(value) in by_id]
+    fallback_notes = [str(item.get("note")) for item in selected if str(item.get("note", "")).strip()]
+    if fallback_notes:
+        st.warning("\n".join(dict.fromkeys(fallback_notes)))
+    return selected
 
 
 def render_publication_composer_page() -> None:
@@ -103,20 +161,22 @@ def render_publication_composer_page() -> None:
         context=str(project["name"]) if project else "Без проекта",
     )
 
+    render_section_header("Источники панелей", "Можно смешивать изображения из проекта и новые файлы")
+    project_sources = _project_source_selector(project)
     uploads = st.file_uploader(
-        "Панели рисунка",
+        "Или добавить файлы с компьютера",
         type=_ALLOWED_TYPES,
         accept_multiple_files=True,
         key="publication_composer_uploads",
-        help="Можно выбрать фотографии, микрофотографии и уже экспортированные графики PetroLab.",
+        help="PNG, JPEG, TIFF и WEBP. Можно добавить уже экспортированные графики PetroLab.",
     )
-    if not uploads:
-        st.info("Добавьте от двух изображений. Затем их можно переставить, подписать и экспортировать одной фигурой.")
+    sources = [*project_sources, *_upload_sources(uploads)]
+    if not sources:
+        st.info("Выберите изображения из проекта или добавьте файлы с компьютера.")
         return
-
-    if len(uploads) > 12:
-        st.warning("В одной фигуре сейчас поддерживается до 12 панелей. Используются первые 12 файлов.")
-        uploads = uploads[:12]
+    if len(sources) > 12:
+        st.warning("В одной фигуре сейчас поддерживается до 12 панелей. Используются первые 12 выбранных источников.")
+        sources = sources[:12]
 
     preset_names = list(FIGURE_PRESETS)
     p1, p2, p3 = st.columns(3)
@@ -138,11 +198,11 @@ def render_publication_composer_page() -> None:
     show_all = p3.checkbox("Показывать метки", value=True, key="publication_composer_show_labels")
 
     default_label_size = max(float(preset.font_size) + 2.0, 10.0)
-    fingerprint = _upload_fingerprint(uploads)
+    fingerprint = _source_fingerprint(sources)
     previous_fingerprint = str(st.session_state.get("_publication_composer_fingerprint", ""))
     if fingerprint != previous_fingerprint:
         st.session_state["_publication_composer_config"] = _default_editor(
-            uploads,
+            sources,
             label_mode,
             default_label_size,
         )
@@ -168,18 +228,18 @@ def render_publication_composer_page() -> None:
 
     render_section_header("Панели", "Порядок, подписи и положение меток")
     config = st.session_state.get("_publication_composer_config")
-    if not isinstance(config, pd.DataFrame) or len(config) != len(uploads):
-        config = _default_editor(uploads, label_mode, default_label_size)
+    if not isinstance(config, pd.DataFrame) or len(config) != len(sources):
+        config = _default_editor(sources, label_mode, default_label_size)
         st.session_state["_publication_composer_config"] = config
     revision = int(st.session_state.get("_publication_composer_editor_revision", 0))
     edited = st.data_editor(
         config,
         width="stretch",
         hide_index=True,
-        disabled=["Файл", "_source_index"],
+        disabled=["Источник", "_source_id"],
         column_config={
             "Порядок": st.column_config.NumberColumn("Порядок", min_value=1, max_value=12, step=1),
-            "Файл": st.column_config.TextColumn("Файл"),
+            "Источник": st.column_config.TextColumn("Источник"),
             "Заголовок": st.column_config.TextColumn("Заголовок панели"),
             "Метка": st.column_config.TextColumn("Метка"),
             "Показывать метку": st.column_config.CheckboxColumn("Метка включена"),
@@ -188,7 +248,7 @@ def render_publication_composer_page() -> None:
             "Размер метки": st.column_config.NumberColumn("Размер", min_value=4.0, max_value=40.0, step=0.5),
             "Жирная": st.column_config.CheckboxColumn("Жирная"),
             "Заполнение": st.column_config.SelectboxColumn("Вписать", options=["Вместить", "Заполнить"]),
-            "_source_index": None,
+            "_source_id": None,
         },
         key=f"publication_composer_editor_{revision}",
     )
@@ -197,7 +257,7 @@ def render_publication_composer_page() -> None:
 
     render_section_header("Макет", "Размер фигуры и сетка")
     l1, l2, l3, l4 = st.columns(4)
-    auto_columns = 2 if len(uploads) <= 6 else 3
+    auto_columns = 2 if len(sources) <= 6 else 3
     columns = l1.selectbox(
         "Колонок",
         [1, 2, 3, 4],
@@ -222,7 +282,7 @@ def render_publication_composer_page() -> None:
     )
     dpi = l4.selectbox("DPI", [300, 600], index=1, key="publication_composer_dpi")
 
-    panels = _panels_from_editor(uploads, edited, show_all)
+    panels = _panels_from_editor(sources, edited, show_all)
     if not panels:
         st.error("Не удалось сформировать список панелей.")
         return
