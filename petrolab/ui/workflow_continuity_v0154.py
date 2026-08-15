@@ -9,6 +9,7 @@ import streamlit as st
 from petrolab.analytical_sessions import annotation_table
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.operation_journal import set_annotation_with_journal
+from petrolab.services.image_service import SCOPE_ANALYSIS
 from petrolab.term_registry import register_term, term_values
 from petrolab.textural_runtime import (
     COMMON_TEXTURAL_ZONES,
@@ -116,14 +117,20 @@ def _current_universal_import_ids(project_id: int) -> list[int]:
     return values
 
 
+def _display_text(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
 def _point_display(row: pd.Series) -> str:
     parts = [
-        str(row.get("Sample") or "").strip(),
-        str(row.get("Grain") or "").strip(),
-        str(row.get("Point") or "").strip(),
+        _display_text(row.get("Sample")),
+        _display_text(row.get("Grain")),
+        _display_text(row.get("Point")),
     ]
     label = " · ".join(value for value in parts if value)
-    analysis_id = str(row.get("_analysis_id") or "")
+    analysis_id = _display_text(row.get("_analysis_id"))
     return f"{label or 'точка'} · {analysis_id[:8]}"
 
 
@@ -140,7 +147,7 @@ def _render_current_image_textural_markup(
     prefix = f"univimg_{batch}_{token}"
 
     scope_label = st.session_state.get(f"{prefix}_scope", "К нескольким точкам анализа")
-    if SCOPE_LABELS.get(scope_label) != "analysis":
+    if SCOPE_LABELS.get(scope_label) != SCOPE_ANALYSIS:
         return
     dataset_id = st.session_state.get(f"{prefix}_dataset_id")
     if dataset_id is None:
@@ -244,7 +251,12 @@ def _render_current_image_textural_markup(
             "Textural zone": str((current.get(analysis_id, {}) or {}).get("zone") or ""),
         })
     if status_rows:
-        st.dataframe(pd.DataFrame(status_rows), width="stretch", hide_index=True, height=min(260, 36 * len(status_rows) + 38))
+        st.dataframe(
+            pd.DataFrame(status_rows),
+            width="stretch",
+            hide_index=True,
+            height=min(260, 36 * len(status_rows) + 38),
+        )
 
 
 def _render_image_wizard_with_textural_markup(
