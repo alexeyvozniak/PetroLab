@@ -10,6 +10,12 @@ import streamlit as st
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
+from petrolab.grain_profile_groups import (
+    build_grouped_grain_profile_figure,
+    grouped_grain_profile_recipe,
+    grouped_profile_dataframe,
+    prepare_grouped_grain_profiles,
+)
 from petrolab.grain_profiles import (
     ORDER_MODES,
     build_grain_profile_figure,
@@ -20,6 +26,9 @@ from petrolab.grain_profiles import (
 )
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project
+
+
+_KNOWN_GRAIN_COLUMNS = ("Grain", "Зерно", "Grain ID", "grain_id", "Crystal", "Кристалл")
 
 
 def _numeric_candidates(dataframe: pd.DataFrame) -> list[str]:
@@ -35,15 +44,27 @@ def _numeric_candidates(dataframe: pd.DataFrame) -> list[str]:
 
 def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
     preferred = [
-        "Sample", "Образец", "Point", "Точка", "Generation", "Поколение",
-        "Mineral", "Минерал", "Набор", "Источник", "Лист",
+        "Sample", "Образец", "Grain", "Зерно", "Point", "Точка",
+        "Generation", "Поколение", "Mineral", "Минерал", "Набор", "Источник", "Лист",
     ]
     return [column for column in preferred if column in dataframe.columns]
 
 
+def _group_candidates(dataframe: pd.DataFrame) -> list[str]:
+    candidates: list[str] = []
+    for column in [*_KNOWN_GRAIN_COLUMNS, *_identity_columns(dataframe)]:
+        if column not in dataframe.columns or column in candidates:
+            continue
+        values = dataframe[column].fillna("").astype(str).str.strip()
+        nonempty = values[values.ne("")]
+        if int(nonempty.nunique()) >= 2:
+            candidates.append(column)
+    return candidates
+
+
 def _point_label(row: pd.Series) -> str:
     values = []
-    for column in ["Sample", "Образец", "Point", "Точка", "Generation", "Поколение"]:
+    for column in ["Sample", "Образец", "Grain", "Зерно", "Point", "Точка", "Generation", "Поколение"]:
         if column in row.index:
             value = str(row.get(column) or "").strip()
             if value and value.lower() != "nan":
@@ -79,18 +100,36 @@ def _exact_order(dataframe: pd.DataFrame, analysis_ids: list[str]) -> tuple[pd.D
 
 def _xlsx_bytes(dataframe: pd.DataFrame) -> bytes:
     buffer = io.BytesIO()
+    identity = [column for column in ["_profile_group", "_profile_order", "_profile_x"] if column in dataframe.columns]
     visible = [column for column in dataframe.columns if not str(column).startswith("_")]
-    export = dataframe[["_profile_order", "_profile_x", *visible]].copy()
+    export = dataframe[[*identity, *visible]].copy()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         export.to_excel(writer, index=False, sheet_name="Grain profile")
     return buffer.getvalue()
+
+
+def _selected_frame(dataframe: pd.DataFrame, analysis_ids: list[str]) -> pd.DataFrame:
+    by_id = {str(row["_analysis_id"]): row for _, row in dataframe.iterrows()}
+    return pd.DataFrame([by_id[value] for value in analysis_ids if value in by_id]).reset_index(drop=True)
+
+
+def _single_profile_grain_guard(dataframe: pd.DataFrame, selected_ids: list[str]) -> str | None:
+    selected = _selected_frame(dataframe, selected_ids)
+    for column in _KNOWN_GRAIN_COLUMNS:
+        if column not in selected.columns:
+            continue
+        values = selected[column].fillna("").astype(str).str.strip()
+        unique = [value for value in dict.fromkeys(values.tolist()) if value]
+        if len(unique) > 1:
+            return column
+    return None
 
 
 def render_grain_profile_page() -> None:
     project = active_project()
     render_page_header(
         "Профиль по зерну",
-        "Постройте последовательность от core к rim по 5–100+ аналитическим точкам. Порядок и расстояние задаются явно; PetroLab не соединяет точки разных изображений по догадке.",
+        "Постройте traverse core→rim или сравните несколько зерен. PetroLab не соединяет разные зерна и разные системы координат по догадке.",
         eyebrow="Исследование",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -165,7 +204,29 @@ def render_grain_profile_page() -> None:
         st.warning("После фильтра не осталось точек.")
         return
 
-    render_section_header("Точки профиля", "Выберите физически относящиеся к одному traverse точки")
+    group_candidates = _group_candidates(filtered)
+    profile_kind = st.segmented_control(
+        "Режим",
+        ["Один traverse", "Несколько зерен"],
+        default="Один traverse",
+        key=f"grain_profile_kind_{project_id}",
+    ) or "Один traverse"
+    grouped_mode = profile_kind == "Несколько зерен"
+    group_column = ""
+    if grouped_mode:
+        if not group_candidates:
+            st.error("В выборке нет колонки, которая однозначно разделяет минимум два зерна/образца.")
+            return
+        preferred = next((column for column in _KNOWN_GRAIN_COLUMNS if column in group_candidates), group_candidates[0])
+        group_column = st.selectbox(
+            "Группировать зерна по",
+            group_candidates,
+            index=group_candidates.index(preferred),
+            key=f"grain_profile_group_column_{project_id}",
+        )
+        st.caption("Каждая группа строится как отдельный traverse. Точки разных групп никогда не соединяются одной линией.")
+
+    render_section_header("Точки профиля", "Выберите физически относящиеся к traverse точки")
     label_map = {str(row["_analysis_id"]): _point_label(row) for _, row in filtered.iterrows()}
     options = list(label_map)
     selection_token = hashlib.sha1(
@@ -174,7 +235,7 @@ def render_grain_profile_page() -> None:
     selection_key = f"grain_profile_selected_ids_{selection_token}"
     default_ids = options if routed_ids or len(options) <= 120 else []
     if not routed_ids and len(options) > 120:
-        st.caption(f"Найдено {len(options)} точек. PetroLab больше не выбирает первые 120 молча — выберите нужный traverse явно.")
+        st.caption(f"Найдено {len(options)} точек. PetroLab не выбирает первые 120 молча — выберите нужный traverse явно.")
         if st.button(f"Выбрать все {len(options)} точек", key=f"grain_profile_select_all_{selection_token}"):
             st.session_state[selection_key] = options
             st.rerun()
@@ -188,9 +249,19 @@ def render_grain_profile_page() -> None:
     if len(selected_ids) < 2:
         st.info("Для профиля выберите хотя бы две точки.")
         return
-    render_badges([(f"точек · {len(selected_ids)}", "accent")])
+    if not grouped_mode:
+        crossed_column = _single_profile_grain_guard(filtered, selected_ids)
+        if crossed_column:
+            st.error(
+                f"Выбранные точки относятся к нескольким значениям «{crossed_column}». "
+                "PetroLab не соединяет их одним traverse: переключитесь на «Несколько зерен» или оставьте одно зерно."
+            )
+            return
+    selected_rows = _selected_frame(filtered, selected_ids)
+    group_count = int(selected_rows[group_column].fillna("").astype(str).str.strip().nunique()) if grouped_mode else 1
+    render_badges([(f"точек · {len(selected_ids)}", "accent"), (f"групп · {group_count}" if grouped_mode else "один traverse", "neutral")])
 
-    render_section_header("Порядок и расстояние", "Порядок должен быть физически определён")
+    render_section_header("Порядок и расстояние", "Порядок должен быть физически определён внутри каждого traverse")
     mode_by_title = {title: key for key, title in ORDER_MODES.items()}
     default_title = "Номер из подписи точки" if any(column in filtered.columns for column in ["Point", "Точка"]) else "Порядок выбранных analysis_id / строк"
     mode_title = st.selectbox(
@@ -236,32 +307,57 @@ def render_grain_profile_page() -> None:
         x_column = g2.selectbox("X", numeric_columns, key=f"grain_profile_geometry_x_{project_id}")
         y_column = g3.selectbox("Y", numeric_columns, key=f"grain_profile_geometry_y_{project_id}")
         frame_column = g4.selectbox("Система координат / image id", columns, key=f"grain_profile_geometry_frame_{project_id}")
-        st.caption("Geometry разрешён только в одной системе координат и при уже известном порядке traverse. Расстояние наследует единицы X/Y; это µm только для калиброванных координат в µm.")
+        st.caption("Geometry проверяется отдельно внутри каждого зерна. Расстояние наследует единицы X/Y; это µm только для калиброванных координат в µm.")
 
     b1, b2 = st.columns(2)
-    normalize = b1.checkbox("Нормировать расстояние 0–1", value=False, key=f"grain_profile_normalize_{project_id}")
+    normalize = b1.checkbox(
+        "Нормировать расстояние 0–1",
+        value=bool(grouped_mode),
+        key=f"grain_profile_normalize_{project_id}_{'grouped' if grouped_mode else 'single'}",
+        help="Для сравнения зерен разного размера нормирование 0–1 обычно делает профили сопоставимыми.",
+    )
     reverse = b2.checkbox("Развернуть направление профиля", value=False, key=f"grain_profile_reverse_{project_id}")
 
+    single_result = None
+    grouped_result = None
     try:
-        result = prepare_grain_profile(
-            filtered,
-            analysis_ids=selected_ids,
-            order_mode=order_mode,
-            order_column=order_column,
-            label_column=label_column,
-            distance_column=distance_column,
-            x_column=x_column,
-            y_column=y_column,
-            coordinate_frame_column=frame_column,
-            normalize_distance=bool(normalize),
-            reverse=bool(reverse),
-        )
+        if grouped_mode:
+            grouped_result = prepare_grouped_grain_profiles(
+                filtered,
+                group_column=group_column,
+                analysis_ids=selected_ids,
+                order_mode=order_mode,
+                order_column=order_column,
+                label_column=label_column,
+                distance_column=distance_column,
+                x_column=x_column,
+                y_column=y_column,
+                coordinate_frame_column=frame_column,
+                normalize_distance=bool(normalize),
+                reverse=bool(reverse),
+            )
+            ordered = grouped_profile_dataframe(grouped_result)
+        else:
+            single_result = prepare_grain_profile(
+                filtered,
+                analysis_ids=selected_ids,
+                order_mode=order_mode,
+                order_column=order_column,
+                label_column=label_column,
+                distance_column=distance_column,
+                x_column=x_column,
+                y_column=y_column,
+                coordinate_frame_column=frame_column,
+                normalize_distance=bool(normalize),
+                reverse=bool(reverse),
+            )
+            ordered = single_result.dataframe
     except Exception as exc:
         st.error(f"Профиль не построен: {exc}")
         return
 
     render_section_header("Что показать", "Пропуски и бесконечные derived-значения остаются разрывами, а не нулями")
-    numeric = _numeric_candidates(result.dataframe)
+    numeric = _numeric_candidates(ordered)
     default_y = [column for column in ["MgO", "FeO", "TiO2", "Cr2O3"] if column in numeric][:2]
     y_columns = st.multiselect(
         "Величины Y",
@@ -272,36 +368,50 @@ def render_grain_profile_page() -> None:
     if not y_columns:
         return
 
-    with st.expander("Зоны core / mantle / rim", expanded=False):
-        zones = st.data_editor(
-            pd.DataFrame(columns=["label", "start", "end"]),
-            num_rows="dynamic",
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "label": st.column_config.TextColumn("Зона"),
-                "start": st.column_config.NumberColumn("От"),
-                "end": st.column_config.NumberColumn("До"),
-            },
-            key=f"grain_profile_zones_{project_id}",
-        ).to_dict("records")
+    zones: list[dict] = []
+    display_mode = "overlay"
+    if grouped_mode:
+        display_title = st.segmented_control(
+            "Несколько зерен",
+            ["Наложить", "Отдельные панели"],
+            default="Наложить",
+            key=f"grain_profile_group_display_{project_id}",
+        ) or "Наложить"
+        display_mode = "overlay" if display_title == "Наложить" else "facets"
+        st.caption("Наложение и панели используют те же исходные analysis_id; усреднение между зернами не выполняется.")
+    else:
+        with st.expander("Зоны core / mantle / rim", expanded=False):
+            zones = st.data_editor(
+                pd.DataFrame(columns=["label", "start", "end"]),
+                num_rows="dynamic",
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "label": st.column_config.TextColumn("Зона"),
+                    "start": st.column_config.NumberColumn("От"),
+                    "end": st.column_config.NumberColumn("До"),
+                },
+                key=f"grain_profile_zones_{project_id}",
+            ).to_dict("records")
 
     try:
-        figure = build_grain_profile_figure(result, y_columns, zones=zones)
+        if grouped_mode and grouped_result is not None:
+            figure = build_grouped_grain_profile_figure(grouped_result, y_columns, display_mode=display_mode)
+            recipe = grouped_grain_profile_recipe(grouped_result, y_columns=y_columns, display_mode=display_mode)
+        elif single_result is not None:
+            figure = build_grain_profile_figure(single_result, y_columns, zones=zones)
+            recipe = grain_profile_recipe(single_result, y_columns=y_columns, zones=zones)
+        else:
+            raise ValueError("Внутреннее состояние профиля не определено")
     except Exception as exc:
         st.error(f"Не удалось нарисовать профиль: {exc}")
         return
     st.pyplot(figure, width="stretch")
 
-    ordered = result.dataframe
-    preview_columns = ["_profile_order", "_profile_x"] + [
-        column for column in ["Sample", "Образец", "Point", "Точка", *y_columns]
-        if column in ordered.columns
-    ]
+    preview_columns = [column for column in ["_profile_group", "_profile_order", "_profile_x", "Sample", "Образец", "Grain", "Зерно", "Point", "Точка", *y_columns] if column in ordered.columns]
     st.dataframe(ordered[preview_columns], width="stretch", hide_index=True)
 
     render_section_header("Экспорт", "Рисунок, точки в точном порядке и воспроизводимый рецепт")
-    recipe = grain_profile_recipe(result, y_columns=y_columns, zones=zones)
     e1, e2, e3, e4 = st.columns(4)
     e1.download_button("SVG", figure_bytes(figure, "svg", 600), file_name="petrolab_grain_profile.svg", mime="image/svg+xml", width="stretch")
     e2.download_button("PNG 600 dpi", figure_bytes(figure, "png", 600), file_name="petrolab_grain_profile.png", mime="image/png", width="stretch")
