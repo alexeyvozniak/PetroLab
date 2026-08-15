@@ -5,207 +5,375 @@ import io
 import pandas as pd
 import streamlit as st
 
-from petrolab.advisory_policy import ADVISORY_POLICY_ID
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
-from petrolab.thermobarometry import (
-    PUTIRKA_2008_CPX_T32D,
-    QC_FAIL,
-    QC_INSUFFICIENT_INPUT,
-    QC_NOT_APPLICABLE,
-    QC_PASS,
-    QC_WARNING,
-    calculate_putirka_2008_cpx_only_t32d,
-    list_runs,
-    save_run,
+from petrolab.thermodynamics import (
+    FERRY_WATSON_2007_TI_ZIRCON,
+    KIND_FUGACITY,
+    KIND_PRESSURE,
+    KIND_TEMPERATURE,
+    LOUCKS_2020_ZIRCON_DFMQ,
+    METHODS,
+    MODE_MINERAL_MELT,
+    MODE_SINGLE_MINERAL,
+    MUTCH_2016_AMP_BAROMETER,
+    PUTIRKA_2008_CPX_ONLY,
+    PUTIRKA_2008_OL_LIQ_EQ22,
+    PUTIRKA_2016_AMP_EQ5,
+    calculate_method,
+    list_thermodynamic_runs,
+    method_by_id,
+    save_thermodynamic_run,
 )
-from petrolab.ui.layout import render_badges, render_hint, render_page_header, render_section_header
+from petrolab.thermobarometry import QC_FAIL, QC_INSUFFICIENT_INPUT, QC_PASS, QC_WARNING, list_runs as list_legacy_runs
+from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project_id
 
 
-_CPX_KEY = "clinopyroxene"
-_IDENTITY_COLUMNS = ("Sample", "Grain", "Point", "Generation", "Набор", "_analysis_id")
+_IDENTITY_COLUMNS = ("Sample", "Grain", "Point", "Generation", "Набор", "Минерал", "_analysis_id")
+_KIND_LABELS = {
+    KIND_TEMPERATURE: "Термометры",
+    KIND_PRESSURE: "Барометры",
+    KIND_FUGACITY: "Фугометры / oxybarometers",
+}
+_MODE_LABELS = {
+    MODE_SINGLE_MINERAL: "Мономинеральные",
+    MODE_MINERAL_MELT: "Минерал–расплав",
+}
 
 
-def _candidate_datasets(project_id: int) -> list[dict]:
-    return [
-        dataset for dataset in list_accessible_datasets(project_id)
-        if str(dataset.get("mineral_key", "")) == _CPX_KEY
-    ]
-
-
-def _identity_preview(dataframe: pd.DataFrame) -> list[str]:
+def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
     return [column for column in _IDENTITY_COLUMNS if column in dataframe.columns]
 
 
+def _method_label(method_id: str) -> str:
+    method = method_by_id(method_id)
+    return f"{method.short_title} · {_MODE_LABELS[method.input_mode]}"
+
+
+def _candidate_method_ids(datasets: list[dict]) -> list[str]:
+    minerals = {str(item.get("mineral_key") or "") for item in datasets}
+    return [method.method_id for method in METHODS if method.mineral_key in minerals]
+
+
+def _filtered_source(project_id: int, dataset_ids: list[int], mineral_key: str, query: str) -> pd.DataFrame:
+    source = load_unified_with_derived(project_id, dataset_ids)
+    if "Минерал" in source.columns:
+        source = source[source["Минерал"].astype(str) == mineral_key].copy()
+    if "_analysis_id" in source.columns:
+        source = source.drop_duplicates("_analysis_id")
+    if query.strip() and not source.empty:
+        needle = query.strip().casefold()
+        mask = pd.Series(False, index=source.index)
+        for column in _identity_columns(source):
+            mask |= source[column].astype(str).str.casefold().str.contains(needle, na=False)
+        source = source.loc[mask].copy()
+    return source.reset_index(drop=True)
+
+
+def _point_selection(source: pd.DataFrame) -> pd.DataFrame:
+    choice = st.radio(
+        "Точки",
+        ["Все отфильтрованные", "Выбрать вручную"],
+        horizontal=True,
+        key="thermodynamics_selection_mode",
+    )
+    preview = _identity_columns(source)
+    extra = [
+        column for column in (
+            "SiO2", "TiO2", "Al2O3", "FeOt", "FeO", "MgO", "CaO", "Na2O", "K2O",
+            "Ti [µg/g]", "Ce [µg/g]", "Ui [µg/g]", "U [µg/g]",
+        ) if column in source.columns and column not in preview
+    ]
+    columns = preview + extra
+    if choice == "Все отфильтрованные":
+        st.dataframe(source[columns].head(500), width="stretch", hide_index=True, height=285)
+        if len(source) > 500:
+            st.caption(f"Показаны первые 500 из {len(source)} точек; расчёт охватит весь текущий отбор.")
+        return source.copy()
+
+    editor = source[columns].copy()
+    editor.insert(0, "Рассчитать", False)
+    edited = st.data_editor(
+        editor,
+        width="stretch",
+        hide_index=True,
+        height=330,
+        key="thermodynamics_point_selector",
+        column_config={"Рассчитать": st.column_config.CheckboxColumn("Рассчитать")},
+        disabled=[column for column in editor.columns if column != "Рассчитать"],
+    )
+    ids = edited.loc[edited["Рассчитать"], "_analysis_id"].astype(str).tolist()
+    return source[source["_analysis_id"].astype(str).isin(ids)].copy()
+
+
+def _melt_editor() -> dict[str, float]:
+    st.markdown("#### Представительный состав расплава")
+    st.caption(
+        "Сейчас PetroLab применяет один явно заданный состав расплава ко всем выбранным olivine. "
+        "Автоматический перебор всех mineral–melt пар намеренно не выполняется."
+    )
+    fields = ("SiO2", "TiO2", "Al2O3", "FeOt", "MnO", "MgO", "CaO", "Na2O", "K2O", "H2O")
+    values: dict[str, float] = {}
+    for start in range(0, len(fields), 5):
+        cols = st.columns(min(5, len(fields) - start))
+        for widget, field in zip(cols, fields[start:start + 5]):
+            values[field] = float(widget.number_input(
+                field + " (wt%)",
+                min_value=0.0,
+                value=0.0,
+                step=0.1,
+                key=f"thermodynamics_melt_{field}",
+            ))
+    return values
+
+
+def _method_assumptions(method_id: str) -> tuple[dict, dict | None]:
+    assumptions: dict = {}
+    melt: dict | None = None
+    if method_id == PUTIRKA_2008_CPX_ONLY.method_id:
+        assumptions["pressure_kbar"] = float(st.number_input(
+            "Независимо заданное давление (kbar)", min_value=0.0, value=2.0, step=0.1,
+            key="thermodynamics_cpx_pressure",
+        ))
+        assumptions["applicability_confirmed"] = st.checkbox(
+            "Подтверждаю применимость anhydrous Cpx-only Eq. 32d к этому отбору.",
+            key="thermodynamics_cpx_confirm",
+        )
+    elif method_id == PUTIRKA_2016_AMP_EQ5.method_id:
+        assumptions["applicability_confirmed"] = st.checkbox(
+            "Подтверждаю, что это магматические calcic amphiboles и текстурный контекст позволяет применять Eq. 5.",
+            key="thermodynamics_amp_t_confirm",
+        )
+    elif method_id == MUTCH_2016_AMP_BAROMETER.method_id:
+        assumptions["assemblage_confirmed"] = st.checkbox(
+            "Подтверждаю критерии Mutch et al.: гранитная низковариантная ассоциация, rim-анализы amphibole, контакт/равновесие с plagioclase и near-solidus условия.",
+            key="thermodynamics_mutch_confirm",
+        )
+        if not assumptions["assemblage_confirmed"]:
+            st.warning(
+                "Без этого подтверждения PetroLab покажет диагностическое P, но сохранит результат со статусом WARNING, а не PASS."
+            )
+    elif method_id == FERRY_WATSON_2007_TI_ZIRCON.method_id:
+        c1, c2 = st.columns(2)
+        assumptions["a_sio2"] = float(c1.number_input(
+            "aSiO₂", min_value=0.01, max_value=1.0, value=1.0, step=0.05,
+            key="thermodynamics_zrn_asio2",
+        ))
+        assumptions["a_tio2"] = float(c2.number_input(
+            "aTiO₂", min_value=0.01, max_value=1.0, value=1.0, step=0.05,
+            key="thermodynamics_zrn_atio2",
+        ))
+        st.caption("1.0 означает буфер соответствующей чистой фазы; снижайте активность только при петрологическом основании.")
+    elif method_id == LOUCKS_2020_ZIRCON_DFMQ.method_id:
+        assumptions["allow_measured_u_as_initial"] = st.checkbox(
+            "Разрешить использовать измеренный U вместо age-corrected Ui, если отдельной колонки Ui нет",
+            key="thermodynamics_zrn_u_confirm",
+            help="PetroLab не выполняет скрытую age correction. При этом выборе результат будет WARNING.",
+        )
+    elif method_id == PUTIRKA_2008_OL_LIQ_EQ22.method_id:
+        assumptions["pressure_kbar"] = float(st.number_input(
+            "Давление (kbar)", min_value=0.0, value=2.0, step=0.1,
+            key="thermodynamics_ol_liq_pressure",
+        ))
+        assumptions["equilibrium_confirmed"] = st.checkbox(
+            "Подтверждаю, что выбранные olivine и заданный расплав генетически связаны и их сопоставление петрологически оправдано.",
+            key="thermodynamics_ol_liq_confirm",
+        )
+        melt = _melt_editor()
+    return assumptions, melt
+
+
+def _method_contract(method_id: str) -> None:
+    method = method_by_id(method_id)
+    with st.expander("Метод, ограничения и источник", expanded=False):
+        st.write(f"**Калибровка:** {method.title}")
+        st.write(f"**Источник:** {method.source_citation}")
+        st.write(f"**DOI:** {method.source_doi}")
+        st.write(f"**Версия уравнения:** {method.equation_version}")
+        st.write(f"**Ошибка / precision:** {method.uncertainty}")
+        st.write(f"**Область применимости:** {method.calibration_range}")
+        if method.required_mineral_components:
+            st.write("**Минеральные входы:** " + ", ".join(method.required_mineral_components))
+        if method.required_melt_components:
+            st.write("**Расплав:** " + ", ".join(method.required_melt_components))
+        if method.assumptions:
+            st.warning(method.assumptions)
+
+
+def _result_badges(result: pd.DataFrame) -> None:
+    counts = result["Thermodynamic status"].value_counts() if "Thermodynamic status" in result else pd.Series(dtype=int)
+    render_badges([
+        (f"{len(result)} результатов", "neutral"),
+        (f"{int(counts.get(QC_PASS, 0))} PASS", "success"),
+        (f"{int(counts.get(QC_WARNING, 0))} WARNING", "warning"),
+        (f"{int(counts.get(QC_FAIL, 0))} FAIL", "danger"),
+        (f"{int(counts.get(QC_INSUFFICIENT_INPUT, 0))} неполных", "warning"),
+    ])
+
+
 def _run_history(project_id: int) -> None:
-    runs = list_runs(project_id)
-    if not runs:
+    current = list_thermodynamic_runs(project_id)
+    legacy = list_legacy_runs(project_id)
+    if not current and not legacy:
         return
-    with st.expander("Сохранённые расчёты", expanded=False):
+    with st.expander("История расчётов", expanded=False):
         rows = []
-        for run in runs[:50]:
-            passed = sum(1 for row in run.results if row.get("Thermobarometry status") == QC_PASS)
+        for run in current[:100]:
             rows.append({
                 "Run": run.id,
                 "Метод": run.method_title,
+                "Режим": _MODE_LABELS.get(run.input_mode, run.input_mode),
+                "Тип": _KIND_LABELS.get(run.parameter_kind, run.parameter_kind),
                 "Точек": len(run.input_analysis_ids),
-                "PASS": passed,
-                "Статус источников": "Актуален" if run.is_current else "Требует пересчёта",
+                "Актуальность": "Актуален" if run.is_current else "Требует пересчёта",
                 "Время": run.calculated_at,
             })
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        for run in legacy[:50]:
+            rows.append({
+                "Run": f"legacy-{run.id}",
+                "Метод": run.method_title,
+                "Режим": "Мономинеральный · legacy",
+                "Тип": "Термометр",
+                "Точек": len(run.input_analysis_ids),
+                "Актуальность": "Актуален" if run.is_current else "Требует пересчёта",
+                "Время": run.calculated_at,
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(520, 70 + 34 * len(rows)))
         st.caption(
-            "Результаты привязаны к точным _analysis_id и отпечаткам исходной химии. "
-            "После правки входных данных старый run не удаляется, но помечается как требующий пересчёта."
+            "Расчёты привязаны к immutable _analysis_id и отпечаткам исходной химии. После изменения входной химии старый run сохраняется как история, но перестаёт считаться актуальным."
         )
 
 
 def render_thermobarometry_page() -> None:
     render_page_header(
-        "Термобарометрия",
-        "Отдельный научный журнал расчётов: выбранные точки, допущения, QC и результаты хранятся вместе — исходная химия не меняется.",
+        "Термодинамика",
+        "Мономинеральные и mineral–melt термометры, барометры и oxybarometers с provenance, QC и историей по каждой аналитической точке.",
         eyebrow="Исследование",
-        context="Первый узкий workflow: клинопироксен → заданное давление → температура",
+        context="Биминеральные методы пока намеренно отключены",
     )
     project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте или выберите проект.")
         return
 
-    datasets = _candidate_datasets(project_id)
+    datasets = list_accessible_datasets(project_id)
     if not datasets:
-        st.info(
-            "В активном проекте пока нет наборов с минералом «Клинопироксен». "
-            "Импортируйте их через «Новые анализы» и назначьте фазу — тогда они появятся здесь."
-        )
+        st.info("В активном проекте нет аналитических наборов.")
+        _run_history(project_id)
+        return
+
+    method_ids = _candidate_method_ids(datasets)
+    if not method_ids:
+        st.info("Для минералов активного проекта пока нет зарегистрированных термодинамических калибровок.")
         _run_history(project_id)
         return
 
     render_badges([
-        ("Cpx-only", "accent"),
-        ("Eq. 32d", "neutral"),
-        ("P — явное допущение", "warning"),
-        ("Исходная химия не изменяется", "success"),
+        ("Мономинеральные", "accent"),
+        ("Минерал–расплав", "accent"),
+        ("T · P · ΔFMQ", "neutral"),
+        ("Без биминеральных пар", "neutral"),
+        ("Исходная химия read-only", "success"),
     ])
-    render_hint("Начните с одного набора и разумной группы точек. Парные mineral–melt и ML-модели будут отдельными workflow, а не настройками этой формы.")
 
-    labels = {dataset_label(dataset): int(dataset["id"]) for dataset in datasets}
+    render_section_header("1. Метод", "Показываются только калибровки для минералов, которые есть в активном проекте")
+    kind_options = [kind for kind in (KIND_TEMPERATURE, KIND_PRESSURE, KIND_FUGACITY) if any(method_by_id(mid).parameter_kind == kind for mid in method_ids)]
+    kind = st.segmented_control(
+        "Что считать",
+        kind_options,
+        default=kind_options[0],
+        format_func=lambda value: _KIND_LABELS[value],
+        key="thermodynamics_kind",
+    ) or kind_options[0]
+    filtered_methods = [mid for mid in method_ids if method_by_id(mid).parameter_kind == kind]
+    method_id = st.selectbox(
+        "Калибровка",
+        filtered_methods,
+        format_func=_method_label,
+        key="thermodynamics_method",
+    )
+    method = method_by_id(method_id)
+    _method_contract(method_id)
+
+    render_section_header("2. Данные", f"Минерал: {method.mineral_key} · режим: {_MODE_LABELS[method.input_mode]}")
+    candidate_datasets = [item for item in datasets if str(item.get("mineral_key") or "") == method.mineral_key]
+    labels = {dataset_label(item): int(item["id"]) for item in candidate_datasets}
     selected_labels = st.multiselect(
-        "Наборы Cpx", list(labels), default=list(labels), key="thermobarometry_datasets"
+        "Наборы",
+        list(labels),
+        default=list(labels),
+        key="thermodynamics_datasets",
     )
     if not selected_labels:
-        st.info("Выберите хотя бы один набор Cpx.")
+        st.info("Выберите хотя бы один набор.")
+        _run_history(project_id)
         return
-    selected_ids = [labels[label] for label in selected_labels]
-    source = load_unified_with_derived(project_id, selected_ids)
-    if "Минерал" in source.columns:
-        source = source[source["Минерал"].astype(str) == _CPX_KEY].copy()
-    if source.empty:
-        st.warning("В выбранных наборах нет строк Cpx.")
-        return
-    if "_analysis_id" not in source.columns:
-        st.error("У выбранных строк нет стабильных идентификаторов; расчёт небезопасен.")
-        return
-    source = source.drop_duplicates("_analysis_id").reset_index(drop=True)
-
-    render_section_header("1. Выберите точки", "Сначала проверьте, что это именно Cpx одной осмысленной текстурной популяции")
-    query = st.text_input("Фильтр по Sample / Grain / Point / Generation", key="thermobarometry_search")
-    filtered = source.copy()
-    if query.strip():
-        needle = query.strip().casefold()
-        mask = pd.Series(False, index=filtered.index)
-        for column in _identity_preview(filtered):
-            mask |= filtered[column].astype(str).str.casefold().str.contains(needle, na=False)
-        filtered = filtered.loc[mask].copy()
-    if filtered.empty:
-        st.warning("После фильтрации не осталось точек.")
-        return
-
-    choice = st.radio(
-        "Что рассчитать", ["Все отфильтрованные точки", "Отобрать вручную"], horizontal=True,
-        key="thermobarometry_selection_mode",
+    dataset_ids = [labels[label] for label in selected_labels]
+    query = st.text_input(
+        "Фильтр по Sample / Grain / Point / Generation",
+        key="thermodynamics_search",
     )
-    selection = filtered
-    preview_columns = _identity_preview(filtered) + [
-        column for column in PUTIRKA_2008_CPX_T32D.required_components if column in filtered.columns
-    ]
-    if choice == "Отобрать вручную":
-        editor = filtered[preview_columns].copy()
-        editor.insert(0, "Рассчитать", False)
-        edited = st.data_editor(
-            editor, width="stretch", hide_index=True, key="thermobarometry_selector",
-            column_config={"Рассчитать": st.column_config.CheckboxColumn("Рассчитать")},
-            disabled=[column for column in editor.columns if column != "Рассчитать"],
-        )
-        chosen_ids = edited.loc[edited["Рассчитать"], "_analysis_id"].astype(str).tolist()
-        selection = filtered[filtered["_analysis_id"].astype(str).isin(chosen_ids)].copy()
-    else:
-        st.dataframe(filtered[preview_columns].head(500), width="stretch", hide_index=True, height=260)
-        if len(filtered) > 500:
-            st.caption(f"В preview показано 500 из {len(filtered)} точек; расчёт будет применён ко всем отфильтрованным.")
+    source = _filtered_source(project_id, dataset_ids, method.mineral_key, query)
+    if source.empty or "_analysis_id" not in source.columns:
+        st.warning("В текущем отборе нет подходящих анализов со стабильным _analysis_id.")
+        _run_history(project_id)
+        return
+    selection = _point_selection(source)
     if selection.empty:
-        st.info("Отметьте хотя бы одну точку.")
+        st.info("Отметьте хотя бы одну аналитическую точку.")
+        _run_history(project_id)
         return
 
-    render_section_header("2. Укажите допущение", "Eq. 32d возвращает температуру только при независимо заданном давлении")
-    pressure = st.number_input("Давление, kbar", min_value=0.0, value=2.0, step=0.1, key="thermobarometry_pressure")
-    confirmed = st.checkbox(
-        "Подтверждаю: это магматический Cpx, применение anhydrous Eq. 32d оправдано, а давление выбрано осмысленно.",
-        key="thermobarometry_applicability",
-    )
-    with st.expander("Метод, ограничения и источник", expanded=False):
-        st.write(f"**Калибровка:** {PUTIRKA_2008_CPX_T32D.title}")
-        st.write(f"**Источник:** {PUTIRKA_2008_CPX_T32D.source_citation} DOI: {PUTIRKA_2008_CPX_T32D.source_doi}")
-        st.write(f"**Входы:** {', '.join(PUTIRKA_2008_CPX_T32D.required_components)}")
-        st.write(f"**Область:** {PUTIRKA_2008_CPX_T32D.calibration_range}")
-        st.write(f"**Ошибка:** {PUTIRKA_2008_CPX_T32D.uncertainty}")
-        st.warning("Не используйте этот режим для водсодержащего Cpx, пар mineral–melt или как независимый барометр.")
+    render_section_header("3. Допущения", "PetroLab не угадывает давление, активности, равновесие или age correction")
+    assumptions, melt = _method_assumptions(method_id)
 
-    result = calculate_putirka_2008_cpx_only_t32d(
-        selection, pressure_kbar=float(pressure), applicability_confirmed=bool(confirmed)
-    )
-    display = pd.concat([selection[_identity_preview(selection)].reset_index(drop=True), result.reset_index(drop=True)], axis=1)
-    counts = result["Thermobarometry status"].value_counts()
-    render_section_header("3. Предпросмотр и QC", "PASS попадает в научный итог; FAIL и неполные строки остаются видимыми для диагностики")
-    render_badges([
-        (f"{len(selection)} выбрано", "neutral"),
-        (f"{int(counts.get(QC_PASS, 0))} подтверждённых", "success"),
-        (f"{int(counts.get(QC_WARNING, 0))} с предупреждением", "warning"),
-        (f"{int(counts.get(QC_FAIL, 0))} FAIL", "warning"),
-        (f"{int(counts.get(QC_INSUFFICIENT_INPUT, 0))} неполных", "warning"),
-        (f"{int(counts.get(QC_NOT_APPLICABLE, 0))} требуют подтверждения", "danger"),
-    ])
-    st.dataframe(display.head(1000), width="stretch", hide_index=True, height=360)
+    try:
+        result = calculate_method(method_id, selection, assumptions=assumptions, melt=melt)
+    except Exception as exc:
+        st.error(f"Расчёт остановлен: {exc}")
+        _run_history(project_id)
+        return
 
-    if not confirmed:
-        st.warning("Применимость не подтверждена: расчёт и сохранение доступны, но результат будет помечен предупреждением.")
+    render_section_header("4. Предпросмотр и QC", "Число может быть показано диагностически даже при WARNING; статус хранится вместе с результатом")
+    _result_badges(result)
+    display = pd.concat([
+        selection[_identity_columns(selection)].reset_index(drop=True),
+        result.reset_index(drop=True),
+    ], axis=1)
+    st.dataframe(display.head(1000), width="stretch", hide_index=True, height=390)
 
-    if st.button("Сохранить расчёт в научный журнал", type="primary", width="stretch", key="save_thermobarometry_run"):
+    save_col, export_col = st.columns([1.2, 1])
+    if save_col.button(
+        "Сохранить расчёт",
+        type="primary",
+        width="stretch",
+        key="save_thermodynamic_run",
+    ):
         try:
-            saved = save_run(
+            saved = save_thermodynamic_run(
                 project_id,
-                method_id=PUTIRKA_2008_CPX_T32D.method_id,
+                method_id=method_id,
                 source_dataframe=selection,
                 results_dataframe=result,
-                assumptions={
-                    "pressure_kbar": float(pressure),
-                    "applicability_confirmation": bool(confirmed),
-                    "fe_policy": "FeOt only; no implicit Fe3+/Fe2+ reconstruction",
-                    "qc_gate": "Cation sum (6 O) 3.99–4.02",
-                    "advisory_policy": ADVISORY_POLICY_ID,
-                },
+                assumptions=assumptions,
+                melt=melt,
             )
         except Exception as exc:
             st.error(f"Расчёт не сохранён: {exc}")
         else:
-            st.success(f"Сохранён run #{saved.id}. Исходные анализы не изменялись.")
+            st.success(
+                f"Сохранён run #{saved.id}. Теперь параметры доступны из карточки каждой точки через «＋ Термодинамические параметры»."
+            )
             st.rerun()
 
     csv = display.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Скачать текущую таблицу QC и T (CSV)", data=io.BytesIO(csv),
-        file_name="petrolab_putirka_2008_cpx_eq32d.csv", mime="text/csv", width="stretch",
+    export_col.download_button(
+        "CSV текущего расчёта",
+        data=io.BytesIO(csv),
+        file_name=f"petrolab_{method_id}.csv",
+        mime="text/csv",
+        width="stretch",
     )
     _run_history(project_id)
