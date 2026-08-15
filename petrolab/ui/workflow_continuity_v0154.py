@@ -28,6 +28,7 @@ from petrolab.ui.universal_intake_extensions import (
 
 _PERSISTENT_CHEMICAL_SELECTION = "v0154_chemical_selection_ids"
 _IGNORE_SELECTION_ONCE = "v0154_ignore_plot_selection_once"
+_CHEMICAL_MARKUP_MODE = "v0154_chemical_markup_mode"
 
 
 def overlay_textural_zone(
@@ -278,6 +279,20 @@ def _render_staging_textural_hint(original, *args, **kwargs):
     return original(*args, **kwargs)
 
 
+def _reset_editor_for_new_import(dataset_ids: list[int]) -> None:
+    # Новый импорт должен открыться на новых наборах, а не на состоянии предыдущего графика.
+    st.session_state["loaded_recipe"] = {"dataset_ids": [int(value) for value in dataset_ids]}
+    for key in (
+        "plot_datasets",
+        "plot_minerals",
+        "plot_search",
+        "column_filter_columns",
+        "plot_interactive_excluded_ids",
+    ):
+        st.session_state.pop(key, None)
+    st.session_state.pop(_PERSISTENT_CHEMICAL_SELECTION, None)
+
+
 def _render_post_import_steps(project_id: int) -> None:
     dataset_ids = _current_universal_import_ids(int(project_id))
     if not dataset_ids:
@@ -290,6 +305,8 @@ def _render_post_import_steps(project_id: int) -> None:
     )
     c1, c2, c3 = st.columns(3)
     if c1.button("Исследовать химию", type="primary", width="stretch", key="v0154_continue_chemistry"):
+        _reset_editor_for_new_import(dataset_ids)
+        st.session_state[_CHEMICAL_MARKUP_MODE] = True
         st.session_state["workflow_plot_dataset_ids"] = dataset_ids
         st.session_state["workflow_plot_notice"] = (
             "Открыты только что импортированные наборы. Текстурная зона доступна для группировки; "
@@ -385,6 +402,7 @@ def _advanced_interactive_with_memory(original, xy_module, *args, **kwargs):
 def render_plots_page_v0154() -> None:
     """Сохранить химический отбор между осями и показать Textural zone на графиках."""
     from petrolab.ui import xy_components as _xy
+    from petrolab.ui.layout import render_page_header
     from petrolab.ui.pages import plots_advanced as _advanced
     from petrolab.ui.pages import plots_dashboard as _plots
     from petrolab.ui.pages import v0151_wrappers as _base_page
@@ -411,7 +429,25 @@ def render_plots_page_v0154() -> None:
     _advanced.load_unified_with_derived = advanced_load
     _advanced.render_advanced_interactive = advanced_interactive
     try:
-        _base_page.render_plots_page()
+        if bool(st.session_state.get(_CHEMICAL_MARKUP_MODE, False)):
+            project_id = active_project_id()
+            render_page_header(
+                "Разметка по химии",
+                "Проверяйте текстурные зоны на разных осях, выделяйте химические группы лассо/рамкой и сохраняйте их как рабочие группы.",
+                eyebrow="Исследование",
+            )
+            notice = st.session_state.pop("workflow_plot_notice", "")
+            if notice:
+                st.success(str(notice))
+            if st.button("Открыть обычный режим XY", key="v0154_leave_chemical_markup"):
+                st.session_state.pop(_CHEMICAL_MARKUP_MODE, None)
+                st.rerun()
+            if project_id is None:
+                st.info("Сначала выберите проект.")
+            else:
+                _advanced.render_advanced_xy_workspace(int(project_id))
+        else:
+            _base_page.render_plots_page()
     finally:
         _plots.load_unified_with_derived = original_quick_load
         _advanced.load_unified_with_derived = original_advanced_load
@@ -424,6 +460,7 @@ def render_plots_page_v0154() -> None:
         "её можно утвердить как PetroLab Generation, не изменяя исходную Generation из файла или статьи."
     )
     if st.button("Перейти к поколениям", type="primary", width="stretch", key="v0154_plots_to_generations"):
+        st.session_state.pop(_CHEMICAL_MARKUP_MODE, None)
         navigate("generations")
         st.rerun()
 
