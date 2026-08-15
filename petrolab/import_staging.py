@@ -58,7 +58,17 @@ def transliteration_key(value: object) -> str:
 
 
 def normalized_name_key(value: object) -> str:
-    return transliteration_key(value)
+    """Loose phonetic key used only to *suggest* aliases, never to merge automatically.
+
+    Small English/Russian spelling differences common in geological terminology are
+    intentionally collapsed here (ph/f, c/k and a final silent e). Because this key
+    is suggestion-only, a false positive still requires an explicit user confirmation.
+    """
+    key = transliteration_key(value)
+    key = key.replace("ph", "f").replace("ck", "k").replace("c", "k")
+    if len(key) > 5 and key.endswith("e"):
+        key = key[:-1]
+    return key
 
 
 def name_similarity(left: object, right: object) -> float:
