@@ -1,0 +1,45 @@
+name: Rock workspace regression
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+      - "release/**"
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  rock-workspace:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install PetroLab dependencies
+        shell: cmd
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile rock workspace paths
+        shell: cmd
+        run: python -m compileall -q petrolab/rock_runtime.py petrolab/rock_workspace_model.py petrolab/rock_workspace_export.py petrolab/ui/pages/rock_workspace.py petrolab/ui/pages/v0154_rock_workspace_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_rock_workspace.py tests_rock_workspace_hardening.py tests_rock_passport_provenance.py
+
+      - name: Run rock workspace regressions
+        shell: cmd
+        run: |
+          python tests_rock_workspace.py
+          python tests_rock_workspace_hardening.py
+          python tests_rock_passport_provenance.py
