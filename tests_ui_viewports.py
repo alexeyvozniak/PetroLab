@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import gc
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -140,9 +142,41 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
     driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
 
+def _stop_process(process: subprocess.Popen) -> None:
+    """Reap Streamlit fully before attempting to remove its SQLite data directory."""
+    if process.poll() is None:
+        process.terminate()
+    try:
+        process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate(timeout=5)
+    if process.stdout is not None:
+        process.stdout.close()
+
+
+def _remove_temp_tree(root: Path) -> None:
+    """Retry only transient Windows file-lock cleanup; never hide a persistent leak."""
+    last_error: PermissionError | None = None
+    for delay in (0.0, 0.10, 0.25, 0.50, 1.0, 2.0):
+        if delay:
+            time.sleep(delay)
+        gc.collect()
+        try:
+            shutil.rmtree(root)
+            return
+        except PermissionError as exc:
+            last_error = exc
+    if root.exists():
+        assert last_error is not None
+        raise last_error
+
+
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_viewport_") as tmp:
-        root = Path(tmp)
+    root = Path(tempfile.mkdtemp(prefix="petrolab_viewport_"))
+    process: subprocess.Popen | None = None
+    driver: webdriver.Chrome | None = None
+    try:
         _seed_test_data(root)
         output = Path(os.environ.get("PETROLAB_VIEWPORT_ARTIFACTS", "viewport_artifacts"))
         env = os.environ.copy(); env["PETROLAB_DATA_DIR"] = str(root / "data")
@@ -150,33 +184,34 @@ def main() -> None:
             sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless=true",
             f"--server.port={PORT}", "--server.address=127.0.0.1", "--browser.gatherUsageStats=false",
         ], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        driver: webdriver.Chrome | None = None
+        url = f"http://127.0.0.1:{PORT}"
+        _wait_for_server(url)
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new"); options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-size=1280,900")
         try:
-            url = f"http://127.0.0.1:{PORT}"
-            _wait_for_server(url)
-            options = webdriver.ChromeOptions()
-            options.add_argument("--headless=new"); options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--window-size=1280,900")
+            driver = webdriver.Chrome(options=options)
+        except WebDriverException as exc:
+            raise RuntimeError(f"Could not start headless Chrome: {exc}") from exc
+        driver.get(url)
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
+        for page_name, label in PAGES:
+            _select_page(driver, label, output, page_name)
+            for width, height in VIEWPORTS:
+                _assert_viewport(driver, width, height, page_name, output)
+    finally:
+        if driver is not None:
             try:
-                driver = webdriver.Chrome(options=options)
-            except WebDriverException as exc:
-                raise RuntimeError(f"Could not start headless Chrome: {exc}") from exc
-            driver.get(url)
-            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
-            for page_name, label in PAGES:
-                _select_page(driver, label, output, page_name)
-                for width, height in VIEWPORTS:
-                    _assert_viewport(driver, width, height, page_name, output)
-        finally:
-            if driver is not None:
-                try: driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
-                except WebDriverException: pass
-                driver.quit()
-            process.terminate()
-            try: process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill(); process.wait(timeout=5)
+                driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
+            except WebDriverException:
+                pass
+            driver.quit()
+        if process is not None:
+            _stop_process(process)
+        # Main-process repository helpers can also leave short-lived row/cursor
+        # objects pending finalization; retry cleanup only after every child is gone.
+        _remove_temp_tree(root)
     print("real-browser viewport tests: OK")
 
 
