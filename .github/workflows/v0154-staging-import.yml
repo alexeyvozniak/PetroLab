@@ -40,6 +40,7 @@ jobs:
           petrolab/import_staging.py
           petrolab/staged_import_service.py
           petrolab/row_provenance.py
+          petrolab/term_registry.py
           petrolab/rock_determinations.py
           petrolab/rock_staged_service.py
           petrolab/rock_comparison.py
@@ -50,6 +51,7 @@ jobs:
           petrolab/ui/pages/v0151_intake_wrappers.py
           tests_import_staging.py
           tests_row_provenance_v0154.py
+          tests_term_registry_v0154.py
           tests_rock_staging_v0154.py
           tests_source_visibility_v0154.py
 
@@ -58,6 +60,7 @@ jobs:
         run: |
           python tests_import_staging.py
           python tests_row_provenance_v0154.py
+          python tests_term_registry_v0154.py
           python tests_rock_staging_v0154.py
           python tests_source_visibility_v0154.py
 
