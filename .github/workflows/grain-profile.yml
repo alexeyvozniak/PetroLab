@@ -34,8 +34,10 @@ jobs:
 
       - name: Compile grain profile paths
         shell: cmd
-        run: python -m compileall -q petrolab/grain_profiles.py petrolab/ui/pages/grain_profile.py petrolab/ui/pages/v0153_grain_profile_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_grain_profiles.py
+        run: python -m compileall -q petrolab/grain_profiles.py petrolab/ui/pages/grain_profile.py petrolab/ui/pages/v0153_grain_profile_wrappers.py petrolab/ui/pages/__init__.py petrolab/ui/navigation.py app.py tests_grain_profiles.py tests_grain_profile_hardening.py
 
       - name: Run grain profile scientific regressions
         shell: cmd
-        run: python tests_grain_profiles.py
+        run: |
+          python tests_grain_profiles.py
+          python tests_grain_profile_hardening.py
