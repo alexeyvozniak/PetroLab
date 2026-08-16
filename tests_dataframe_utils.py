@@ -68,7 +68,8 @@ label = dataset_label(
         "source_filename": "mica.xlsx",
     }
 )
-assert label.endswith("ID 42")
+assert label == "Kola · Mica · 602 строк · mica.xlsx"
+assert "ID 42" not in label
 
 # The unified editor is column-oriented. For mixed schemas, only the physical source
 # intersection is writable; otherwise an empty union cell could become a DB-only pseudo-source.
