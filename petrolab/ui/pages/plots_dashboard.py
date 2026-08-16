@@ -21,7 +21,14 @@ from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
 from petrolab.ui.plot_manager import render_series_manager
 from petrolab.ui.plot_spec import PlotSpec, send_to_multi_panel, set_current_plot_spec
 from petrolab.ui.project_context import active_project_id
+from petrolab.ui.smart_plot_start import (
+    advanced_recipe_from_spec,
+    choose_xy_recommendation,
+    resolve_plot_scope,
+    seed_xy_state,
+)
 from petrolab.ui.source_controls import render_source_visibility_controls
+from petrolab.ui.work_context import filter_dataframe_to_context, get_work_context
 from petrolab.ui.xy_components import (
     render_quick_interactive,
     sanitize_xy_rows,
@@ -70,16 +77,46 @@ def _quick_workspace(project_id: int) -> None:
         st.info("В активном проекте нет данных для графика.")
         return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
+
     requested_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
-    requested_analysis_ids = {
-        str(value) for value in st.session_state.pop("workflow_plot_analysis_ids", [])
-    }
+    requested_analysis_ids = [
+        str(value) for value in st.session_state.pop("workflow_plot_analysis_ids", []) if str(value)
+    ]
     requested_context = st.session_state.pop("workflow_plot_context", {})
-    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_ids]
+    work_context = get_work_context(project_id)
+    scope = resolve_plot_scope(
+        available_dataset_ids=labels.values(),
+        work_context=work_context,
+        requested_dataset_ids=requested_ids,
+        requested_analysis_ids=requested_analysis_ids,
+        requested_context=requested_context,
+    )
+    had_explicit_scope = bool(requested_ids or requested_analysis_ids or (work_context or {}).get("dataset_ids"))
+    if had_explicit_scope and not scope.dataset_ids:
+        st.warning(
+            "Текущий рабочий контекст ссылается на наборы, которых больше нет в проекте. "
+            "PetroLab не расширяет такой контекст автоматически до всей базы."
+        )
+        return
+
+    requested_labels = [label for label, dataset_id in labels.items() if dataset_id in scope.dataset_ids]
     default_labels = requested_labels or list(labels)
+    scope_signature = (scope.dataset_ids, scope.analysis_ids, scope.context_label)
+    if st.session_state.get("_quick_plot_scope_signature") != scope_signature:
+        st.session_state["_quick_plot_scope_signature"] = scope_signature
+        st.session_state["quick_plot_datasets"] = default_labels
+        for key in (
+            "quick_plot_minerals", "quick_x", "quick_y", "quick_group", "quick_group_advanced",
+            "quick_plot_search",
+        ):
+            st.session_state.pop(key, None)
+
     notice = st.session_state.pop("workflow_plot_notice", "")
     if notice:
         st.success(notice)
+    if scope.context_label:
+        st.caption(f"Текущий контекст: **{scope.context_label}**. Данные не нужно выбирать заново.")
+
     settings = load_settings()
     preset_name = str(settings.get("default_figure_preset", "Lithos"))
     preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS["Lithos"])
@@ -97,9 +134,18 @@ def _quick_workspace(project_id: int) -> None:
         dataframe = attach_study_metadata(
             attach_work_groups(load_unified_with_derived(project_id, selected_ids))
         )
-        if requested_analysis_ids:
-            dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
+        if scope.analysis_ids:
+            dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(set(scope.analysis_ids))].copy()
             st.caption(f"Открыт точный переданный поднабор: {len(dataframe)} точек до QC-проверки.")
+        elif work_context:
+            before_context = len(dataframe)
+            dataframe = filter_dataframe_to_context(dataframe, work_context)
+            if len(dataframe) != before_context:
+                st.caption(f"Рабочий контекст оставил {len(dataframe)} из {before_context} аналитических строк.")
+        if dataframe.empty:
+            st.info("В текущем рабочем контексте нет аналитических строк.")
+            return
+
         if "QC решение" in dataframe.columns:
             excluded = dataframe["QC решение"].astype(str).str.casefold().eq("исключить")
             if excluded.any():
@@ -118,6 +164,10 @@ def _quick_workspace(project_id: int) -> None:
                     f"исключены по автоматическому правилу — {int(auto_blocked.sum())}. "
                     "Поставьте «Включить» в QC решении, если точка должна попасть на график вопреки предупреждению."
                 )
+        if dataframe.empty:
+            st.info("После QC-проверки в текущем контексте не осталось точек для графика.")
+            return
+
         minerals = sorted(dataframe["Минерал"].dropna().astype(str).unique())
         selected_minerals = st.multiselect(
             "Минералы",
@@ -145,8 +195,23 @@ def _quick_workspace(project_id: int) -> None:
         if len(numeric) < 2:
             st.info("После фильтрации недостаточно числовых колонок.")
             return
+
+        recommendation = choose_xy_recommendation(selected_minerals, dataframe.columns, numeric)
+        seed_xy_state(
+            st.session_state,
+            numeric_columns=numeric,
+            recommendation=recommendation,
+        )
+        if recommendation is not None:
+            st.caption(f"Smart Start · **{recommendation.title}** — {recommendation.note}")
         x = st.selectbox("X", numeric, key="quick_x")
         y_options = [column for column in numeric if column != x]
+        if st.session_state.get("quick_y") not in y_options:
+            st.session_state["quick_y"] = (
+                recommendation.y
+                if recommendation is not None and recommendation.y in y_options
+                else y_options[0]
+            )
         y = st.selectbox("Y", y_options, key="quick_y")
         group_col = _group_control(dataframe, numeric, visible_sources)
         with st.expander("Оси и вид", expanded=False):
@@ -204,7 +269,11 @@ def _quick_workspace(project_id: int) -> None:
         log_y=bool(log_y),
         visible_sources=tuple(str(value) for value in visible_sources),
         hidden_sources=tuple(str(value) for value in hidden_sources),
+        visible_series=tuple(str(value) for value in managed_series),
         style_map=styles,
+        marker_size=float(marker_size),
+        figure_preset=preset_name,
+        show_grid=bool(preset.grid),
     )
     set_current_plot_spec(spec)
 
@@ -222,14 +291,29 @@ def _quick_workspace(project_id: int) -> None:
             styles=styles,
             project_id=project_id,
         )
-        if st.button(
-            "＋ Добавить этот график в несколько диаграмм",
+        multi_col, deep_col = st.columns(2)
+        if multi_col.button(
+            "＋ Добавить диаграмму",
             type="primary",
             width="stretch",
             key="quick_send_to_multi",
+            help="Открыть тот же PlotSpec рядом с дополнительными связанными диаграммами.",
         ):
             send_to_multi_panel(spec)
             navigate("multi_panel")
+            st.rerun()
+        if deep_col.button(
+            "Настроить подробнее",
+            width="stretch",
+            key="quick_open_advanced",
+            help="Открыть глубокие настройки этого же графика без повторного выбора данных и осей.",
+        ):
+            st.session_state["loaded_recipe"] = advanced_recipe_from_spec(
+                spec,
+                minerals=selected_minerals,
+                query=query,
+            )
+            st.session_state["_plots_show_advanced"] = True
             st.rerun()
 
     st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
@@ -259,7 +343,7 @@ def _quick_workspace(project_id: int) -> None:
         dataframe=plot_source,
         dataset_ids=selected_ids,
         filters={
-            "database_selection": requested_context,
+            "database_selection": scope.context,
             "minerals": selected_minerals,
             "search": query,
             "visible_sources": visible_sources,
@@ -302,20 +386,23 @@ def _quick_workspace(project_id: int) -> None:
 def render_plots_dashboard_page() -> None:
     render_page_header(
         "XY-диаграммы",
-        "Выберите данные один раз, исследуйте точки связанным отбором и при необходимости добавляйте готовый график в multi-panel.",
+        "PetroLab показывает научно разумный первый график из текущего контекста, а глубина раскрывается по мере необходимости.",
         eyebrow="Исследование",
     )
     project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
-    mode = st.segmented_control(
-        "Режим XY",
-        ["Быстрое построение", "Расширенный редактор"],
-        default="Быстрое построение",
-        key="plots_dashboard_mode",
-    ) or "Быстрое построение"
-    if mode == "Быстрое построение":
-        _quick_workspace(project_id)
-    else:
+
+    if st.session_state.get("_plots_show_advanced"):
+        back_col, text_col = st.columns([1, 4])
+        if back_col.button("← К обычному графику", width="stretch", key="plots_back_from_advanced"):
+            st.session_state.pop("_plots_show_advanced", None)
+            st.rerun()
+        text_col.caption(
+            "Глубокая настройка продолжает текущий PlotSpec. Данные, оси, источники и группировка не выбираются заново."
+        )
         render_advanced_xy_workspace(project_id)
+        return
+
+    _quick_workspace(project_id)
