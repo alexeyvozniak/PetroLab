@@ -11,9 +11,13 @@ on:
       - "petrolab/project_health.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
+      - "petrolab/interactive_plotting.py"
       - "petrolab/ui/batch_actions.py"
       - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/navigation.py"
+      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/linked_panels.py"
+      - "petrolab/ui/plot_spec.py"
       - "petrolab/ui/pages/add_data.py"
       - "petrolab/ui/pages/attention.py"
       - "petrolab/ui/pages/batch_edit.py"
@@ -23,6 +27,7 @@ on:
       - "app.py"
       - "tests_product_guidance.py"
       - "tests_product_ui_viewports.py"
+      - "tests_v0157_linked_selection.py"
       - ".github/workflows/product-guidance.yml"
   pull_request:
     paths:
@@ -31,9 +36,13 @@ on:
       - "petrolab/project_health.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
+      - "petrolab/interactive_plotting.py"
       - "petrolab/ui/batch_actions.py"
       - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/navigation.py"
+      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/linked_panels.py"
+      - "petrolab/ui/plot_spec.py"
       - "petrolab/ui/pages/add_data.py"
       - "petrolab/ui/pages/attention.py"
       - "petrolab/ui/pages/batch_edit.py"
@@ -43,6 +52,7 @@ on:
       - "app.py"
       - "tests_product_guidance.py"
       - "tests_product_ui_viewports.py"
+      - "tests_v0157_linked_selection.py"
       - ".github/workflows/product-guidance.yml"
 
 concurrency:
@@ -71,9 +81,13 @@ jobs:
           petrolab/project_health.py
           petrolab/smart_start.py
           petrolab/edit_undo.py
+          petrolab/interactive_plotting.py
           petrolab/ui/batch_actions.py
           petrolab/ui/workflow_routing.py
           petrolab/ui/navigation.py
+          petrolab/ui/selection_context.py
+          petrolab/ui/linked_panels.py
+          petrolab/ui/plot_spec.py
           petrolab/ui/pages/add_data.py
           petrolab/ui/pages/attention.py
           petrolab/ui/pages/batch_edit.py
@@ -81,13 +95,16 @@ jobs:
           petrolab/ui/pages/home_dashboard.py
           tests_product_guidance.py
           tests_product_ui_viewports.py
+          tests_v0157_linked_selection.py
       - name: Run product guidance regressions
         run: python tests_product_guidance.py
+      - name: Run linked-selection integration gate
+        run: python tests_v0157_linked_selection.py
       - name: Run guided workflow regressions
         run: python tests_guided_workflow.py
       - name: Run architecture regressions
         run: python tests_architecture.py
-      - name: Run product guidance browser viewport checks
+      - name: Run real-browser navigation, plot-tool and viewport checks
         run: python tests_product_ui_viewports.py
       - name: Upload product screenshots
         if: always()
