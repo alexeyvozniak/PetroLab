@@ -8,11 +8,24 @@ import streamlit as st
 from petrolab.ui.plot_spec import PlotSpec
 
 
-def _editor_token(numeric: list[str], panel_count: int, inbox: PlotSpec | None) -> str:
-    parts = [*numeric, str(panel_count)]
-    if inbox is not None:
-        parts.extend([inbox.x, inbox.y, inbox.title, str(inbox.log_x), str(inbox.log_y)])
-    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:10]
+def _context_token(numeric: list[str], panel_count: int) -> str:
+    return hashlib.sha1("\x1f".join([*numeric, str(panel_count)]).encode("utf-8")).hexdigest()[:10]
+
+
+def _inbox_token(inbox: PlotSpec | None) -> str:
+    if inbox is None:
+        return ""
+    parts = [
+        *[str(value) for value in inbox.dataset_ids],
+        *inbox.analysis_ids,
+        inbox.x,
+        inbox.y,
+        inbox.group_column,
+        inbox.title,
+        str(inbox.log_x),
+        str(inbox.log_y),
+    ]
+    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
 def _default_rows(
@@ -44,6 +57,43 @@ def _default_rows(
     return pd.DataFrame(rows)
 
 
+def _saved_source(
+    numeric: list[str],
+    defaults: list[tuple[str, str]],
+    panel_count: int,
+    inbox: PlotSpec | None,
+    *,
+    key_prefix: str,
+) -> pd.DataFrame:
+    seed_key = f"_{key_prefix}_panel_seed"
+    context_key = f"_{key_prefix}_panel_context"
+    inbox_key = f"_{key_prefix}_panel_inbox_token"
+    widget_key = f"{key_prefix}_panel_manager"
+    context = _context_token(numeric, panel_count)
+    incoming = _inbox_token(inbox)
+
+    saved = st.session_state.get(seed_key)
+    saved_frame = pd.DataFrame(saved) if isinstance(saved, list) and saved else pd.DataFrame()
+    saved_valid = (
+        len(saved_frame) == panel_count
+        and {"X", "Y", "Название", "log X", "log Y", "Порядок"}.issubset(saved_frame.columns)
+        and set(saved_frame["X"].astype(str)).issubset(set(numeric))
+        and set(saved_frame["Y"].astype(str)).issubset(set(numeric))
+    )
+    context_changed = st.session_state.get(context_key) != context
+    new_inbox = bool(incoming and st.session_state.get(inbox_key) != incoming)
+
+    if context_changed or new_inbox or not saved_valid:
+        source = _default_rows(numeric, defaults, panel_count, inbox if new_inbox else None)
+        st.session_state[seed_key] = source.to_dict("records")
+        st.session_state[context_key] = context
+        if incoming:
+            st.session_state[inbox_key] = incoming
+        st.session_state.pop(widget_key, None)
+        return source
+    return saved_frame
+
+
 def render_panel_manager(
     numeric: list[str],
     defaults: list[tuple[str, str]],
@@ -56,8 +106,15 @@ def render_panel_manager(
     if len(numeric) < 2 or panel_count < 1:
         return []
 
-    source = _default_rows(numeric, defaults, panel_count, inbox)
-    token = _editor_token(numeric, panel_count, inbox)
+    source = _saved_source(
+        numeric,
+        defaults,
+        panel_count,
+        inbox,
+        key_prefix=key_prefix,
+    )
+    widget_key = f"{key_prefix}_panel_manager"
+    seed_key = f"_{key_prefix}_panel_seed"
     st.caption(
         "Одна строка = одна панель. Меняйте оси, название, логарифмический масштаб и порядок здесь; "
         "исходные данные и linked Selection остаются общими."
@@ -78,8 +135,9 @@ def render_panel_manager(
                 "Порядок", min_value=1, max_value=panel_count, step=1, required=True, width="small"
             ),
         },
-        key=f"{key_prefix}_panel_manager_{token}",
+        key=widget_key,
     )
+    st.session_state[seed_key] = edited.to_dict("records")
 
     problems: list[str] = []
     for index, row in edited.iterrows():
