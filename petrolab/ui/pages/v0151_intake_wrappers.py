@@ -11,6 +11,7 @@ from petrolab.db import list_accessible_datasets
 from petrolab.ui.intake_workflow import render_recent_import_undo
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
+from petrolab.ui.universal_intake_extensions import render_image_wizard_multi_dataset
 
 from .add_data import render_add_data_page
 from . import quick_import as _quick_import
