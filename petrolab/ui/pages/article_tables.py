@@ -19,7 +19,12 @@ from petrolab.source_registry import (
 )
 from petrolab.ui.components import render_project_selector
 from petrolab.ui.data_scope import render_analysis_scope
+from petrolab.ui.exact_route import persist_exact_route, render_exact_route_banner
 from petrolab.visualization_presets import TABLE_PRESETS
+
+_EXACT_A = "_article_table_exact_analysis_ids"
+_EXACT_D = "_article_table_exact_dataset_ids"
+_EXACT_C = "_article_table_exact_context"
 
 
 def _column_selector(dataframe: pd.DataFrame, key: str) -> list[str]:
@@ -91,6 +96,23 @@ def render_article_tables_page() -> None:
         "Конструктор публикационных таблиц с одинаковой логикой для минералов и валовых составов. "
         "Preset отвечает за оформление, а выбор строк и колонок остаётся полностью ручным."
     )
+    exact_ids, _, _ = persist_exact_route(
+        st.session_state,
+        incoming_analysis_key="workflow_table_analysis_ids",
+        incoming_dataset_key="workflow_table_dataset_ids",
+        incoming_context_key="workflow_table_context",
+        persistent_analysis_key=_EXACT_A,
+        persistent_dataset_key=_EXACT_D,
+        persistent_context_key=_EXACT_C,
+    )
+    render_exact_route_banner(
+        count=len(exact_ids),
+        label="Вернуться к обычному конструктору таблицы",
+        reset_key="article_table_reset_exact",
+        persistent_keys=(_EXACT_A, _EXACT_D, _EXACT_C),
+        incoming_keys=("workflow_table_analysis_ids", "workflow_table_dataset_ids", "workflow_table_context"),
+    )
+
     selected_analysis_ids = {
         str(value) for value in st.session_state.pop("workflow_table_analysis_ids", [])
     }
@@ -106,7 +128,7 @@ def render_article_tables_page() -> None:
         )
         dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_analysis_ids)].copy()
         st.success(
-            f"Таблица использует тот же сохранённый отбор, что был отправлен из базы: {len(dataframe)} точек."
+            f"Таблица использует тот же сохранённый отбор: {len(dataframe)} точек."
         )
         if selected_context:
             st.caption("Фильтры исходного отбора сохранены в контексте перехода; здесь можно менять только представление таблицы.")

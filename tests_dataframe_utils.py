@@ -52,7 +52,7 @@ assert apply_quick_filter(literal, "[")["Sample"].tolist() == ["A[1]"]
 filtered = apply_column_filters(original, {"Sample": ["K1"]})
 assert list(filtered["Sample"]) == ["K1"]
 
-assert row_identity(original.iloc[0]).startswith("Sample: K1")
+assert row_identity(original.iloc[0]) == "K1"
 assert display_value(pd.NA) == ""
 assert display_value(12) == "12"
 assert values_equal(float("inf"), float("inf"))
@@ -68,7 +68,8 @@ label = dataset_label(
         "source_filename": "mica.xlsx",
     }
 )
-assert label.endswith("ID 42")
+assert label == "Kola · Mica · 602 строк · mica.xlsx"
+assert "ID 42" not in label
 
 # The unified editor is column-oriented. For mixed schemas, only the physical source
 # intersection is writable; otherwise an empty union cell could become a DB-only pseudo-source.

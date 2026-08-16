@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from petrolab.dataframe_utils import dataset_label
+from petrolab.dataframe_utils import dataset_label, human_point_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.grain_profile_groups import (
@@ -26,9 +26,14 @@ from petrolab.grain_profiles import (
 )
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.project_context import active_project
+from petrolab.ui.selection_context import read_selection, set_selection
 
 
 _KNOWN_GRAIN_COLUMNS = ("Grain", "Зерно", "Grain ID", "grain_id", "Crystal", "Кристалл")
+_PROFILE_CHEMISTRY = (
+    "SiO2", "TiO2", "Al2O3", "Cr2O3", "FeOt", "FeO", "Fe2O3t", "MnO", "MgO",
+    "CaO", "Na2O", "K2O", "P2O5", "F", "Cl", "Mg#", "Ni", "Cr", "V", "Sr", "Ba",
+)
 
 
 def _numeric_candidates(dataframe: pd.DataFrame) -> list[str]:
@@ -45,7 +50,8 @@ def _numeric_candidates(dataframe: pd.DataFrame) -> list[str]:
 def _identity_columns(dataframe: pd.DataFrame) -> list[str]:
     preferred = [
         "Sample", "Образец", "Grain", "Зерно", "Point", "Точка",
-        "Generation", "Поколение", "Mineral", "Минерал", "Набор", "Источник", "Лист",
+        "PetroLab Generation", "Generation", "Поколение", "Рабочая группа",
+        "Mineral", "Минерал", "Набор", "Источник", "Лист",
     ]
     return [column for column in preferred if column in dataframe.columns]
 
@@ -62,18 +68,6 @@ def _group_candidates(dataframe: pd.DataFrame) -> list[str]:
     return candidates
 
 
-def _point_label(row: pd.Series) -> str:
-    values = []
-    for column in ["Sample", "Образец", "Grain", "Зерно", "Point", "Точка", "Generation", "Поколение"]:
-        if column in row.index:
-            value = str(row.get(column) or "").strip()
-            if value and value.lower() != "nan":
-                values.append(value)
-    analysis_id = str(row.get("_analysis_id") or "")
-    suffix = analysis_id[:8] if analysis_id else ""
-    return " · ".join(dict.fromkeys(values)) + (f" · {suffix}" if suffix else "")
-
-
 def _quick_filter(dataframe: pd.DataFrame, query: str) -> pd.DataFrame:
     text = str(query or "").strip().casefold()
     if not text:
@@ -85,17 +79,6 @@ def _quick_filter(dataframe: pd.DataFrame, query: str) -> pd.DataFrame:
     for column in columns:
         mask |= dataframe[column].astype(str).str.casefold().str.contains(text, regex=False, na=False)
     return dataframe.loc[mask].copy()
-
-
-def _exact_order(dataframe: pd.DataFrame, analysis_ids: list[str]) -> tuple[pd.DataFrame, list[str]]:
-    ids = dataframe["_analysis_id"].astype(str)
-    duplicate_ids = ids[ids.duplicated(keep=False)]
-    if not duplicate_ids.empty:
-        raise ValueError("В выбранной таблице один analysis_id встречается несколько раз")
-    by_id = {str(row["_analysis_id"]): row for _, row in dataframe.iterrows()}
-    missing = [analysis_id for analysis_id in analysis_ids if analysis_id not in by_id]
-    ordered = [by_id[analysis_id] for analysis_id in analysis_ids if analysis_id in by_id]
-    return pd.DataFrame(ordered).reset_index(drop=True), missing
 
 
 def _xlsx_bytes(dataframe: pd.DataFrame) -> bytes:
@@ -125,11 +108,79 @@ def _single_profile_grain_guard(dataframe: pd.DataFrame, selected_ids: list[str]
     return None
 
 
+def _profile_selection_table(
+    dataframe: pd.DataFrame,
+    *,
+    default_ids: list[str],
+    key_prefix: str,
+) -> list[str]:
+    """Select exact traverse points with an editable explicit order and visible chemistry."""
+    source = dataframe.reset_index(drop=True).copy()
+    ids = source["_analysis_id"].astype(str).tolist()
+    available = set(ids)
+    defaults = [value for value in dict.fromkeys(default_ids) if value in available]
+    select_all_key = f"{key_prefix}_select_all"
+    editor_key = f"{key_prefix}_editor"
+
+    b1, b2 = st.columns(2)
+    if b1.button("Выбрать все после фильтра", key=f"{key_prefix}_all", width="stretch"):
+        st.session_state[select_all_key] = True
+        st.session_state.pop(editor_key, None)
+        st.rerun()
+    if b2.button("Снять все", key=f"{key_prefix}_none", width="stretch"):
+        st.session_state[select_all_key] = False
+        st.session_state.pop(editor_key, None)
+        st.rerun()
+
+    if st.session_state.get(select_all_key) is True:
+        defaults = ids
+    elif st.session_state.get(select_all_key) is False:
+        defaults = []
+
+    default_order = {analysis_id: index + 1 for index, analysis_id in enumerate(defaults)}
+    offset = len(defaults)
+    editor = pd.DataFrame({
+        "В профиль": [analysis_id in set(defaults) for analysis_id in ids],
+        "Порядок": [default_order.get(analysis_id, offset + index + 1) for index, analysis_id in enumerate(ids)],
+        "Профильная точка": [human_point_label(row) for _, row in source.iterrows()],
+    })
+    for column in [*_identity_columns(source), *_PROFILE_CHEMISTRY]:
+        if column in source.columns and column not in editor.columns:
+            editor[column] = source[column].to_numpy()
+
+    editable = st.data_editor(
+        editor,
+        width="stretch",
+        height=min(650, max(280, 38 * min(len(editor), 15) + 80)),
+        hide_index=True,
+        disabled=[column for column in editor.columns if column not in {"В профиль", "Порядок"}],
+        column_config={
+            "В профиль": st.column_config.CheckboxColumn("В профиль", width="small"),
+            "Порядок": st.column_config.NumberColumn("Порядок", min_value=1, step=1, width="small"),
+            "Профильная точка": st.column_config.TextColumn("Точка", width="large"),
+        },
+        key=editor_key,
+    )
+    checked = editable.index[editable["В профиль"].fillna(False).astype(bool)].tolist()
+    if not checked:
+        return []
+    order = pd.to_numeric(editable.loc[checked, "Порядок"], errors="coerce")
+    if order.isna().any():
+        st.error("У каждой выбранной точки должен быть числовой порядок.")
+        return []
+    if order.duplicated(keep=False).any():
+        duplicates = ", ".join(str(int(value)) for value in sorted(order[order.duplicated(keep=False)].unique())[:8])
+        st.error(f"Порядок профиля должен быть однозначным. Повторяются значения: {duplicates}.")
+        return []
+    ranked = sorted(zip(order.astype(float).tolist(), checked), key=lambda item: (item[0], item[1]))
+    return [str(source.loc[index, "_analysis_id"]) for _, index in ranked]
+
+
 def render_grain_profile_page() -> None:
     project = active_project()
     render_page_header(
         "Профиль по зерну",
-        "Постройте traverse core→rim или сравните несколько зерен. PetroLab не соединяет разные зерна и разные системы координат по догадке.",
+        "Отметьте нужные точки прямо в таблице, задайте их порядок и постройте traverse core→rim. Внутренние analysis_id не нужны для работы.",
         eyebrow="Исследование",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -155,8 +206,7 @@ def render_grain_profile_page() -> None:
     routed_dataset_ids = [int(value) for value in raw_routed_dataset_ids if int(value) in by_id]
     missing_routed_datasets = [int(value) for value in raw_routed_dataset_ids if int(value) not in by_id]
     if missing_routed_datasets:
-        st.error("Точный отбор ссылается на dataset, недоступный в текущем проекте: " + ", ".join(map(str, missing_routed_datasets[:8])))
-        return
+        st.warning("Часть ранее выбранных наборов больше недоступна в проекте; они пропущены.")
 
     selected_dataset_ids = st.multiselect(
         "Наборы данных",
@@ -182,24 +232,10 @@ def render_grain_profile_page() -> None:
     )
     filtered = _quick_filter(dataframe, query)
     routed_ids = [str(value) for value in st.session_state.get("grain_profile_analysis_ids", []) if str(value)] if route_active else []
-    if routed_ids:
-        try:
-            filtered, missing_ids = _exact_order(filtered, routed_ids)
-        except ValueError as exc:
-            st.error(str(exc))
-            return
-        if missing_ids and not str(query or "").strip():
-            st.error("Точный отбор потерял analysis_id: " + ", ".join(missing_ids[:8]))
-            return
-        if missing_ids:
-            q2.caption(f"Быстрый фильтр исключил {len(missing_ids)} точек из точного отбора")
-        q2.metric("Точный отбор", len(filtered))
-        if q2.button("Снять точный отбор", key=f"grain_profile_clear_exact_{project_id}"):
-            for key in ("grain_profile_dataset_ids", "grain_profile_analysis_ids", "grain_profile_context"):
-                st.session_state.pop(key, None)
-            st.rerun()
-    else:
-        q2.metric("Найдено точек", len(filtered))
+    canonical = read_selection()
+    canonical_ids = [value for value in canonical.analysis_ids if value in set(filtered.get("_analysis_id", pd.Series(dtype=str)).astype(str))]
+    defaults = routed_ids or canonical_ids
+    q2.metric("Найдено точек", len(filtered))
     if filtered.empty:
         st.warning("После фильтра не осталось точек.")
         return
@@ -226,48 +262,46 @@ def render_grain_profile_page() -> None:
         )
         st.caption("Каждая группа строится как отдельный traverse. Точки разных групп никогда не соединяются одной линией.")
 
-    render_section_header("Точки профиля", "Выберите физически относящиеся к traverse точки")
-    label_map = {str(row["_analysis_id"]): _point_label(row) for _, row in filtered.iterrows()}
-    options = list(label_map)
-    selection_token = hashlib.sha1(
-        (f"{project_id}|" + ",".join(map(str, selected_dataset_ids)) + "|" + ",".join(routed_ids)).encode("utf-8")
+    render_section_header("Точки профиля", "Чекбокс задаёт membership; колонка «Порядок» — явное направление traverse")
+    token = hashlib.sha1(
+        (f"{project_id}|" + ",".join(map(str, selected_dataset_ids))).encode("utf-8")
     ).hexdigest()[:12]
-    selection_key = f"grain_profile_selected_ids_{selection_token}"
-    default_ids = options if routed_ids or len(options) <= 120 else []
-    if not routed_ids and len(options) > 120:
-        st.caption(f"Найдено {len(options)} точек. PetroLab не выбирает первые 120 молча — выберите нужный traverse явно.")
-        if st.button(f"Выбрать все {len(options)} точек", key=f"grain_profile_select_all_{selection_token}"):
-            st.session_state[selection_key] = options
-            st.rerun()
-    selected_ids = st.multiselect(
-        "Точки",
-        options,
-        default=default_ids,
-        format_func=lambda value: label_map[str(value)],
-        key=selection_key,
+    selected_ids = _profile_selection_table(
+        filtered,
+        default_ids=defaults,
+        key_prefix=f"grain_profile_points_{token}",
     )
     if len(selected_ids) < 2:
-        st.info("Для профиля выберите хотя бы две точки.")
+        st.info("Для профиля отметьте хотя бы две точки.")
         return
+
+    common_col, info_col = st.columns([1, 2])
+    if common_col.button("Сделать общим отбором", type="primary", width="stretch", key=f"grain_profile_to_selection_{token}"):
+        set_selection(selected_ids, origin="Профиль", mode="replace")
+        st.rerun()
+    info_col.caption("Этот отбор после применения подсветится на XY, multi-panel и PCA.")
+
     if not grouped_mode:
         crossed_column = _single_profile_grain_guard(filtered, selected_ids)
         if crossed_column:
             st.error(
                 f"Выбранные точки относятся к нескольким значениям «{crossed_column}». "
-                "PetroLab не соединяет их одним traverse: переключитесь на «Несколько зерен» или оставьте одно зерно."
+                "Переключитесь на «Несколько зерен» или оставьте одно зерно."
             )
             return
     selected_rows = _selected_frame(filtered, selected_ids)
     group_count = int(selected_rows[group_column].fillna("").astype(str).str.strip().nunique()) if grouped_mode else 1
     render_badges([(f"точек · {len(selected_ids)}", "accent"), (f"групп · {group_count}" if grouped_mode else "один traverse", "neutral")])
 
-    render_section_header("Порядок и расстояние", "Порядок должен быть физически определён внутри каждого traverse")
-    mode_by_title = {title: key for key, title in ORDER_MODES.items()}
-    default_title = "Номер из подписи точки" if any(column in filtered.columns for column in ["Point", "Точка"]) else "Порядок выбранных analysis_id / строк"
+    render_section_header("Координата профиля", "По умолчанию используется явный порядок из таблицы; при наличии физических координат можно выбрать расстояние")
+    mode_by_title = {"Порядок из таблицы": "selection"}
+    for key, title in ORDER_MODES.items():
+        if key != "selection":
+            mode_by_title[title] = key
     mode_title = st.selectbox(
-        "Как задать порядок",
+        "Как задать X / порядок",
         list(mode_by_title),
-        index=list(mode_by_title).index(default_title) if default_title in mode_by_title else 0,
+        index=0,
         key=f"grain_profile_order_mode_{project_id}",
     )
     order_mode = mode_by_title[mode_title]
@@ -358,7 +392,7 @@ def render_grain_profile_page() -> None:
 
     render_section_header("Что показать", "Пропуски и бесконечные derived-значения остаются разрывами, а не нулями")
     numeric = _numeric_candidates(ordered)
-    default_y = [column for column in ["MgO", "FeO", "TiO2", "Cr2O3"] if column in numeric][:2]
+    default_y = [column for column in ["MgO", "FeO", "FeOt", "TiO2", "Cr2O3"] if column in numeric][:2]
     y_columns = st.multiselect(
         "Величины Y",
         numeric,

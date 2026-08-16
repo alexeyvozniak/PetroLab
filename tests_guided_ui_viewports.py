@@ -18,7 +18,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 PORT = 8521
 VIEWPORTS = ((1440, 900), (390, 844))
-PAGES = (("workflow", "Рабочий процесс"), ("mixed", "Фазы и выбросы"))
+# The guided workflow remains a compatibility route and is covered by its
+# state/unit tests. Browser smoke follows visible scientific tasks users can
+# actually reach from the consolidated sidebar.
+PAGES = (("profile", "Профиль по зерну"), ("mixed", "Фазы и выбросы"))
 
 
 def _wait(url: str, timeout: float = 35.0) -> None:
@@ -76,12 +79,10 @@ def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
 
 
 def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
-    """Open the secondary-tools expander robustly across Streamlit rerenders."""
+    """Open the consolidated advanced-task expander across Streamlit rerenders."""
     if _visible_sidebar_buttons(driver, label):
         return
 
-    # Streamlit may replace the expander DOM immediately after a click. Reacquire
-    # elements on every attempt and wait for the requested route itself to appear.
     for _attempt in range(3):
         if _visible_sidebar_buttons(driver, label):
             return
@@ -92,7 +93,8 @@ def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
                 summary = expander.find_element(By.CSS_SELECTOR, "summary")
             except Exception:
                 continue
-            if "Все инструменты" in summary.text:
+            summary_text = summary.text.strip()
+            if "Дополнительно" in summary_text or "Все инструменты" in summary_text:
                 target_summary = summary
                 break
         if target_summary is None:
@@ -105,7 +107,6 @@ def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
                 driver.execute_script("arguments[0].scrollIntoView({block:'center'});", target_summary)
                 target_summary.click()
             except Exception:
-                # JS click is a fallback for transient overlays/stale layout geometry.
                 try:
                     driver.execute_script("arguments[0].click();", target_summary)
                 except Exception:
@@ -134,7 +135,7 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) 
         _expand_tools_if_needed(driver, label)
         wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
         buttons = _visible_sidebar_buttons(driver, label)
-        assert buttons, f"Sidebar button not found after expanding tools: {label}"
+        assert buttons, f"Sidebar button not found after expanding advanced tasks: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()
         time.sleep(1.5)
@@ -168,8 +169,6 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, slug: st
 
 
 def main() -> None:
-    # Windows may retain the SQLite handle briefly after the Streamlit process exits.
-    # Ignore only cleanup races; all browser assertions and process shutdown still run normally.
     with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         _seed(root)
@@ -213,7 +212,7 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-    print("guided workflow real-browser viewport tests: OK")
+    print("consolidated workflow real-browser viewport tests: OK")
 
 
 if __name__ == "__main__":

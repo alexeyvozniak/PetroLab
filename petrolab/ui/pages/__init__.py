@@ -1,4 +1,9 @@
-"""Streamlit page renderers."""
+"""Streamlit page renderers.
+
+v0.15.7 keeps compatibility wrappers only where their behaviour has not yet
+been moved into a canonical page/component. Home, Workspace, Add Data, editor,
+article tables, batch actions, XY and analytical multi-panel are direct renderers.
+"""
 
 from .add_data import render_add_data_page
 from .analyses_dashboard import render_analyses_dashboard_page as render_analyses_page
@@ -45,59 +50,32 @@ from .thin_section_workspace import render_thin_section_workspace_page
 from .updates import render_updates_page
 from .whole_rock_compare import render_whole_rock_compare_page
 
-# Обёртки v0.15.1 сохраняют точные выборки между перерисовками Streamlit
-# и дают явное управление связью маркера с физической точкой.
+# Compatibility wrappers still needed for exact global-search/thin-section and
+# physical-point workflows. Canonical Add Data, XY and multi-panel intentionally
+# do NOT come from this release layer anymore.
 from .v0151_wrappers import (
     render_composite_points_page,
     render_global_search_page,
-    render_multi_panel_page,
-    render_plots_page,
     render_thin_section_workspace_page,
 )
 
-# Универсальный intake сохраняет project-scoping и provenance-lock,
-# а сложные таблицы при необходимости проходят через staging до записи в базу.
-from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
-
-# Публикационная мультипанель добавляет метки A/B/C и передачу фигуры в composer.
-from .v0152_publication_wrappers import render_multi_panel_page
-
-# Профиль зерна расширяет точный глобальный поиск, не ломая публикационные обёртки.
+# Grain-profile entry from global search is still a compatibility extension.
 from .v0153_grain_profile_wrappers import render_global_search_page
 
-# Новое рабочее пространство пород остаётся основным интерфейсом,
-# а staging из #71 подменяет только массовый импорт whole-rock данных.
+# Rock workspace compatibility remains until the whole-rock staging path is
+# consolidated separately.
 from .v0154_rock_workspace_wrappers import render_rocks_page
 from .rocks_staging_bridge_v0154 import render_rocks_page
-
-# Whole-rock сравнение получает такой же click/box/lasso связанный отбор,
-# как минералогическая мультипанель, но сохраняет рабочие классы вместо Generation.
 from .whole_rock_compare_linked_v0154 import render_whole_rock_compare_page
 
-# Химический сценарий после импорта начинается с мультипанели и сохраняет
-# отдельные переходы к лассо, PCA/кластеризации и утверждению Generation.
-from petrolab.ui.workflow_cluster_bridge_v0154 import (
-    render_add_data_page_v0154_bridge as render_add_data_page,
-    render_multi_panel_page_v0154_bridge as render_multi_panel_page,
-    render_plots_page_v0154_bridge as render_plots_page,
-)
-
-# Full UI/silent-error audit: exact routed identities must survive reruns, stale
-# project state must not win over a new route, and irreversible UI deletes need
-# a second confirmation.  These wrappers sit last so they preserve every prior
-# release wrapper while enforcing the cross-page safety contract.
+# Remaining cross-page audit wrappers only own contracts not yet absorbed by
+# their canonical pages: destructive formula actions and exact object routing.
 from .v0156_audit_wrappers import (
-    render_analyses_page,
-    render_article_tables_page,
-    render_batch_edit_page,
     render_formulae_page,
     render_global_search_page,
     render_guided_workflow_page,
-    render_home_page,
     render_images_page,
     render_mixed_minerals_page,
-    render_multi_panel_page,
-    render_object_workspace_page,
     render_slides_page,
     render_thin_section_workspace_page,
 )

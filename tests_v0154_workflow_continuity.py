@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,7 +13,7 @@ from petrolab.textural_runtime import (
     SOURCE_TEXTURAL_ZONE_COLUMN,
     TEXTURAL_ZONE_COLUMN,
 )
-from petrolab.ui.pages import v0151_intake_wrappers as intake_wrappers
+from petrolab.ui.intake_workflow import render_intake_workflow
 from petrolab.ui.workflow_cluster_bridge_v0154 import _chemistry_entry_route
 from petrolab.ui.workflow_continuity_v0154 import (
     apply_persistent_selection_to_figure,
@@ -57,6 +58,8 @@ class TexturalSemanticsTests(unittest.TestCase):
 
 
 class PersistentChemicalSelectionTests(unittest.TestCase):
+    """Historical plotting helper remains covered while SelectionContext replaces it in active XY."""
+
     def test_selected_analysis_ids_are_reapplied_to_plotly_trace(self) -> None:
         figure = go.Figure()
         figure.add_trace(go.Scattergl(
@@ -81,6 +84,8 @@ class PersistentChemicalSelectionTests(unittest.TestCase):
 
 
 class ChemistryEntryRouteTests(unittest.TestCase):
+    """Dormant compatibility helper must remain deterministic for old deep links."""
+
     def test_chemical_research_starts_from_multi_panel(self) -> None:
         self.assertEqual(_chemistry_entry_route("plots", True), "multi_panel")
 
@@ -90,38 +95,50 @@ class ChemistryEntryRouteTests(unittest.TestCase):
 
 
 class AddDataRouteContractTests(unittest.TestCase):
-    def test_image_wizard_extension_point_is_exposed(self) -> None:
-        self.assertTrue(callable(intake_wrappers.render_image_wizard_multi_dataset))
+    def test_canonical_intake_entry_is_callable(self) -> None:
+        self.assertTrue(callable(render_intake_workflow))
 
-    def test_add_data_route_uses_patchable_image_wizard_alias(self) -> None:
-        seen: list[object] = []
+    def test_add_data_page_calls_canonical_intake_directly(self) -> None:
+        add_data = Path("petrolab/ui/pages/add_data.py").read_text(encoding="utf-8")
+        pages_init = Path("petrolab/ui/pages/__init__.py").read_text(encoding="utf-8")
+        self.assertIn("from petrolab.ui.intake_workflow import render_intake_workflow", add_data)
+        self.assertIn("render_intake_workflow(int(project[\"id\"]))", add_data)
+        self.assertIn("from .add_data import render_add_data_page", pages_init)
+        self.assertNotIn(
+            "render_add_data_page_v0154_bridge as render_add_data_page",
+            pages_init,
+        )
+        self.assertNotIn(
+            "from .v0151_intake_wrappers import render_add_data_page",
+            pages_init,
+        )
 
-        def sentinel_wizard(*args, **kwargs):
-            return None
+    def test_legacy_intake_module_no_longer_rebinds_runtime_functions(self) -> None:
+        wrapper = Path("petrolab/ui/pages/v0151_intake_wrappers.py").read_text(encoding="utf-8")
+        forbidden = [
+            "_universal._file_token =",
+            "_extensions._batch_token =",
+            "_universal._render_table_import =",
+            "_universal._render_image_wizard =",
+            "render_table_import_with_provenance = locked_provenance",
+        ]
+        for marker in forbidden:
+            self.assertNotIn(marker, wrapper, marker)
 
-        original_alias = intake_wrappers.render_image_wizard_multi_dataset
-        original_active_project = intake_wrappers.active_project
-        original_add_page = intake_wrappers._add_data.render_add_data_page
-        original_universal_render = intake_wrappers._universal.render_universal_intake
-        try:
-            intake_wrappers.render_image_wizard_multi_dataset = sentinel_wizard
-            intake_wrappers.active_project = lambda: {"id": 7}
-            intake_wrappers._add_data.render_add_data_page = lambda: None
-
-            def fake_universal_render(project_id: int) -> None:
-                self.assertEqual(project_id, 7)
-                seen.append(intake_wrappers._universal._render_image_wizard)
-
-            intake_wrappers._universal.render_universal_intake = fake_universal_render
-            intake_wrappers.render_add_data_page()
-        finally:
-            intake_wrappers.render_image_wizard_multi_dataset = original_alias
-            intake_wrappers.active_project = original_active_project
-            intake_wrappers._add_data.render_add_data_page = original_add_page
-            intake_wrappers._universal.render_universal_intake = original_universal_render
-
-        self.assertEqual(len(seen), 1)
-        self.assertIs(seen[0], sentinel_wizard)
+    def test_canonical_intake_keeps_provenance_staging_images_and_scientific_continuation(self) -> None:
+        intake = Path("petrolab/ui/intake_workflow.py").read_text(encoding="utf-8")
+        extension = Path("petrolab/ui/universal_intake_extensions.py").read_text(encoding="utf-8")
+        for marker in [
+            "universal_intake_extensions.render_table_import_with_provenance(",
+            "staged_intake.render_table_import_v0154(",
+            "universal_intake_extensions.render_image_wizard_multi_dataset(",
+            "Textural zone",
+            'navigate("multi_panel")',
+            "render_recent_import_undo",
+        ]:
+            self.assertIn(marker, intake, marker)
+        for marker in ["image_preview_bytes(", "ImagePayload(name, raw)"]:
+            self.assertIn(marker, extension, marker)
 
 
 if __name__ == "__main__":

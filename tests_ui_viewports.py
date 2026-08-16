@@ -19,18 +19,19 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 PORT = 8517
-# 968x516 повторяет реальное короткое desktop-окно, на котором раньше
-# не срабатывали стандартные landscape/tablet проверки интерфейса.
+# 968x516 repeats the short desktop window that previously exposed shell overlap.
 VIEWPORTS = ((1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844))
+# Test the current product navigation, plus a few representative secondary tools.
 PAGES = (
     ("home", "Главная"),
-    ("add_data", "Добавить данные"),
-    ("workspace", "Рабочий стол"),
-    ("thin_section", "Работать со шлифом"),
-    ("graphs", "XY-диаграммы"),
+    ("data", "Данные"),
+    ("graphs", "Графики"),
+    ("thin_section", "Шлифы и изображения"),
+    ("calculations", "Расчёты"),
+    ("publication", "Публикация"),
     ("thermodynamics", "Термодинамика"),
-    ("rocks", "Породы"),
-    ("publication", "Таблицы для статьи"),
+    ("rock_compare", "Породы + литература"),
+    ("article_tables", "Таблицы для статьи"),
 )
 
 
@@ -63,10 +64,16 @@ def _seed_test_data(root: Path) -> None:
     })
     csv_path = root / "viewport_dataset.csv"
     frame.to_csv(csv_path, index=False)
-    dataset_id = add_dataset(project_id, "Viewport mica", "mica", "viewport.xlsx", "Sheet1", "viewport-sha", str(csv_path), len(frame))
+    dataset_id = add_dataset(
+        project_id, "Viewport mica", "mica", "viewport.xlsx", "Sheet1",
+        "viewport-sha", str(csv_path), len(frame),
+    )
     replace_dataset_rows(dataset_id, frame, source_rows=[2, 3, 4])
     rock_id = create_rock(project_id, "ViewportRock", massif="Test massif", lithology="lamprophyre")
-    replace_composition(rock_id, {"SiO2": 44.0, "Na2O": 2.5, "K2O": 3.0, "MgO": 12.0, "FeOt": 10.0})
+    replace_composition(
+        rock_id,
+        {"SiO2": 44.0, "Na2O": 2.5, "K2O": 3.0, "MgO": 12.0, "FeOt": 10.0},
+    )
     replace_isotopes(rock_id, pd.DataFrame([
         {"system": "Sr", "ratio_name": "87Sr/86Sr", "analysis_label": "A", "value": 0.70310, "uncertainty": 0.00002, "source": "viewport"},
         {"system": "Sr", "ratio_name": "87Sr/86Sr", "analysis_label": "B", "value": 0.70318, "uncertainty": 0.00003, "source": "viewport"},
@@ -90,10 +97,17 @@ def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
 
 
 def _expand_tool_navigation(driver: webdriver.Chrome, label: str) -> None:
-    summaries = driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stExpander"] summary')
+    """Open the current secondary-tools expander; never depend on legacy menu names."""
+    summaries = driver.find_elements(
+        By.CSS_SELECTOR,
+        '[data-testid="stSidebar"] [data-testid="stExpander"] summary',
+    )
     for summary in summaries:
-        if summary.is_displayed() and "Все инструменты" in summary.text:
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", summary)
+        if summary.is_displayed() and "Дополнительно" in summary.text:
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();",
+                summary,
+            )
             time.sleep(0.5)
             matches = _sidebar_buttons(driver, label)
             if matches:
@@ -103,9 +117,11 @@ def _expand_tool_navigation(driver: webdriver.Chrome, label: str) -> None:
 
 
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: str) -> None:
+    # Each viewport page is an independent shell smoke, so a refresh here is intentional.
+    # Cross-route history is tested separately in tests_product_ui_viewports.py.
     _reset_desktop_metrics(driver)
     driver.refresh()
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
@@ -148,9 +164,6 @@ def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int,
               r.left < Math.min(window.innerWidth, sidebarRect.right) &&
               r.bottom > Math.max(0, sidebarRect.top) &&
               r.top < Math.min(window.innerHeight, sidebarRect.bottom);
-            // На tablet/mobile Streamlit оставляет свернутый sidebar в DOM и
-            // сдвигает его влево за viewport. Такие элементы не видны пользователю
-            // и не должны считаться пересечением интерфейса.
             return style.display !== 'none' &&
               style.visibility !== 'hidden' &&
               r.width > 1 && r.height > 1 &&
@@ -173,8 +186,6 @@ def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int,
             const a = items[i], b = items[j];
             const horizontal = Math.min(a.right, b.right) - Math.max(a.left, b.left);
             const vertical = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-            // Две реально видимые строки оболочки не должны занимать один line-box.
-            // Игнорируем только погрешность округления и почти касающиеся края.
             if (horizontal > 12 && vertical > 2) overlaps.push({a, b, horizontal, vertical});
           }
         }
@@ -205,7 +216,10 @@ def _assert_shell_geometry(driver: webdriver.Chrome, page_name: str, width: int,
 
 
 def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_name: str, output: Path) -> None:
-    driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
+    driver.execute_cdp_cmd(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
+    )
     time.sleep(0.8)
     metrics = driver.execute_script("""
         return {
@@ -228,7 +242,6 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
 
 
 def _stop_process(process: subprocess.Popen) -> None:
-    """Reap Streamlit fully before attempting to remove its SQLite data directory."""
     if process.poll() is None:
         process.terminate()
     try:
@@ -241,7 +254,6 @@ def _stop_process(process: subprocess.Popen) -> None:
 
 
 def _remove_temp_tree(root: Path) -> None:
-    """Retry only transient Windows file-lock cleanup; never hide a persistent leak."""
     last_error: PermissionError | None = None
     for delay in (0.0, 0.10, 0.25, 0.50, 1.0, 2.0):
         if delay:
@@ -264,7 +276,8 @@ def main() -> None:
     try:
         _seed_test_data(root)
         output = Path(os.environ.get("PETROLAB_VIEWPORT_ARTIFACTS", "viewport_artifacts"))
-        env = os.environ.copy(); env["PETROLAB_DATA_DIR"] = str(root / "data")
+        env = os.environ.copy()
+        env["PETROLAB_DATA_DIR"] = str(root / "data")
         process = subprocess.Popen([
             sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless=true",
             f"--server.port={PORT}", "--server.address=127.0.0.1", "--browser.gatherUsageStats=false",
@@ -272,15 +285,19 @@ def main() -> None:
         url = f"http://127.0.0.1:{PORT}"
         _wait_for_server(url)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless=new"); options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--headless=new")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1280,900")
         try:
             driver = webdriver.Chrome(options=options)
         except WebDriverException as exc:
             raise RuntimeError(f"Could not start headless Chrome: {exc}") from exc
         driver.get(url)
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
+        WebDriverWait(driver, 25).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]'))
+        )
         for page_name, label in PAGES:
             _select_page(driver, label, output, page_name)
             for width, height in VIEWPORTS:
@@ -294,10 +311,8 @@ def main() -> None:
             driver.quit()
         if process is not None:
             _stop_process(process)
-        # Main-process repository helpers can also leave short-lived row/cursor
-        # objects pending finalization; retry cleanup only after every child is gone.
         _remove_temp_tree(root)
-    print("real-browser viewport tests: OK")
+    print("real-browser task-navigation viewport tests: OK")
 
 
 if __name__ == "__main__":

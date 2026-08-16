@@ -108,12 +108,26 @@ def work_group_map() -> dict[str, str]:
     return {str(row["analysis_id"]): str(row["group_name"]) for row in rows}
 
 
-def list_work_groups() -> list[str]:
+def list_work_groups(project_id: int | None = None) -> list[str]:
+    """Return group names, optionally limited to analyses accessible in one project."""
     ensure_work_group_storage()
     with connect() as con:
-        rows = con.execute(
-            "SELECT DISTINCT group_name FROM analysis_work_groups ORDER BY group_name COLLATE NOCASE"
-        ).fetchall()
+        if project_id is None:
+            rows = con.execute(
+                "SELECT DISTINCT group_name FROM analysis_work_groups ORDER BY group_name COLLATE NOCASE"
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT DISTINCT g.group_name
+                FROM analysis_work_groups g
+                JOIN analysis_rows a ON a.analysis_id=g.analysis_id
+                JOIN project_dataset_links l ON l.dataset_id=a.dataset_id
+                WHERE l.project_id=?
+                ORDER BY g.group_name COLLATE NOCASE
+                """,
+                (int(project_id),),
+            ).fetchall()
     return [str(row["group_name"]) for row in rows]
 
 

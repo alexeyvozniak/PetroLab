@@ -53,7 +53,7 @@ def _dataset_selector(project_id: int) -> tuple[dict | None, list[dict]]:
     if not datasets:
         st.info("В проекте ещё нет анализов. Импортируйте Excel/CSV — PetroLab сначала покажет листы, колонки, Fe-семантику и QC.")
         if st.button("Импортировать зонд / EDS / LA / другой файл", type="primary", key="workflow_import_empty", width="stretch"):
-            _jump("sources")
+            _jump("add_data")
         return None, []
 
     requested = st.session_state.get("workflow_focus_dataset_id")
@@ -77,7 +77,7 @@ def _dataset_selector(project_id: int) -> tuple[dict | None, list[dict]]:
     ])
     c1, c2 = st.columns(2)
     if c1.button("Добавить ещё файл", key="workflow_import_more", width="stretch"):
-        _jump("sources")
+        _jump("add_data")
     if c2.button("Открыть базу анализов", key="workflow_open_analyses", width="stretch"):
         st.session_state["workflow_edit_dataset_ids"] = [int(selected_id)]
         _jump("analyses")
@@ -182,14 +182,16 @@ def _context_step(project_id: int, dataset: dict) -> None:
 
 
 def _plot_step(dataset: dict) -> None:
-    render_section_header("6 · Первый график", "После этого можно уже исследовать данные, а не заниматься инфраструктурой")
-    st.caption("График получает тот же dataset, сохранённые формулы, QC и ручные решения. Потенциальные выбросы не удаляются автоматически.")
+    render_section_header("6 · Исследовать", "Открыть тот же dataset в графиках или статистике")
+    st.caption("Selection, QC, Hide и Exclude сохраняют свои отдельные роли; смена представления не расширяет область данных молча.")
     c1, c2 = st.columns(2)
     if c1.button("Построить XY", type="primary", key="workflow_plot", width="stretch"):
         st.session_state["workflow_plot_dataset_ids"] = [int(dataset["id"])]
         st.session_state.pop("quick_plot_datasets", None)
         _jump("plots")
     if c2.button("Статистика / PCA / группы", key="workflow_stats", width="stretch"):
+        st.session_state["statistics_dataset_ids_pending"] = [int(dataset["id"])]
+        st.session_state.pop("statistics_datasets", None)
         _jump("statistics")
 
 

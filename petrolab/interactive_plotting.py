@@ -123,7 +123,21 @@ def _add_envelope_traces(figure: go.Figure, subset: pd.DataFrame, x: str, y: str
         ))
 
 
-def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col: str | None = None, *, x_label: str | None = None, y_label: str | None = None, title: str = "", log_x: bool = False, log_y: bool = False, style_map: Mapping[str, Mapping[str, Any]] | None = None) -> go.Figure:
+def build_interactive_scatter(
+    dataframe: pd.DataFrame,
+    x: str,
+    y: str,
+    group_col: str | None = None,
+    *,
+    x_label: str | None = None,
+    y_label: str | None = None,
+    title: str = "",
+    log_x: bool = False,
+    log_y: bool = False,
+    style_map: Mapping[str, Mapping[str, Any]] | None = None,
+    selected_ids: list[str] | tuple[str, ...] | set[str] = (),
+    dragmode: str | bool = "lasso",
+) -> go.Figure:
     if "_analysis_id" not in dataframe.columns:
         raise ValueError("Для интерактивного выбора требуется _analysis_id")
     if x not in dataframe.columns or y not in dataframe.columns:
@@ -138,7 +152,7 @@ def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col
         work = work[work[y] > 0]
     hover_columns = [
         column
-        for column in ["Sample", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN]
+        for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN]
         if column in work.columns
     ]
     if group_col and group_col in work.columns:
@@ -147,6 +161,7 @@ def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col
     else:
         groups = [("Все точки", work)]
     figure = go.Figure()
+    selected_set = {str(value) for value in selected_ids if str(value)}
     for group_index, (group_name, subset) in enumerate(groups):
         if subset.empty:
             continue
@@ -156,18 +171,23 @@ def build_interactive_scatter(dataframe: pd.DataFrame, x: str, y: str, group_col
         display_mode = str(style.get("display_mode", "points") or "points")
         if display_mode in {"field", "centroid"}:
             continue
-        customdata = [[str(row["_analysis_id"])] + [_text(row.get(column)) for column in hover_columns] for _, row in subset.iterrows()]
+        analysis_ids = subset["_analysis_id"].astype(str).tolist()
+        customdata = [[analysis_id] + [_text(row.get(column)) for column in hover_columns] for analysis_id, (_, row) in zip(analysis_ids, subset.iterrows())]
         hover_lines = [f"<b>{x_label or x}</b>: %{{x}}", f"<b>{y_label or y}</b>: %{{y}}"]
         for index, column in enumerate(hover_columns, start=1):
             hover_lines.append(f"<b>{column}</b>: %{{customdata[{index}]}}")
         hover_lines.append("<extra></extra>")
-        figure.add_trace(go.Scattergl(
+        selectedpoints = [index for index, analysis_id in enumerate(analysis_ids) if analysis_id in selected_set]
+        trace = go.Scattergl(
             x=subset[x], y=subset[y], mode="markers", name=str(group_name), customdata=customdata,
             marker={"size": _marker_size(style), "symbol": _marker_symbol(style), "opacity": float(style.get("alpha", 0.9) or 0.9), "color": style["color"],
                     "line": {"width": float(style.get("outline_width", 1.0) or 0.0), "color": _outline_color(style)}},
             hovertemplate="<br>".join(hover_lines), selected={"marker": {"opacity": 1.0, "size": _marker_size(style) + 3.0}}, unselected={"marker": {"opacity": 0.35}},
-        ))
-    figure.update_layout(title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y, dragmode="lasso", clickmode="event+select", selectdirection="any", margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55}, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}, height=610)
+        )
+        if selected_set:
+            trace.selectedpoints = selectedpoints
+        figure.add_trace(trace)
+    figure.update_layout(title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y, dragmode=dragmode, clickmode="event+select", selectdirection="any", margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55}, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}, height=610)
     if log_x:
         figure.update_xaxes(type="log")
     if log_y:

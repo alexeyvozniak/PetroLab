@@ -8,8 +8,12 @@ from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
 from petrolab.ui.batch_actions import render_batch_actions
+from petrolab.ui.exact_route import persist_exact_route, render_exact_route_banner
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
+
+_EXACT_A = "_batch_exact_analysis_ids"
+_EXACT_D = "_batch_exact_dataset_ids"
 
 
 def render_batch_edit_page() -> None:
@@ -26,9 +30,30 @@ def render_batch_edit_page() -> None:
     if not datasets:
         st.info("В проекте пока нет анализов. Сначала добавьте данные.")
         return
+
+    exact_ids, exact_dataset_ids, _ = persist_exact_route(
+        st.session_state,
+        incoming_analysis_key="batch_analysis_ids",
+        incoming_dataset_key="batch_dataset_ids",
+        incoming_context_key=None,
+        persistent_analysis_key=_EXACT_A,
+        persistent_dataset_key=_EXACT_D,
+        persistent_context_key=None,
+    )
+    render_exact_route_banner(
+        count=len(exact_ids),
+        label="Снять точный отбор массового действия",
+        reset_key="batch_reset_exact",
+        persistent_keys=(_EXACT_A, _EXACT_D),
+        incoming_keys=("batch_analysis_ids", "batch_dataset_ids"),
+    )
+
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
     requested = [int(value) for value in st.session_state.pop("batch_dataset_ids", [])]
+    requested = requested or exact_dataset_ids
     defaults = [label for label, dataset_id in labels.items() if dataset_id in requested] or list(labels)
+    if requested:
+        st.session_state["batch_edit_datasets"] = defaults
     c1, c2 = st.columns([2.2, 1])
     selected = c1.multiselect("Наборы", list(labels), default=defaults, key="batch_edit_datasets")
     query = c2.text_input("Фильтр", key="batch_edit_query", placeholder="Sample, Grain, Point, Generation…")

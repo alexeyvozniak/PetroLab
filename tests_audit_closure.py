@@ -175,9 +175,19 @@ for marker in [
 assert "analysis_components" in analyses
 assert not (ROOT / "petrolab" / "ui" / "pages" / "analyses.py").exists()
 
-# Dataset selector identity and article-table labels must not silently collapse/round IDs (A-74/A-90).
+# Dataset selector identity and article-table labels must never collapse distinct
+# datasets. v0.15.7 disambiguates by human provenance rather than exposing DB IDs
+# (A-74/A-90 plus the current product identity contract).
 dataframe_utils = _read("petrolab/dataframe_utils.py")
-assert 'f\' · ID {int(dataset["id"])}\'' in dataframe_utils
+for marker in [
+    "def dataset_label(",
+    "def _dataset_import_label(",
+    'source_filename',
+    'source_sheet',
+    'parts.append(f"импорт {imported}")',
+]:
+    assert marker in dataframe_utils, marker
+assert ' · ID ' not in dataframe_utils
 article_tables = _read("petrolab/article_tables.py")
 for marker in [
     "IDENTIFIER_COLUMNS",
@@ -222,10 +232,15 @@ for marker in [
     "sanitize_xy_rows",
     'key="petrolab_quick_interactive_plot"',
     'key="petrolab_advanced_interactive_plot"',
-    "from petrolab.ui.plot_actions import clear_work_group",
+    "render_selection_panel",
+    "set_selection",
 ]:
     assert marker in xy_components, marker
 assert "from petrolab.ui.pages import plots" not in xy_components
+assert "clear_work_group" not in xy_components, "Work Group persistence must stay in the shared selection action owner"
+selection_components = _read("petrolab/ui/selection_components.py")
+for marker in ["set_work_group", "clear_work_group", "assign_generation", "def render_selection_panel("]:
+    assert marker in selection_components, marker
 advanced_xy = _read("petrolab/ui/pages/plots_advanced.py")
 for marker in [
     "Сохранённый рецепт ссылается на наборы",

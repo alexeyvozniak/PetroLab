@@ -46,6 +46,10 @@ jobs:
           petrolab/rock_staged_service.py
           petrolab/rock_comparison.py
           petrolab/rock_work_groups.py
+          petrolab/services/image_service.py
+          petrolab/ui/intake_workflow.py
+          petrolab/ui/universal_intake.py
+          petrolab/ui/universal_intake_extensions.py
           petrolab/ui/staging_editor.py
           petrolab/ui/staged_intake.py
           petrolab/ui/source_controls.py
@@ -53,6 +57,7 @@ jobs:
           petrolab/ui/rock_linked_panels.py
           petrolab/ui/workflow_continuity_v0154.py
           petrolab/ui/workflow_cluster_bridge_v0154.py
+          petrolab/ui/pages/add_data.py
           petrolab/ui/pages/__init__.py
           petrolab/ui/pages/multi_panel.py
           petrolab/ui/pages/v0152_publication_wrappers.py
@@ -67,8 +72,9 @@ jobs:
           tests_source_visibility_v0154.py
           tests_v0154_workflow_continuity.py
           tests_linked_multi_panel_v0154.py
+          tests_v0157_bmp_images.py
 
-      - name: Run staging and linked-panel regressions
+      - name: Run staging, image and linked-panel regressions
         shell: cmd
         run: |
           python tests_import_staging.py
@@ -78,6 +84,7 @@ jobs:
           python tests_source_visibility_v0154.py
           python tests_v0154_workflow_continuity.py
           python tests_linked_multi_panel_v0154.py
+          python tests_v0157_bmp_images.py
 
       - name: Run existing import and provenance regressions
         shell: cmd
