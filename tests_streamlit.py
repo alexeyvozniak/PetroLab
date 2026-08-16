@@ -91,7 +91,7 @@ def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
     assert str(app.session_state["workspace_mode"]) == "Массив данных", app.session_state["workspace_mode"]
     selectors = [widget for widget in app.selectbox if widget.label == "Массив данных"]
     assert selectors, "Data workspace did not expose the existing dataset selector"
-    assert any("UI mica" in str(option) for option in selectors[0].options), selectors[0].options
+    assert len(app.data_editor) > 0, "Data workspace did not render the analysis working table"
 
 
 def assert_back_restores_route(app) -> None:
