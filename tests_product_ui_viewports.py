@@ -117,26 +117,16 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     raise AssertionError("Browser Back action did not restore the previous Data workspace route")
 
 
-def _main_buttons(driver: webdriver.Chrome, label: str):
-    main = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]')
-    return [
-        button for button in main.find_elements(By.TAG_NAME, "button")
-        if button.is_displayed() and button.text.strip() == label
-    ]
-
-
 def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> None:
     """Real browser gate for the visible JMP/Origin-like plot workspace.
 
-    Headless Chrome does not reliably forward Plotly selection callbacks through
-    Streamlit, so selection semantics are covered by tests_v0157_linked_selection.py.
-    This browser test intentionally covers only user-visible browser contracts.
+    Streamlit does not promise that segmented-control options are HTML buttons.
+    Their visible labels are the stable user contract; deterministic linked-selection
+    semantics are covered separately by tests_v0157_linked_selection.py.
     """
     _click_primary_without_refresh(driver, "Графики", output, "plot_workspace")
     _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_TOOLS), "plot_workspace", output)
     wait = WebDriverWait(driver, 25)
-    for label in PLOT_TOOLS:
-        wait.until(lambda d, value=label: bool(_main_buttons(d, value)))
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')))
     chart = driver.find_element(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')
     assert chart.is_displayed(), "Interactive XY plot is not visible in the real browser"
