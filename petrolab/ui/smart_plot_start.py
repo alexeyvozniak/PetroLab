@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 from petrolab.smart_start import PlotRecommendation, recommendations
-from petrolab.ui.plot_spec import PlotSpec
+from petrolab.ui.plot_spec import CURRENT_PLOT_SPEC_KEY, PlotSpec
 
 
 _PLOT_SCOPE_PROJECT_KEY = "_petrolab_plot_scope_project_id"
@@ -12,6 +12,7 @@ _PLOT_SCOPE_DATASETS_KEY = "_petrolab_plot_scope_dataset_ids"
 _PLOT_SCOPE_ANALYSES_KEY = "_petrolab_plot_scope_analysis_ids"
 _PLOT_SCOPE_CONTEXT_KEY = "_petrolab_plot_scope_context"
 _PLOT_SCOPE_LABEL_KEY = "_petrolab_plot_scope_label"
+QUICK_CUSTOM_GRAPH_CHOICE = "__custom_axes__"
 
 
 @dataclass(frozen=True)
@@ -261,6 +262,100 @@ def seed_xy_state(
     return current_x, current_y
 
 
+def sync_xy_recommendation_state(
+    state: MutableMapping[str, Any],
+    ranked: Sequence[PlotRecommendation],
+    *,
+    choice_key: str = "quick_graph_choice",
+    signature_key: str = "_quick_graph_recommendation_signature",
+    x_key: str = "quick_x",
+    y_key: str = "quick_y",
+) -> None:
+    """Keep the displayed recommendation label and actual axes in sync.
+
+    If the data/mineral universe changes while a ranked recommendation owns the
+    axes, the corresponding new ranked pair is applied. If the user already chose
+    custom axes, the new recommendation universe is informational only and the
+    manual axes remain authoritative.
+    """
+    signature = tuple((item.title, item.x, item.y, item.note) for item in ranked)
+    previous = state.get(signature_key)
+    if previous == signature:
+        return
+
+    current = str(state.get(choice_key) or "")
+    if current == QUICK_CUSTOM_GRAPH_CHOICE:
+        state[signature_key] = signature
+        return
+
+    index = 0
+    if current.startswith("rec:"):
+        try:
+            index = int(current.split(":", 1)[1])
+        except (TypeError, ValueError):
+            index = 0
+    if ranked:
+        index = max(0, min(index, len(ranked) - 1))
+        state[choice_key] = f"rec:{index}"
+        state[x_key] = ranked[index].x
+        state[y_key] = ranked[index].y
+    else:
+        state[choice_key] = QUICK_CUSTOM_GRAPH_CHOICE
+    state[signature_key] = signature
+
+
+def restore_quick_plot_state(
+    state: MutableMapping[str, Any],
+    spec: PlotSpec,
+) -> None:
+    """Restore compact-workbench controls from the canonical current PlotSpec.
+
+    This intentionally does not rewrite DataUniverse or the global Selection. The
+    round-trip only restores graph state the compact workbench can represent:
+    axes, grouping, appearance, source visibility, visible series and style map.
+    Advanced-only range/outlier recipes remain in the advanced recipe and are not
+    silently reinterpreted as a new data universe.
+    """
+    state["quick_x"] = str(spec.x)
+    state["quick_y"] = str(spec.y)
+    state["quick_graph_choice"] = QUICK_CUSTOM_GRAPH_CHOICE
+    state["quick_log_x"] = bool(spec.log_x)
+    state["quick_log_y"] = bool(spec.log_y)
+    state["quick_title"] = str(spec.title or "")
+    if float(spec.marker_size or 0.0) > 0:
+        state["quick_marker_size"] = int(round(float(spec.marker_size)))
+
+    state["_quick_resume_group_pending"] = str(spec.group_column or "")
+    state["_quick_resume_style_map"] = {
+        str(key): dict(value) for key, value in spec.style_map.items()
+    }
+    state["_quick_resume_visible_series"] = list(spec.visible_series)
+    state["_quick_resume_series_group"] = str(spec.group_column or "")
+    try:
+        epoch = int(state.get("_quick_series_epoch", 0)) + 1
+    except (TypeError, ValueError):
+        epoch = 1
+    state["_quick_series_epoch"] = epoch
+
+    # Quick visibility manager supports source visibility directly. Seed both its
+    # normalized filter and the source multiselect widget before either is rendered.
+    visible_sources = [str(value) for value in spec.visible_sources if str(value)]
+    if spec.hidden_sources:
+        state["quick_plot_visibility_filters"] = {"source": visible_sources}
+    else:
+        state["quick_plot_visibility_filters"] = {}
+    if visible_sources:
+        state["quick_plot_visibility_values_source"] = visible_sources
+        state["quick_plot_visibility_dimension"] = "source"
+
+
+def _clear_quick_resume_state(state: MutableMapping[str, Any]) -> None:
+    for key in list(state):
+        if str(key).startswith("_quick_resume_"):
+            state.pop(key, None)
+    state.pop("_quick_graph_recommendation_signature", None)
+
+
 def seed_plot_handoff(
     state: MutableMapping[str, Any],
     *,
@@ -289,10 +384,12 @@ def seed_plot_handoff(
     else:
         state.pop("workflow_plot_notice", None)
 
-    # A new route means a new graph question. Do not let a stale deep editor or
-    # recipe intercept it before Smart Start has rendered the requested membership.
+    # A new route means a new graph question. Do not let stale graph/editor state
+    # intercept it before Smart Start has rendered the requested membership.
     state.pop("_plots_show_advanced", None)
     state.pop("loaded_recipe", None)
+    state.pop(CURRENT_PLOT_SPEC_KEY, None)
+    _clear_quick_resume_state(state)
     return datasets, analyses
 
 
