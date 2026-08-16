@@ -14,6 +14,7 @@ on:
       - 'petrolab/ui/pages/global_search.py'
       - 'petrolab/ui/intake_workflow.py'
       - 'tests_smart_plot_start.py'
+      - 'tests_product_flow_contract.py'
       - 'tests_ui_layout.py'
       - '.github/workflows/igpet-iogas-product-flow.yml'
       - '.clinerules/11-igpet-iogas-product-flow.md'
@@ -50,8 +51,11 @@ jobs:
           petrolab/ui/pages/statistics.py
           petrolab/ui/pages/plots_dashboard.py
           petrolab/ui/pages/plots_advanced.py
+          tests_product_flow_contract.py
       - name: Run Smart Start orchestration tests
         run: python tests_smart_plot_start.py
+      - name: Run exact scientific handoff contract
+        run: python tests_product_flow_contract.py
       - name: Run UI scientific-flow contract
         run: python tests_ui_layout.py
       - name: Run PlotSpec regression
