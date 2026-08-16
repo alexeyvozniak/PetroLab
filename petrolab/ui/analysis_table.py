@@ -7,8 +7,10 @@ from petrolab.analysis_groups import WORK_GROUP_COLUMN
 from petrolab.dataframe_utils import apply_quick_filter, display_value, human_point_label
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
+from petrolab.table_views import delete_table_view, list_table_views, save_table_view
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
+from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
 
 
 _IDENTITY_COLUMNS = (
@@ -262,6 +264,96 @@ def _sort_control(
     return result, str(column)
 
 
+def _table_view_scope(dataframe: pd.DataFrame) -> str:
+    if "_dataset_id" not in dataframe.columns:
+        return "project"
+    ids = sorted({str(value) for value in dataframe["_dataset_id"].dropna().tolist()})
+    if len(ids) == 1:
+        return f"dataset:{ids[0]}"
+    return "project"
+
+
+def _sanitize_saved_view(state: TableViewState, dataframe: pd.DataFrame) -> TableViewState:
+    available = {str(column) for column in dataframe.columns if not str(column).startswith("_")}
+    state.custom_fields = [column for column in state.custom_fields if column in available]
+    if state.filter_column not in available:
+        state.filter_column = "Без фильтра"
+        state.filter_values = []
+        state.filter_min = None
+        state.filter_max = None
+    if state.group_column not in {*available, "Не группировать", "Другой столбец…"}:
+        state.group_column = "Не группировать"
+    if state.advanced_group_column not in available:
+        state.advanced_group_column = ""
+    if state.sort_column not in available:
+        state.sort_column = "Без сортировки"
+    if state.column_mode not in _FIELD_MODES:
+        state.column_mode = "Основное"
+    return state
+
+
+def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix: str) -> None:
+    active_key = f"{key_prefix}_active_saved_view"
+    active_name = str(st.session_state.get(active_key, "") or "")
+    label = f"Вид · {active_name}" if active_name else "Вид"
+    with st.popover(label, width="stretch"):
+        st.caption("Вид хранит поля, поиск, фильтр, группировку и сортировку. Selection, Hide и Exclude не сохраняются.")
+        if project_id is None:
+            st.info("Сохранённые виды доступны внутри проекта.")
+            if st.button("Сбросить текущий вид", width="stretch", key=f"{key_prefix}_view_reset_no_project"):
+                clear_table_view(st.session_state, key_prefix)
+                st.session_state[active_key] = ""
+                st.rerun()
+            return
+
+        scope_key = _table_view_scope(dataframe)
+        views = list_table_views(int(project_id), scope_key)
+        by_name = {str(item["name"]): item for item in views}
+        if by_name:
+            st.markdown("**Сохранённые виды**")
+            for name, item in by_name.items():
+                c1, c2 = st.columns([4, 1])
+                if c1.button(
+                    name,
+                    width="stretch",
+                    type="primary" if name == active_name else "secondary",
+                    key=f"{key_prefix}_view_open_{item['id']}",
+                ):
+                    state = _sanitize_saved_view(TableViewState.from_dict(item.get("config")), dataframe)
+                    apply_table_view(st.session_state, key_prefix, state)
+                    st.session_state[active_key] = name
+                    st.rerun()
+                if c2.button("×", key=f"{key_prefix}_view_delete_{item['id']}", help=f"Удалить вид «{name}»"):
+                    delete_table_view(int(project_id), scope_key, name)
+                    if active_name == name:
+                        st.session_state[active_key] = ""
+                    st.rerun()
+        else:
+            st.caption("Сохранённых видов для этого рабочего контекста пока нет.")
+
+        st.divider()
+        new_name = st.text_input(
+            "Название вида",
+            key=f"{key_prefix}_view_name",
+            placeholder="Например: Для статьи",
+        )
+        current_state = capture_table_view(st.session_state, key_prefix)
+        save_label = "Обновить вид" if active_name and (not new_name.strip() or new_name.strip() == active_name) else "Сохранить текущий вид"
+        if st.button(save_label, type="primary", width="stretch", key=f"{key_prefix}_view_save"):
+            target_name = new_name.strip() or active_name
+            if not target_name:
+                st.warning("Введите название вида.")
+            else:
+                save_table_view(int(project_id), scope_key, target_name, current_state.to_dict())
+                st.session_state[active_key] = target_name
+                st.rerun()
+
+        if st.button("Сбросить настройки вида", width="stretch", key=f"{key_prefix}_view_reset"):
+            clear_table_view(st.session_state, key_prefix)
+            st.session_state[active_key] = ""
+            st.rerun()
+
+
 def _render_expanded_record(dataframe: pd.DataFrame) -> None:
     context = read_selection()
     if context.count != 1 or dataframe.empty or "_analysis_id" not in dataframe.columns:
@@ -321,7 +413,11 @@ def render_analysis_table(
         st.info("В текущем контексте нет аналитических строк.")
         return dataframe.iloc[0:0].copy()
 
-    toolbar = st.columns([4.0, 1.2, 1.2, 1.2, 1.2], gap="small")
+    toolbar = st.columns([3.8, 1.05, 1.05, 1.05, 1.05, 1.15], gap="small")
+    # Render View first in execution order so applying a saved view can safely
+    # update widget state before the other toolbar widgets are instantiated.
+    with toolbar[5]:
+        _view_control(dataframe, project_id=project_id, key_prefix=key_prefix)
     with toolbar[0]:
         query = st.text_input(
             "Поиск в анализах",
@@ -353,6 +449,9 @@ def render_analysis_table(
     visible = list(dict.fromkeys(column for column in visible if column in editor.columns))
 
     active_view = []
+    saved_view_name = str(st.session_state.get(f"{key_prefix}_active_saved_view", "") or "")
+    if saved_view_name:
+        active_view.append(f"вид: {saved_view_name}")
     filter_name = str(st.session_state.get(f"{key_prefix}_filter_column", "Без фильтра"))
     if filter_name != "Без фильтра":
         active_view.append(f"фильтр: {filter_name}")
@@ -405,7 +504,7 @@ def render_analysis_table(
         st.rerun()
     note.caption(
         "Чекбоксы, «все видимые» и инверсия меняют общий Selection. "
-        "Фильтр, группировка, сортировка и скрытие полей — только текущий вид."
+        "Фильтр, группировка, сортировка, скрытие полей и сохранённые виды — только текущий вид."
     )
 
     _render_expanded_record(dataframe)
