@@ -44,7 +44,7 @@ assert not list(UI.glob("*_page_policy.py")), "runtime page policy module return
 for ui_file in [
     "selection_context.py", "selection_components.py", "analysis_table.py",
     "navigation_state.py", "plot_spec.py", "linked_panels.py", "xy_components.py",
-    "plot_manager.py", "panel_manager.py",
+    "plot_manager.py", "panel_manager.py", "intake_workflow.py",
 ]:
     assert (UI / ui_file).exists(), ui_file
 assert (ROOT / "petrolab" / "dataset_visibility.py").exists()
@@ -180,14 +180,26 @@ assert "def go_back(" in NAVIGATION and "push_current" in NAVIGATION
 
 # Canonical renderers must no longer be rebound through the old UI wrapper stack.
 for marker in [
+    "from .add_data import render_add_data_page",
     "from .home_dashboard import render_home_dashboard_page as render_home_page",
     "from .object_workspace import render_object_workspace_page",
     "from .plots_dashboard import render_plots_dashboard_page as render_plots_page",
     "from .multi_panel import render_multi_panel_page",
 ]:
     assert marker in PAGES_INIT, marker
-assert "render_multi_panel_page_v0154_bridge as render_multi_panel_page" not in PAGES_INIT
-assert "render_plots_page_v0154_bridge as render_plots_page" not in PAGES_INIT
+for forbidden in [
+    "render_add_data_page_v0154_bridge as render_add_data_page",
+    "from .v0151_intake_wrappers import render_add_data_page",
+    "render_multi_panel_page_v0154_bridge as render_multi_panel_page",
+    "render_plots_page_v0154_bridge as render_plots_page",
+]:
+    assert forbidden not in PAGES_INIT, forbidden
+legacy_intake = (PAGES / "v0151_intake_wrappers.py").read_text(encoding="utf-8")
+for forbidden in [
+    "_universal._file_token =", "_extensions._batch_token =",
+    "_universal._render_table_import =", "_universal._render_image_wizard =",
+]:
+    assert forbidden not in legacy_intake, forbidden
 
 # Global project context remains sidebar-owned.
 project_context = (UI / "project_context.py").read_text(encoding="utf-8")
@@ -210,7 +222,7 @@ for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive
 
 # High-value pages keep the shared visual hierarchy.
 for page_name in [
-    "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py",
+    "add_data.py", "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py",
     "plots_dashboard.py", "images_dashboard.py", "settings.py", "statistics.py",
     "formulae.py", "help.py", "rocks.py", "science_plots.py", "object_workspace.py",
     "multi_panel.py", "grain_profile.py",
