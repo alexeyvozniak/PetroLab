@@ -41,8 +41,11 @@ jobs:
           petrolab/ui/analysis_table.py
           petrolab/ui/selection_context.py
           petrolab/ui/plot_spec.py
+          petrolab/ui/plot_manager.py
       - name: Run saved-view state and persistence tests
         run: python tests_v0158_table_views.py
+      - name: Run linked series selection tests
+        run: python tests_v0158_series_selection.py
       - name: Run linked-selection gate
         run: python tests_v0157_linked_selection.py
       - name: Run UI architecture contract
