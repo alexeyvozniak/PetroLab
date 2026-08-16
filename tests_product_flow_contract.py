@@ -8,6 +8,7 @@ PAGES = UI / "pages"
 def main() -> None:
     smart = (UI / "smart_plot_start.py").read_text(encoding="utf-8")
     plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
+    plot_manager = (UI / "plot_manager.py").read_text(encoding="utf-8")
     intake = (UI / "intake_workflow.py").read_text(encoding="utf-8")
     selection = (UI / "selection_components.py").read_text(encoding="utf-8")
     statistics = (PAGES / "statistics.py").read_text(encoding="utf-8")
@@ -19,10 +20,13 @@ def main() -> None:
         "def clear_exact_plot_scope(",
         "def seed_plot_handoff(",
         "def xy_recommendations(",
+        "def sync_xy_recommendation_state(",
+        "def restore_quick_plot_state(",
         "_petrolab_plot_scope_analysis_ids",
         "_petrolab_plot_scope_dataset_ids",
         'state.pop("_plots_show_advanced", None)',
         'state.pop("loaded_recipe", None)',
+        "CURRENT_PLOT_SPEC_KEY",
     ]:
         assert marker in smart, marker
     assert 'pop("workflow_plot_analysis_ids"' not in plots
@@ -50,6 +54,7 @@ def main() -> None:
         assert obsolete not in plots, obsolete
     for marker in [
         "xy_recommendations(",
+        "sync_xy_recommendation_state(",
         '"График"',
         '"Рекомендовано ·',
         '"Другой график ·',
@@ -63,7 +68,16 @@ def main() -> None:
     assert "_mark_custom_axes" in plots, "manual axes must opt out of recommendation ownership"
     assert "_swap_quick_axes" in plots, "axis swap must be one action"
 
-    print("IgPet/ioGAS exact scientific handoff + compact workbench contract: OK")
+    # Advanced is a deeper view of the same PlotSpec, not a second workflow.
+    for marker in [
+        "read_current_plot_spec", "restore_quick_plot_state", '"← К обычному графику"',
+        '"_quick_resume_dataset_ids"', "initial_visible_series=resume_visible", "widget_token=series_token",
+    ]:
+        assert marker in plots, marker
+    for marker in ["initial_visible_series", "widget_token", "editor_key"]:
+        assert marker in plot_manager, marker
+
+    print("IgPet/ioGAS exact scientific handoff + compact/advanced round-trip contract: OK")
 
 
 if __name__ == "__main__":
