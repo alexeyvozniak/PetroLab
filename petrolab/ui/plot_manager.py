@@ -4,16 +4,23 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.group_styles import display_group_series
+from petrolab.ui.plot_spec import MULTI_PANEL_VISIBLE_SERIES_KEY
 from petrolab.ui.selection_context import set_selection
 
 
-def _series_table(dataframe: pd.DataFrame, group_column: str) -> pd.DataFrame:
+def _series_table(
+    dataframe: pd.DataFrame,
+    group_column: str,
+    *,
+    visible_series: tuple[str, ...] | list[str] | None = None,
+) -> pd.DataFrame:
     labels = display_group_series(dataframe[group_column])
     order = labels.drop_duplicates().astype(str).tolist()
     counts = labels.value_counts(dropna=False).to_dict()
+    initial = None if visible_series is None else {str(value) for value in visible_series}
     return pd.DataFrame(
         {
-            "Показывать": [True] * len(order),
+            "Показывать": [True if initial is None else name in initial for name in order],
             "В отбор": [False] * len(order),
             "Серия": order,
             "Точек": [int(counts.get(name, 0)) for name in order],
@@ -37,6 +44,18 @@ def _selected_series_ids(
     return ids, names
 
 
+def _incoming_visible_series(key_prefix: str) -> tuple[str, ...] | None:
+    if key_prefix != "multi_panel":
+        return None
+    raw = st.session_state.pop(MULTI_PANEL_VISIBLE_SERIES_KEY, None)
+    if not isinstance(raw, (list, tuple)):
+        return None
+    # A new PlotSpec must win over stale data_editor widget state from an older
+    # multi-panel visit. This happens before the widget is instantiated.
+    st.session_state.pop(f"{key_prefix}_series_manager", None)
+    return tuple(str(value) for value in raw if str(value))
+
+
 def render_series_manager(
     dataframe: pd.DataFrame,
     group_column: str | None,
@@ -54,7 +73,8 @@ def render_series_manager(
     if dataframe.empty or not group_column or group_column not in dataframe.columns:
         return dataframe, ()
 
-    source = _series_table(dataframe, group_column)
+    incoming = _incoming_visible_series(key_prefix)
+    source = _series_table(dataframe, group_column, visible_series=incoming)
     if source.empty:
         return dataframe, ()
 
@@ -82,34 +102,17 @@ def render_series_manager(
 
         selected_ids, selected_names = _selected_series_ids(dataframe, group_column, edited)
         if selected_names:
-            st.caption(
-                f"Для отбора: {len(selected_names)} сер. · {len(selected_ids)} анализов"
-            )
+            st.caption(f"Для отбора: {len(selected_names)} сер. · {len(selected_ids)} анализов")
             s1, s2, s3 = st.columns(3)
             label = ", ".join(selected_names[:3]) + ("…" if len(selected_names) > 3 else "")
             if s1.button("Заменить отбор", width="stretch", key=f"{key_prefix}_series_select_replace"):
-                set_selection(
-                    selected_ids,
-                    origin=f"Серии · {group_column}",
-                    mode="replace",
-                    label=label,
-                )
+                set_selection(selected_ids, origin=f"Серии · {group_column}", mode="replace", label=label)
                 st.rerun()
             if s2.button("Добавить", width="stretch", key=f"{key_prefix}_series_select_add"):
-                set_selection(
-                    selected_ids,
-                    origin=f"Серии · {group_column}",
-                    mode="add",
-                    label=label,
-                )
+                set_selection(selected_ids, origin=f"Серии · {group_column}", mode="add", label=label)
                 st.rerun()
             if s3.button("Вычесть", width="stretch", key=f"{key_prefix}_series_select_subtract"):
-                set_selection(
-                    selected_ids,
-                    origin=f"Серии · {group_column}",
-                    mode="subtract",
-                    label=label,
-                )
+                set_selection(selected_ids, origin=f"Серии · {group_column}", mode="subtract", label=label)
                 st.rerun()
 
     visible = edited.loc[edited["Показывать"].fillna(False).astype(bool)].copy()
