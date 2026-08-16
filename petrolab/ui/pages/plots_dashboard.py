@@ -61,13 +61,8 @@ def _analysis_universe_ids(dataframe: pd.DataFrame) -> tuple[str, ...]:
     """
     if "_analysis_id" not in dataframe.columns:
         return ()
-    return tuple(
-        dict.fromkeys(
-            value
-            for value in dataframe["_analysis_id"].astype(str).tolist()
-            if (value := str(value).strip())
-        )
-    )
+    values = [str(value).strip() for value in dataframe["_analysis_id"].tolist()]
+    return tuple(dict.fromkeys(value for value in values if value))
 
 
 def _apply_graph_choice(choice_axes: dict[str, tuple[str, str]]) -> None:
