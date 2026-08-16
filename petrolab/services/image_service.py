@@ -19,7 +19,8 @@ from petrolab.repositories.image_repository import (
     replace_image_analysis_links,
 )
 
-SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
+SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
+_WEB_PREVIEW_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 SCOPE_DATASET = "Набор данных"
 SCOPE_FIELD = "Значение поля"
 SCOPE_ANALYSIS = "Точки анализа"
@@ -190,6 +191,37 @@ def related_images_for_row(selected_row: pd.Series, project_id: int | None = Non
             if column in selected_row.index and str(selected_row.get(column)) == str(asset.get("scope_value")):
                 related.append(asset)
     return related
+
+
+def image_preview_bytes(image: ImagePayload) -> bytes:
+    """Return browser-friendly preview bytes without modifying the source image.
+
+    BMP and TIFF are valid scientific source assets but are not consistently previewed
+    by every browser/Streamlit path.  Keep the original bytes untouched for storage and
+    generate an in-memory PNG only for display when the source format is not web-safe.
+    """
+    _validate_payload(image)
+    suffix = Path(image.filename).suffix.lower()
+    if suffix in _WEB_PREVIEW_SUFFIXES:
+        return image.data
+
+    try:
+        with Image.open(io.BytesIO(image.data)) as opened:
+            opened.load()
+            preview = opened.copy()
+    except (UnidentifiedImageError, OSError, SyntaxError) as exc:
+        raise ValueError(
+            f"Файл {Path(image.filename).name} не удалось подготовить для предпросмотра"
+        ) from exc
+
+    if preview.mode == "CMYK":
+        preview = preview.convert("RGB")
+    elif preview.mode not in {"1", "L", "LA", "P", "RGB", "RGBA", "I", "I;16"}:
+        preview = preview.convert("RGBA" if "A" in preview.getbands() else "RGB")
+
+    output = io.BytesIO()
+    preview.save(output, format="PNG")
+    return output.getvalue()
 
 
 def _validate_dataset(project_id: int, dataset_id: int) -> dict:
