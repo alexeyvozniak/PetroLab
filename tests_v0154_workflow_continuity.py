@@ -125,9 +125,11 @@ class AddDataRouteContractTests(unittest.TestCase):
         for marker in forbidden:
             self.assertNotIn(marker, wrapper, marker)
 
-    def test_canonical_intake_keeps_staging_images_and_scientific_continuation(self) -> None:
+    def test_canonical_intake_keeps_provenance_staging_images_and_scientific_continuation(self) -> None:
         intake = Path("petrolab/ui/intake_workflow.py").read_text(encoding="utf-8")
+        extension = Path("petrolab/ui/universal_intake_extensions.py").read_text(encoding="utf-8")
         for marker in [
+            "universal_intake_extensions.render_table_import_with_provenance(",
             "staged_intake.render_table_import_v0154(",
             "universal_intake_extensions.render_image_wizard_multi_dataset(",
             "Textural zone",
@@ -135,6 +137,8 @@ class AddDataRouteContractTests(unittest.TestCase):
             "render_recent_import_undo",
         ]:
             self.assertIn(marker, intake, marker)
+        for marker in ["image_preview_bytes(", "ImagePayload(name, raw)"]:
+            self.assertIn(marker, extension, marker)
 
 
 if __name__ == "__main__":
