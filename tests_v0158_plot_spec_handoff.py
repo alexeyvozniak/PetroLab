@@ -101,11 +101,30 @@ def test_send_to_multi_panel_seeds_appearance_without_changing_science() -> None
     assert isinstance(state[MULTI_PANEL_INBOX_KEY], dict)
 
 
+def test_unknown_advanced_preset_is_preserved_in_spec_but_not_injected_into_widget() -> None:
+    from petrolab.ui.plot_spec import peek_multi_panel_inbox, send_to_multi_panel
+
+    state: dict[str, object] = {"multi_panel_preset": "stale-invalid-value"}
+    spec = _base_spec(
+        marker_size=44,
+        figure_preset="Advanced-only journal preset",
+        show_grid=True,
+    )
+    send_to_multi_panel(spec, state)
+    inbox = peek_multi_panel_inbox(state)
+    assert inbox is not None
+    assert inbox.figure_preset == "Advanced-only journal preset"
+    assert "multi_panel_preset" not in state
+    assert state["multi_panel_marker"] == 44
+    assert state["multi_panel_grid"] is True
+
+
 def main() -> None:
     test_old_plot_spec_payload_remains_valid()
     test_normalization_completes_visible_series_and_quick_appearance()
     test_explicit_plot_spec_appearance_wins_over_runtime_defaults()
     test_send_to_multi_panel_seeds_appearance_without_changing_science()
+    test_unknown_advanced_preset_is_preserved_in_spec_but_not_injected_into_widget()
     print("v0.15.8 complete PlotSpec handoff: OK")
 
 
