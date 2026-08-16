@@ -143,12 +143,6 @@ def _selection_count(driver: webdriver.Chrome) -> int:
 
 
 def _force_plotly_box_mode(driver: webdriver.Chrome) -> str:
-    """Set client-side Plotly dragmode after the app's box tool is proven visible.
-
-    The Streamlit segmented control is tested as a user-facing contract. For the
-    physical drag itself we avoid racing a Streamlit rerun and directly switch the
-    already-rendered Plotly graph to its native box-select mode.
-    """
     return str(driver.execute_script(
         """
         const graph = document.querySelector('[data-testid="stPlotlyChart"] .js-plotly-plot');
@@ -165,13 +159,17 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
     _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_xy", output)
     wait = WebDriverWait(driver, 30)
     try:
-        # The PetroLab control must be visible and reachable; this is the explicit
-        # JMP-like interaction mode offered to the user.
+        # Use the real PetroLab mode switch first. Its click causes a Streamlit rerun,
+        # so all graph elements are deliberately re-acquired afterwards.
         wait.until(lambda d: bool(_main_buttons(d, "Прямоугольник")))
         box_button = _main_buttons(driver, "Прямоугольник")[0]
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", box_button)
-        assert box_button.is_enabled()
+        box_button.click()
+        time.sleep(1.3)
+        _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_mode", output)
 
+        # Plotly's native select mode is also asserted client-side. This protects the
+        # E2E from a stale chart surviving the Streamlit widget rerender.
         wait.until(lambda d: _force_plotly_box_mode(d) == "select")
         drag_surface = wait.until(
             EC.presence_of_element_located(
@@ -183,15 +181,19 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
         size = drag_surface.size
         width = max(80, int(size.get("width", 0)))
         height = max(80, int(size.get("height", 0)))
-        # W3C element offsets are relative to the element centre. Draw a large box
-        # completely inside the plotting rectangle so point pixels/presets may vary.
-        start_x = -max(20, int(width * 0.38))
-        start_y = -max(20, int(height * 0.38))
-        dx = max(40, int(width * 0.76))
-        dy = max(40, int(height * 0.76))
-        ActionChains(driver).move_to_element_with_offset(
+        start_x = -max(20, int(width * 0.46))
+        start_y = -max(20, int(height * 0.46))
+        total_dx = max(40, int(width * 0.92))
+        total_dy = max(40, int(height * 0.92))
+        steps = 12
+        step_x = max(1, total_dx // steps)
+        step_y = max(1, total_dy // steps)
+        actions = ActionChains(driver).move_to_element_with_offset(
             drag_surface, start_x, start_y
-        ).click_and_hold().pause(0.15).move_by_offset(dx, dy, duration=0.8).pause(0.15).release().perform()
+        ).click_and_hold().pause(0.12)
+        for _ in range(steps):
+            actions = actions.move_by_offset(step_x, step_y, duration=0.08).pause(0.03)
+        actions.release().perform()
 
         selected = int(wait.until(lambda d: _selection_count(d) or False))
         assert selected > 0, "Physical Plotly box drag did not create a linked Selection"
