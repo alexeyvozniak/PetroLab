@@ -14,7 +14,7 @@ from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
 from petrolab.io_utils import numeric_candidates
 from petrolab.measurement_registry import list_entities
-from petrolab.multi_panel_plotting import build_multi_panel_scatter
+from petrolab.multi_panel_plotting import build_multi_panel_scatter, panel_axis_limits
 from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
@@ -24,6 +24,7 @@ from petrolab.ui.plot_manager import render_series_manager
 from petrolab.ui.plot_spec import PlotSpec, clear_multi_panel_inbox, peek_multi_panel_inbox
 from petrolab.ui.project_context import active_project
 from petrolab.ui.selection_components import render_selection_panel
+from petrolab.ui.selection_context import read_row_states, read_selection
 from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import style_dataframe, style_map
 from petrolab.visualization_presets import FIGURE_PRESETS
@@ -209,6 +210,16 @@ def _style_editor(dataframe: pd.DataFrame, group_col: str, managed_series: tuple
     return styles
 
 
+def _plot_dataframe(dataframe: pd.DataFrame, *, id_column: str = "_analysis_id") -> pd.DataFrame:
+    """Apply JMP Hide to plots only, not to exported/raw table data."""
+    if id_column not in dataframe.columns:
+        return dataframe
+    hidden = set(read_row_states().hidden)
+    if not hidden:
+        return dataframe
+    return dataframe.loc[~dataframe[id_column].astype(str).isin(hidden)].copy()
+
+
 def render_multi_panel_page() -> None:
     project = active_project()
     render_page_header(
@@ -295,11 +306,43 @@ def render_multi_panel_page() -> None:
     marker_size = c2.slider("Размер точек", 10, 160, int(round(preset.marker_size)), 2, key="multi_panel_marker")
     grid = c3.checkbox("Сетка", value=preset.grid, key="multi_panel_grid")
 
+    selection = read_selection()
+    scale_options = ["Авто", "Одинаковые переменные"]
+    if mode == "Обычные анализы" and selection.count:
+        scale_options.append("По отбору")
+    current_scale = str(st.session_state.get("multi_panel_scale", "Авто"))
+    if current_scale not in scale_options:
+        st.session_state["multi_panel_scale"] = "Авто"
+        current_scale = "Авто"
+    scale = st.segmented_control(
+        "Масштаб панелей",
+        scale_options,
+        default=current_scale,
+        key="multi_panel_scale",
+        help="«Одинаковые переменные» синхронизирует диапазон только у одной и той же научной переменной. «По отбору» зумирует на Selection, не скрывая остальные точки.",
+    ) or current_scale
+
+    plot_dataframe = _plot_dataframe(dataframe) if mode == "Обычные анализы" else dataframe
+    axis_mode = "independent"
+    focus_ids: tuple[str, ...] = ()
+    if scale == "Одинаковые переменные":
+        axis_mode = "shared"
+    elif scale == "По отбору" and selection.count:
+        axis_mode = "focus"
+        focus_ids = selection.analysis_ids
+        st.caption(f"Масштаб по текущему Selection · {selection.count} анализов; остальные точки остаются на графике.")
+    axis_limits = panel_axis_limits(
+        plot_dataframe,
+        panels,
+        mode=axis_mode,
+        focus_ids=focus_ids,
+    )
+
     if mode == "Обычные анализы" and "_analysis_id" in dataframe.columns:
         render_section_header("Связанное исследование", "Один и тот же Selection работает на всех панелях, в таблице, XY и PCA")
         render_linked_panel_selection(
-            dataframe, panels, id_column="_analysis_id", key=f"mineral_multi_{project_id}",
-            group_column=group_col, columns=int(columns),
+            plot_dataframe, panels, id_column="_analysis_id", key=f"mineral_multi_{project_id}",
+            group_column=group_col, columns=int(columns), axis_limits=axis_limits,
         )
         render_selection_panel(dataframe, project_id=project_id, key_prefix="multi_panel_selection")
     else:
@@ -311,10 +354,11 @@ def render_multi_panel_page() -> None:
     render_section_header("Публикационный вид", "Те же панели в стабильном SVG/PNG; это не редактор A/B/C")
     try:
         figure = build_multi_panel_scatter(
-            dataframe, panels, group_column=group_col, style_map=styles,
+            plot_dataframe, panels, group_column=group_col, style_map=styles,
             columns=int(columns), width_in=max(preset.width_in, 7.2), panel_height_in=max(2.8, preset.height_in * 0.62),
             font_family=preset.font_family, font_size=preset.font_size, tick_size=preset.tick_size,
             spine_width=preset.spine_width, marker_size=float(marker_size), show_legend=True, grid=bool(grid),
+            axis_limits=axis_limits,
         )
     except Exception as exc:
         st.error(f"Не удалось построить multi-panel: {exc}")
