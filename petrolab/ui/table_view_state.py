@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, MutableMapping
 
+from petrolab.ui.table_filters import normalize_filter_mode
+
 
 @dataclass(slots=True)
 class TableViewState:
@@ -10,6 +12,7 @@ class TableViewState:
     column_mode: str = "Основное"
     custom_fields: list[str] = field(default_factory=list)
     filter_column: str = "Без фильтра"
+    filter_mode: str = "Оставить"
     filter_values: list[str] = field(default_factory=list)
     filter_min: float | None = None
     filter_max: float | None = None
@@ -28,6 +31,7 @@ class TableViewState:
         clean = {key: value for key, value in data.items() if key in allowed}
         clean["custom_fields"] = [str(item) for item in clean.get("custom_fields", []) or []]
         clean["filter_values"] = [str(item) for item in clean.get("filter_values", []) or []]
+        clean["filter_mode"] = normalize_filter_mode(clean.get("filter_mode", "Оставить"))
         for key in ("filter_min", "filter_max"):
             value = clean.get(key)
             if value in (None, ""):
@@ -54,6 +58,7 @@ def capture_table_view(mapping: MutableMapping[str, Any], key_prefix: str) -> Ta
         column_mode=str(_get(mapping, f"{key_prefix}_column_mode", "Основное")),
         custom_fields=[str(item) for item in (_get(mapping, f"{key_prefix}_custom_fields", []) or [])],
         filter_column=filter_column,
+        filter_mode=normalize_filter_mode(_get(mapping, f"{key_prefix}_filter_mode_{filter_column}", "Оставить")),
         group_column=str(_get(mapping, f"{key_prefix}_group_col", "Не группировать")),
         advanced_group_column=str(_get(mapping, f"{key_prefix}_advanced_group_col", "") or ""),
         sort_column=str(_get(mapping, f"{key_prefix}_sort_column", "Без сортировки")),
@@ -87,6 +92,7 @@ def apply_table_view(
     mapping[f"{key_prefix}_sort_direction"] = state.sort_direction
 
     if state.filter_column != "Без фильтра":
+        mapping[f"{key_prefix}_filter_mode_{state.filter_column}"] = normalize_filter_mode(state.filter_mode)
         mapping[f"{key_prefix}_filter_values_{state.filter_column}"] = list(state.filter_values)
         if state.filter_min is not None:
             mapping[f"{key_prefix}_filter_min_{state.filter_column}"] = float(state.filter_min)
@@ -109,6 +115,7 @@ def clear_table_view(mapping: MutableMapping[str, Any], key_prefix: str) -> None
     if previous_filter != "Без фильтра":
         keys.extend(
             [
+                f"{key_prefix}_filter_mode_{previous_filter}",
                 f"{key_prefix}_filter_values_{previous_filter}",
                 f"{key_prefix}_filter_min_{previous_filter}",
                 f"{key_prefix}_filter_max_{previous_filter}",
