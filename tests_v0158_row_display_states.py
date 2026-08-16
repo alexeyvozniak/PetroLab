@@ -102,6 +102,7 @@ def test_single_xy_overlay_uses_human_label_color_marker_and_analysis_id() -> No
         "Al2O3",
         "Generation",
         labelled_ids=["a1"],
+        excluded_ids=[],
         display_color={"a1": "#ff0000"},
         display_marker={"a1": "D"},
     )
@@ -113,6 +114,34 @@ def test_single_xy_overlay_uses_human_label_color_marker_and_analysis_id() -> No
     assert overlay.customdata[0][0] == "a1"
     assert "KIV-2" in str(overlay.text[0])
     assert "a1" not in str(overlay.text[0])
+
+
+def test_excluded_analysis_stays_in_scatter_and_gets_visible_cross_overlay() -> None:
+    from petrolab.interactive_plotting import build_interactive_scatter
+
+    frame = _plot_frame()
+    figure = build_interactive_scatter(
+        frame,
+        "TiO2",
+        "Al2O3",
+        "Generation",
+        labelled_ids=[],
+        excluded_ids=["a2"],
+        display_color={},
+        display_marker={},
+    )
+    excluded = [trace for trace in figure.data if getattr(trace, "name", "") == "Исключено из статистики"]
+    assert len(excluded) == 1
+    trace = excluded[0]
+    assert trace.marker.symbol == "x"
+    assert trace.customdata[0][0] == "a2"
+    assert "KIV-2" in str(trace.text[0])
+
+    base_ids = []
+    for base in figure.data:
+        if getattr(base, "name", "") in {"core", "rim"} and getattr(base, "customdata", None) is not None:
+            base_ids.extend(str(row[0]) for row in base.customdata)
+    assert "a2" in base_ids, "Exclude must not hide the analysis from the graph"
 
 
 def test_linked_panels_render_same_row_display_state_on_every_panel() -> None:
@@ -128,15 +157,20 @@ def test_linked_panels_render_same_row_display_state_on_every_panel() -> None:
         id_column="_analysis_id",
         group_column="Generation",
         labelled_ids=["a2"],
+        excluded_ids=["a3"],
         display_color={"a2": "#00aa00"},
         display_marker={"a2": "s"},
     )
     overlays = [trace for trace in figure.data if getattr(trace, "name", "") == "Временная маркировка"]
+    excluded = [trace for trace in figure.data if getattr(trace, "name", "") == "Исключено из статистики"]
     assert len(overlays) == 2
+    assert len(excluded) == 2
     assert all(trace.customdata[0][0] == "a2" for trace in overlays)
     assert all(trace.marker.color == "#00aa00" for trace in overlays)
     assert all(trace.marker.symbol == "square" for trace in overlays)
     assert all("KIV-2" in str(trace.text[0]) for trace in overlays)
+    assert all(trace.customdata[0][0] == "a3" for trace in excluded)
+    assert all(trace.marker.symbol == "x" for trace in excluded)
 
 
 def main() -> None:
@@ -144,6 +178,7 @@ def main() -> None:
     test_display_state_can_be_removed_without_touching_hide_exclude()
     test_partial_color_or_marker_reset_is_independent()
     test_single_xy_overlay_uses_human_label_color_marker_and_analysis_id()
+    test_excluded_analysis_stays_in_scatter_and_gets_visible_cross_overlay()
     test_linked_panels_render_same_row_display_state_on_every_panel()
     print("v0.15.8 JMP row display states: OK")
 
