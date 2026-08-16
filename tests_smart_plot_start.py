@@ -4,6 +4,7 @@ from petrolab.ui.smart_plot_start import (
     choose_xy_recommendation,
     resolve_plot_scope,
     seed_import_plot_handoff,
+    seed_selection_plot_handoff,
     seed_xy_state,
 )
 
@@ -103,6 +104,22 @@ def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
     assert "multi_panel_layout" not in state
     assert "_multi_panel_incoming_visible_series" not in state
     assert state["keep_me"] == 1
+
+
+def test_selection_handoff_never_broadens_exact_analysis_ids_to_dataset_scope():
+    state = {}
+    datasets, analyses = seed_selection_plot_handoff(
+        state,
+        dataset_ids=[10, 11, 10],
+        analysis_ids=["a2", "a4", "a2"],
+        origin="PCA",
+    )
+    assert datasets == (10, 11)
+    assert analyses == ("a2", "a4")
+    assert state["workflow_plot_dataset_ids"] == [10, 11]
+    assert state["workflow_plot_analysis_ids"] == ["a2", "a4"]
+    assert state["workflow_plot_context"]["origin"] == "PCA"
+    assert state["workflow_plot_context"]["analysis_ids"] == ["a2", "a4"]
 
 
 def test_advanced_recipe_is_adapter_from_plotspec_not_new_truth():
