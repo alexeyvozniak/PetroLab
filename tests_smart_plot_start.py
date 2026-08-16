@@ -2,6 +2,8 @@ from petrolab.ui.plot_spec import PlotSpec
 from petrolab.ui.smart_plot_start import (
     advanced_recipe_from_spec,
     choose_xy_recommendation,
+    clear_exact_plot_scope,
+    consume_plot_scope,
     resolve_plot_scope,
     seed_import_plot_handoff,
     seed_selection_plot_handoff,
@@ -9,18 +11,32 @@ from petrolab.ui.smart_plot_start import (
 )
 
 
-def test_explicit_route_scope_wins_over_work_context():
+def test_explicit_route_scope_wins_over_work_context_without_mixing_it():
     scope = resolve_plot_scope(
         available_dataset_ids=[1, 2, 3],
         work_context={"dataset_ids": [1, 2], "analysis_ids": ["ctx-a"], "label": "Sample PG-15"},
         requested_dataset_ids=[3, 999],
         requested_analysis_ids=["route-a", "route-a", "route-b"],
-        requested_context={"origin": "database"},
+        requested_context={"origin": "database", "label": "Search · apatite"},
     )
     assert scope.dataset_ids == (3,)
     assert scope.analysis_ids == ("route-a", "route-b")
-    assert scope.context == {"origin": "database"}
-    assert scope.context_label == "Sample PG-15"
+    assert scope.context["origin"] == "database"
+    assert scope.context_label == "Search · apatite"
+    assert scope.explicit is True
+
+
+def test_dataset_only_route_does_not_inherit_stale_work_context_points():
+    scope = resolve_plot_scope(
+        available_dataset_ids=[1, 2, 3],
+        work_context={"dataset_ids": [1], "analysis_ids": ["old-a"], "label": "Old sample"},
+        requested_dataset_ids=[3],
+        requested_analysis_ids=[],
+        requested_context={"origin": "import"},
+    )
+    assert scope.dataset_ids == (3,)
+    assert scope.analysis_ids == ()
+    assert scope.context == {"origin": "import"}
 
 
 def test_work_context_is_used_when_route_handoff_is_absent():
@@ -31,12 +47,69 @@ def test_work_context_is_used_when_route_handoff_is_absent():
     assert scope.dataset_ids == (2,)
     assert scope.analysis_ids == ("a", "b")
     assert scope.context_label == "Kandalaksha"
+    assert scope.explicit is False
 
 
 def test_all_accessible_datasets_are_fallback_only_when_no_context_exists():
     scope = resolve_plot_scope(available_dataset_ids=[3, 1, 3, 2])
     assert scope.dataset_ids == (3, 1, 2)
     assert scope.analysis_ids == ()
+
+
+def test_exact_selection_scope_survives_streamlit_reruns_until_explicitly_broadened():
+    state = {}
+    seed_selection_plot_handoff(
+        state,
+        dataset_ids=[10, 11],
+        analysis_ids=["a2", "a4"],
+        origin="PCA",
+    )
+    first = consume_plot_scope(
+        state,
+        project_id=5,
+        available_dataset_ids=[10, 11, 12],
+        work_context={"dataset_ids": [12], "analysis_ids": ["wrong"], "label": "Old context"},
+    )
+    assert first.dataset_ids == (10, 11)
+    assert first.analysis_ids == ("a2", "a4")
+    assert first.context_label == "Selection · 2 точек"
+
+    second = consume_plot_scope(
+        state,
+        project_id=5,
+        available_dataset_ids=[10, 11, 12],
+        work_context={"dataset_ids": [12], "analysis_ids": ["wrong"], "label": "Old context"},
+    )
+    assert second.dataset_ids == (10, 11)
+    assert second.analysis_ids == ("a2", "a4")
+    assert second.explicit is True
+
+    clear_exact_plot_scope(state)
+    broadened = consume_plot_scope(
+        state,
+        project_id=5,
+        available_dataset_ids=[10, 11, 12],
+        work_context={"dataset_ids": [12], "analysis_ids": ["wrong"], "label": "Old context"},
+    )
+    assert broadened.dataset_ids == (10, 11)
+    assert broadened.analysis_ids == ()
+
+
+def test_project_change_drops_persisted_plot_scope_instead_of_leaking_ids():
+    state = {}
+    seed_selection_plot_handoff(state, dataset_ids=[10], analysis_ids=["a2"])
+    first = consume_plot_scope(state, project_id=1, available_dataset_ids=[10])
+    assert first.analysis_ids == ("a2",)
+
+    second = consume_plot_scope(
+        state,
+        project_id=2,
+        available_dataset_ids=[20],
+        work_context={"dataset_ids": [20], "analysis_ids": ["b1"], "label": "Project 2"},
+    )
+    assert second.dataset_ids == (20,)
+    assert second.analysis_ids == ("b1",)
+    assert second.context_label == "Project 2"
 
 
 def test_mica_smart_start_uses_first_available_scientific_pair():
@@ -100,6 +173,8 @@ def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
     datasets = seed_import_plot_handoff(state, [7, "8", 7, "bad"])
     assert datasets == (7, 8)
     assert state["workflow_plot_dataset_ids"] == [7, 8]
+    assert state["workflow_plot_analysis_ids"] == []
+    assert state["workflow_plot_context"]["origin"] == "import"
     assert "безопасный стартовый график" in state["workflow_plot_notice"]
     assert "multi_panel_layout" not in state
     assert "_multi_panel_incoming_visible_series" not in state
