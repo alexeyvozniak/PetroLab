@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -10,6 +10,7 @@ import streamlit as st
 from plotly.colors import qualitative
 from plotly.subplots import make_subplots
 
+from petrolab.interactive_plotting import add_row_display_overlay
 from petrolab.ui.selection_components import render_selection_mode
 from petrolab.ui.selection_context import clear_selection, read_row_states, read_selection, set_selection
 
@@ -102,6 +103,19 @@ def _available_ids(dataframe: pd.DataFrame, id_column: str) -> set[str]:
     return {_clean_id(value) for value in dataframe[id_column].tolist() if _clean_id(value)}
 
 
+def _plotly_axis_range(limits: tuple[float, float] | list[float] | None, *, log: bool) -> list[float] | None:
+    if limits is None or len(limits) != 2:
+        return None
+    lower, upper = float(limits[0]), float(limits[1])
+    if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
+        return None
+    if log:
+        if lower <= 0 or upper <= 0:
+            return None
+        return [math.log10(lower), math.log10(upper)]
+    return [lower, upper]
+
+
 def build_linked_panel_figure(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -112,16 +126,19 @@ def build_linked_panel_figure(
     columns: int = 2,
     height_per_row: int = 330,
     dragmode: str | bool = "lasso",
+    axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
+    labelled_ids: Iterable[str] = (),
+    excluded_ids: Iterable[str] = (),
+    display_color: Mapping[str, str] | None = None,
+    display_marker: Mapping[str, str] | None = None,
 ) -> go.Figure:
     if id_column not in dataframe.columns:
         raise ValueError(f"Нет устойчивого идентификатора {id_column}")
-    valid = [
-        dict(panel) for panel in panels
-        if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns
-    ]
+    valid = [dict(panel) for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
     if not valid:
         raise ValueError("Нет валидных панелей")
     valid = valid[:10]
+    limits = axis_limits or [{"x": None, "y": None} for _ in valid]
     ncols = max(1, min(int(columns), 4, len(valid)))
     nrows = int(math.ceil(len(valid) / ncols))
     titles = [str(panel.get("title") or f"{panel['y']} vs {panel['x']}") for panel in valid]
@@ -164,8 +181,21 @@ def build_linked_panel_figure(
             figure.add_trace(trace, row=row, col=col)
             legend_seen.add(group_name)
 
-        figure.update_xaxes(title_text=str(panel.get("x_label") or x), type="log" if log_x else "linear", row=row, col=col)
-        figure.update_yaxes(title_text=str(panel.get("y_label") or y), type="log" if log_y else "linear", row=row, col=col)
+        add_row_display_overlay(
+            figure, work, x, y,
+            labelled_ids=labelled_ids,
+            excluded_ids=excluded_ids,
+            display_color=display_color,
+            display_marker=display_marker,
+            row=row,
+            col=col,
+        )
+
+        panel_limits = limits[panel_index] if panel_index < len(limits) and isinstance(limits[panel_index], dict) else {}
+        x_range = _plotly_axis_range(panel_limits.get("x"), log=log_x)
+        y_range = _plotly_axis_range(panel_limits.get("y"), log=log_y)
+        figure.update_xaxes(title_text=str(panel.get("x_label") or x), type="log" if log_x else "linear", range=x_range, row=row, col=col)
+        figure.update_yaxes(title_text=str(panel.get("y_label") or y), type="log" if log_y else "linear", range=y_range, row=row, col=col)
 
     figure.update_layout(
         height=max(360, int(height_per_row) * nrows), dragmode=dragmode,
@@ -184,6 +214,7 @@ def render_linked_panel_selection(
     key: str,
     group_column: str | None = None,
     columns: int = 2,
+    axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
 ) -> list[str]:
     """Render panels backed by the global SelectionContext, never a page-local selection."""
     visible = dataframe
@@ -209,6 +240,8 @@ def render_linked_panel_selection(
     figure = build_linked_panel_figure(
         visible, panels, id_column=id_column, selected_ids=context.analysis_ids,
         group_column=group_column, columns=columns, dragmode=dragmode,
+        axis_limits=axis_limits, labelled_ids=row_states.labelled, excluded_ids=row_states.excluded,
+        display_color=row_states.display_color, display_marker=row_states.display_marker,
     )
     event = st.plotly_chart(
         figure, width="stretch", key=f"{key}_plotly", on_select="rerun",

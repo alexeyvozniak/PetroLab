@@ -12,7 +12,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_figure_preset": "Lithos",
     "default_table_preset": "Lithos",
     "default_point_style": "balanced",
-    "ui_density": "comfortable",
+    "ui_density": "compact",
     "show_help_hints": True,
     "show_sample_location_prompt": True,
     "show_release_notes_on_home": True,

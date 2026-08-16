@@ -1,0 +1,102 @@
+name: v0.15.8 master backlog regression
+
+on:
+  pull_request:
+    paths:
+      - 'petrolab/settings_service.py'
+      - 'petrolab/table_views.py'
+      - 'petrolab/multi_panel_plotting.py'
+      - 'petrolab/ui/table_filters.py'
+      - 'petrolab/ui/table_view_state.py'
+      - 'petrolab/ui/view_presets.py'
+      - 'petrolab/ui/field_presets.py'
+      - 'petrolab/ui/record_detail.py'
+      - 'petrolab/ui/analysis_table.py'
+      - 'petrolab/ui/selection_context.py'
+      - 'petrolab/ui/selection_export.py'
+      - 'petrolab/ui/selection_components.py'
+      - 'petrolab/ui/linked_panels.py'
+      - 'petrolab/ui/plot_spec.py'
+      - 'petrolab/ui/advanced_plot_handoff.py'
+      - 'petrolab/ui/plot_manager.py'
+      - 'petrolab/ui/panel_manager.py'
+      - 'petrolab/ui/pages/**'
+      - 'tests_v0158_*.py'
+      - '.github/workflows/v0158-master-backlog.yml'
+      - 'docs/MASTER_BACKLOG_V0158_PLUS.md'
+  workflow_dispatch:
+
+jobs:
+  master-backlog:
+    runs-on: windows-latest
+    env:
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      NUMEXPR_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile changed product core
+        run: >-
+          python -m py_compile
+          petrolab/settings_service.py
+          petrolab/table_views.py
+          petrolab/multi_panel_plotting.py
+          petrolab/ui/table_filters.py
+          petrolab/ui/table_view_state.py
+          petrolab/ui/view_presets.py
+          petrolab/ui/field_presets.py
+          petrolab/ui/record_detail.py
+          petrolab/ui/analysis_table.py
+          petrolab/ui/selection_context.py
+          petrolab/ui/selection_export.py
+          petrolab/ui/selection_components.py
+          petrolab/ui/linked_panels.py
+          petrolab/ui/plot_spec.py
+          petrolab/ui/advanced_plot_handoff.py
+          petrolab/ui/plot_manager.py
+          petrolab/ui/panel_manager.py
+          petrolab/ui/pages/global_search.py
+          petrolab/ui/pages/multi_panel.py
+          petrolab/ui/pages/plots_advanced.py
+      - name: Run saved-view state and persistence tests
+        run: python tests_v0158_table_views.py
+      - name: Run reversible hide-filter tests
+        run: python tests_v0158_hide_filter.py
+      - name: Run semantic quick view tests
+        run: python tests_v0158_view_presets.py
+      - name: Run scientific field preset tests
+        run: python tests_v0158_field_presets.py
+      - name: Run record detail tests
+        run: python tests_v0158_record_detail.py
+      - name: Run additive Article selection workflow
+        run: python tests_v0158_article_additive_selection.py
+      - name: Run linked series selection tests
+        run: python tests_v0158_series_selection.py
+      - name: Run panel structure tests
+        run: python tests_v0158_panel_manager.py
+      - name: Run shared and selection-fit axis tests
+        run: python tests_v0158_axis_ranges.py
+      - name: Run complete PlotSpec handoff tests
+        run: python tests_v0158_plot_spec_handoff.py
+      - name: Run advanced XY handoff tests
+        run: python tests_v0158_advanced_plot_handoff.py
+      - name: Run exact Selection export tests
+        run: python tests_v0158_selection_export.py
+      - name: Run JMP row display-state tests
+        run: python tests_v0158_row_display_states.py
+      - name: Run compact density default tests
+        run: python tests_v0158_density.py
+      - name: Run linked-selection gate
+        run: python tests_v0157_linked_selection.py
+      - name: Run UI architecture contract
+        run: python tests_ui_layout.py
+      - name: Run Streamlit workflow smoke
+        run: python tests_streamlit.py

@@ -8,15 +8,15 @@ SELECTION_KEY = "_petrolab_selection_context"
 ROW_STATES_KEY = "_petrolab_row_states"
 
 _SELECTION_MODES = {"replace", "add", "subtract"}
-_ROW_STATE_KINDS = {"hidden", "excluded"}
+_ROW_STATE_KINDS = {"hidden", "excluded", "labelled"}
 
 
 @dataclass(frozen=True)
 class SelectionContext:
     """Canonical transient scientific selection shared by all PetroLab views.
 
-    Selection is intentionally distinct from filtering, hidden/excluded row states,
-    Work Group and Generation.  Only immutable ``analysis_id`` values cross views.
+    Selection is intentionally distinct from filtering, display row states,
+    Work Group and Generation. Only immutable ``analysis_id`` values cross views.
     """
 
     analysis_ids: tuple[str, ...] = ()
@@ -31,10 +31,13 @@ class SelectionContext:
 
 @dataclass(frozen=True)
 class RowStates:
-    """JMP-like row states that do not change the active selection."""
+    """JMP-like row states that do not change the active selection or science."""
 
     hidden: tuple[str, ...] = ()
     excluded: tuple[str, ...] = ()
+    labelled: tuple[str, ...] = ()
+    display_color: dict[str, str] = field(default_factory=dict)
+    display_marker: dict[str, str] = field(default_factory=dict)
 
 
 def _state(state: MutableMapping[str, Any] | None = None) -> MutableMapping[str, Any]:
@@ -55,6 +58,18 @@ def _ids(values) -> tuple[str, ...]:
         seen.add(value)
         result.append(value)
     return tuple(result)
+
+
+def _style_map(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in raw.items():
+        analysis_id = str(key).strip()
+        style = str(value).strip()
+        if analysis_id and style:
+            result[analysis_id] = style
+    return result
 
 
 def _apply_mode(current: tuple[str, ...], incoming: tuple[str, ...], mode: str) -> tuple[str, ...]:
@@ -122,7 +137,20 @@ def read_row_states(state: MutableMapping[str, Any] | None = None) -> RowStates:
     return RowStates(
         hidden=_ids(raw.get("hidden", ())),
         excluded=_ids(raw.get("excluded", ())),
+        labelled=_ids(raw.get("labelled", ())),
+        display_color=_style_map(raw.get("display_color")),
+        display_marker=_style_map(raw.get("display_marker")),
     )
+
+
+def _row_state_payload(current: RowStates) -> dict[str, Any]:
+    return {
+        "hidden": list(current.hidden),
+        "excluded": list(current.excluded),
+        "labelled": list(current.labelled),
+        "display_color": dict(current.display_color),
+        "display_marker": dict(current.display_marker),
+    }
 
 
 def set_row_state(
@@ -138,11 +166,64 @@ def set_row_state(
     current = read_row_states(store)
     current_values = getattr(current, kind)
     updated = _apply_mode(current_values, _ids(analysis_ids), mode)
-    payload = {
-        "hidden": list(current.hidden),
-        "excluded": list(current.excluded),
-    }
+    payload = _row_state_payload(current)
     payload[kind] = list(updated)
+    store[ROW_STATES_KEY] = payload
+    return read_row_states(store)
+
+
+def set_row_display(
+    analysis_ids,
+    *,
+    color: str | None = None,
+    marker: str | None = None,
+    clear_color: bool = False,
+    clear_marker: bool = False,
+    state: MutableMapping[str, Any] | None = None,
+) -> RowStates:
+    """Apply transient display styling to exact analysis IDs.
+
+    Styling is exploration state only. It never writes dataframe columns,
+    Generation, Work Group or provenance.
+    """
+    store = _state(state)
+    current = read_row_states(store)
+    payload = _row_state_payload(current)
+    ids = _ids(analysis_ids)
+    colors = dict(current.display_color)
+    markers = dict(current.display_marker)
+    for analysis_id in ids:
+        if clear_color:
+            colors.pop(analysis_id, None)
+        elif color is not None and str(color).strip():
+            colors[analysis_id] = str(color).strip()
+        if clear_marker:
+            markers.pop(analysis_id, None)
+        elif marker is not None and str(marker).strip():
+            markers[analysis_id] = str(marker).strip()
+    payload["display_color"] = colors
+    payload["display_marker"] = markers
+    store[ROW_STATES_KEY] = payload
+    return read_row_states(store)
+
+
+def clear_row_display(
+    analysis_ids=(),
+    *,
+    state: MutableMapping[str, Any] | None = None,
+) -> RowStates:
+    store = _state(state)
+    current = read_row_states(store)
+    ids = set(_ids(analysis_ids))
+    payload = _row_state_payload(current)
+    if not ids:
+        payload["display_color"] = {}
+        payload["display_marker"] = {}
+        payload["labelled"] = []
+    else:
+        payload["display_color"] = {key: value for key, value in current.display_color.items() if key not in ids}
+        payload["display_marker"] = {key: value for key, value in current.display_marker.items() if key not in ids}
+        payload["labelled"] = [value for value in current.labelled if value not in ids]
     store[ROW_STATES_KEY] = payload
     return read_row_states(store)
 

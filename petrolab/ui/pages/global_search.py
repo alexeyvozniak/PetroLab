@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import attach_work_groups
+from petrolab.dataframe_utils import human_point_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
@@ -246,11 +247,13 @@ def render_global_search_page() -> None:
         if result.empty:
             st.caption("Аналитических строк по запросу нет.")
         else:
+            display = result.copy()
+            display.insert(0, "Точка", [human_point_label(row) for _, row in display.iterrows()])
             preferred = [column for column in (
-                "Sample", "Grain", "Point", "Минерал", "Generation", "Method",
-                SOURCE_LABEL_COLUMN, SOURCE_TABLE_COLUMN, "Набор", "QC уровень", "_analysis_id",
-            ) if column in result.columns]
-            st.dataframe(result[preferred].head(1500), width="stretch", hide_index=True, height=560)
+                "Точка", "Минерал", "Mineral", "Method", "Метод",
+                SOURCE_LABEL_COLUMN, SOURCE_TABLE_COLUMN, "Набор", "QC уровень",
+            ) if column in display.columns]
+            st.dataframe(display[preferred].head(1500), width="stretch", hide_index=True, height=560)
             if len(result) > 1500:
                 st.caption(f"Показаны первые 1500 из {len(result)} строк; действия сверху используют весь результат.")
 

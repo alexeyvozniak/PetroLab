@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
+from petrolab.dataframe_utils import human_point_label
 from petrolab.group_envelopes import compute_group_envelope
 from petrolab.group_styles import default_group_color, display_group_series
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
@@ -123,6 +124,92 @@ def _add_envelope_traces(figure: go.Figure, subset: pd.DataFrame, x: str, y: str
         ))
 
 
+def add_row_display_overlay(
+    figure: go.Figure,
+    dataframe: pd.DataFrame,
+    x: str,
+    y: str,
+    *,
+    labelled_ids=(),
+    excluded_ids=(),
+    display_color: Mapping[str, str] | None = None,
+    display_marker: Mapping[str, str] | None = None,
+    row: int | None = None,
+    col: int | None = None,
+) -> None:
+    """Overlay transient JMP-like row states without mutating scientific series style."""
+    if dataframe.empty or "_analysis_id" not in dataframe.columns:
+        return
+    labels = {str(value) for value in labelled_ids if str(value)}
+    excluded = {str(value) for value in excluded_ids if str(value)}
+    colors = {str(key): str(value) for key, value in (display_color or {}).items() if str(key) and str(value)}
+    markers = {str(key): str(value) for key, value in (display_marker or {}).items() if str(key) and str(value)}
+    display_wanted = labels | set(colors) | set(markers)
+    wanted = display_wanted | excluded
+    if not wanted:
+        return
+    work = dataframe.loc[dataframe["_analysis_id"].astype(str).isin(wanted)].copy()
+    if work.empty:
+        return
+    work[x] = pd.to_numeric(work[x], errors="coerce")
+    work[y] = pd.to_numeric(work[y], errors="coerce")
+    work = work.dropna(subset=[x, y]).reset_index(drop=True)
+    if work.empty:
+        return
+
+    excluded_part = work.loc[work["_analysis_id"].astype(str).isin(excluded)]
+    if not excluded_part.empty:
+        excluded_trace = go.Scatter(
+            x=excluded_part[x], y=excluded_part[y], mode="markers",
+            text=[human_point_label(item) for _, item in excluded_part.iterrows()],
+            customdata=[[str(value)] for value in excluded_part["_analysis_id"].astype(str).tolist()],
+            marker={"size": 12, "symbol": "x", "color": "#6b7280", "line": {"width": 1.5, "color": "#6b7280"}},
+            hovertemplate="<b>Исключено из статистики</b><br>%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
+            showlegend=row is None or (row == 1 and col == 1),
+            name="Исключено из статистики",
+        )
+        if row is not None and col is not None:
+            figure.add_trace(excluded_trace, row=row, col=col)
+        else:
+            figure.add_trace(excluded_trace)
+
+    display_work = work.loc[work["_analysis_id"].astype(str).isin(display_wanted)].reset_index(drop=True)
+    if display_work.empty:
+        return
+    groups: dict[tuple[str, str, bool], list[int]] = {}
+    for index, item in display_work.iterrows():
+        analysis_id = str(item["_analysis_id"])
+        groups.setdefault((colors.get(analysis_id, ""), markers.get(analysis_id, ""), analysis_id in labels), []).append(index)
+
+    for (color, marker, labelled), indices in groups.items():
+        part = display_work.iloc[indices]
+        ids = part["_analysis_id"].astype(str).tolist()
+        fill = color or ("rgba(255,255,255,0.96)" if marker else "rgba(255,255,255,0.01)")
+        symbol = PLOTLY_SYMBOLS.get(marker, "circle")
+        text = [human_point_label(item) for _, item in part.iterrows()] if labelled else [""] * len(part)
+        trace = go.Scatter(
+            x=part[x], y=part[y], mode="markers+text" if labelled else "markers",
+            text=text, textposition="top center", textfont={"size": 11, "color": "#111827"},
+            customdata=[[analysis_id] for analysis_id in ids],
+            marker={"size": 14 if labelled else 12, "symbol": symbol, "color": fill,
+                    "line": {"width": 1.8, "color": color or "#111827"}},
+            hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>" if labelled else "X: %{x}<br>Y: %{y}<extra></extra>",
+            showlegend=False, name="Временная маркировка",
+        )
+        if row is not None and col is not None:
+            figure.add_trace(trace, row=row, col=col)
+        else:
+            figure.add_trace(trace)
+
+
+def _canonical_row_display():
+    try:
+        from petrolab.ui.selection_context import read_row_states
+        return read_row_states()
+    except Exception:
+        return None
+
+
 def build_interactive_scatter(
     dataframe: pd.DataFrame,
     x: str,
@@ -136,12 +223,28 @@ def build_interactive_scatter(
     log_y: bool = False,
     style_map: Mapping[str, Mapping[str, Any]] | None = None,
     selected_ids: list[str] | tuple[str, ...] | set[str] = (),
+    labelled_ids: list[str] | tuple[str, ...] | set[str] | None = None,
+    excluded_ids: list[str] | tuple[str, ...] | set[str] | None = None,
+    display_color: Mapping[str, str] | None = None,
+    display_marker: Mapping[str, str] | None = None,
     dragmode: str | bool = "lasso",
 ) -> go.Figure:
     if "_analysis_id" not in dataframe.columns:
         raise ValueError("Для интерактивного выбора требуется _analysis_id")
     if x not in dataframe.columns or y not in dataframe.columns:
         raise ValueError("Выбранные оси отсутствуют в таблице")
+    if labelled_ids is None and excluded_ids is None and display_color is None and display_marker is None:
+        states = _canonical_row_display()
+        if states is not None:
+            labelled_ids = states.labelled
+            excluded_ids = states.excluded
+            display_color = states.display_color
+            display_marker = states.display_marker
+    labelled_ids = labelled_ids or ()
+    excluded_ids = excluded_ids or ()
+    display_color = display_color or {}
+    display_marker = display_marker or {}
+
     work = dataframe.copy()
     work[x] = pd.to_numeric(work[x], errors="coerce").replace([np.inf, -np.inf], np.nan)
     work[y] = pd.to_numeric(work[y], errors="coerce").replace([np.inf, -np.inf], np.nan)
@@ -150,11 +253,7 @@ def build_interactive_scatter(
         work = work[work[x] > 0]
     if log_y:
         work = work[work[y] > 0]
-    hover_columns = [
-        column
-        for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN]
-        if column in work.columns
-    ]
+    hover_columns = [column for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN] if column in work.columns]
     if group_col and group_col in work.columns:
         labels = display_group_series(work[group_col])
         groups = [(name, work[labels == name]) for name in labels.unique().tolist()]
@@ -172,7 +271,7 @@ def build_interactive_scatter(
         if display_mode in {"field", "centroid"}:
             continue
         analysis_ids = subset["_analysis_id"].astype(str).tolist()
-        customdata = [[analysis_id] + [_text(row.get(column)) for column in hover_columns] for analysis_id, (_, row) in zip(analysis_ids, subset.iterrows())]
+        customdata = [[analysis_id] + [_text(item.get(column)) for column in hover_columns] for analysis_id, (_, item) in zip(analysis_ids, subset.iterrows())]
         hover_lines = [f"<b>{x_label or x}</b>: %{{x}}", f"<b>{y_label or y}</b>: %{{y}}"]
         for index, column in enumerate(hover_columns, start=1):
             hover_lines.append(f"<b>{column}</b>: %{{customdata[{index}]}}")
@@ -187,6 +286,13 @@ def build_interactive_scatter(
         if selected_set:
             trace.selectedpoints = selectedpoints
         figure.add_trace(trace)
+    add_row_display_overlay(
+        figure, work, x, y,
+        labelled_ids=labelled_ids,
+        excluded_ids=excluded_ids,
+        display_color=display_color,
+        display_marker=display_marker,
+    )
     figure.update_layout(title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y, dragmode=dragmode, clickmode="event+select", selectdirection="any", margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55}, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}, height=610)
     if log_x:
         figure.update_xaxes(type="log")

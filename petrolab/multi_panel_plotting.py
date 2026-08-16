@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from typing import Iterable
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from petrolab.group_styles import display_group_series
@@ -22,6 +24,148 @@ def _numeric_panel(dataframe: pd.DataFrame, x: str, y: str, log_x: bool, log_y: 
     return work
 
 
+def _padded_limits(values: pd.Series, *, log: bool) -> tuple[float, float] | None:
+    numeric = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+    if log:
+        numeric = numeric[numeric > 0]
+    if numeric.empty:
+        return None
+    lower = float(numeric.min())
+    upper = float(numeric.max())
+    if lower == upper:
+        if log:
+            factor = 1.15
+            return lower / factor, upper * factor
+        pad = max(abs(lower) * 0.05, 0.5)
+        return lower - pad, upper + pad
+    if log:
+        log_lower = math.log10(lower)
+        log_upper = math.log10(upper)
+        pad = max((log_upper - log_lower) * 0.045, 0.015)
+        return 10 ** (log_lower - pad), 10 ** (log_upper + pad)
+    pad = (upper - lower) * 0.045
+    return lower - pad, upper + pad
+
+
+def _manual_axis_range(panel: dict, axis: str) -> tuple[float, float] | None:
+    try:
+        lower = float(panel.get(f"{axis}_min"))
+        upper = float(panel.get(f"{axis}_max"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
+        return None
+    if bool(panel.get(f"log_{axis}", False)) and lower <= 0:
+        return None
+    return lower, upper
+
+
+def apply_manual_panel_limits(
+    panels: list[dict],
+    limits: list[dict[str, tuple[float, float] | None]],
+) -> list[dict[str, tuple[float, float] | None]]:
+    """Override automatic limits only for axes with an explicit valid pair."""
+    result: list[dict[str, tuple[float, float] | None]] = []
+    for index, panel in enumerate(panels):
+        base = limits[index] if index < len(limits) and isinstance(limits[index], dict) else {}
+        item = {"x": base.get("x"), "y": base.get("y")}
+        for axis in ("x", "y"):
+            manual = _manual_axis_range(panel, axis)
+            if manual is not None:
+                item[axis] = manual
+        result.append(item)
+    return result
+
+
+def _shared_axes_for_mode(mode: str) -> tuple[str, ...]:
+    normalized = str(mode or "independent").casefold()
+    if normalized == "shared_x":
+        return ("x",)
+    if normalized == "shared_y":
+        return ("y",)
+    if normalized == "shared":
+        return ("x", "y")
+    return ()
+
+
+def panel_axis_limits(
+    dataframe: pd.DataFrame,
+    panels: list[dict],
+    *,
+    mode: str = "independent",
+    focus_ids: Iterable[str] = (),
+    id_column: str = "_analysis_id",
+) -> list[dict[str, tuple[float, float] | None]]:
+    """Resolve automatic panel ranges, then layer explicit panel overrides.
+
+    Modes:
+    - ``independent``: plotting-library autoscale unless that panel has explicit
+      X/Y min+max.
+    - ``shared_x``: same-variable X axes use one range; Y stays automatic.
+    - ``shared_y``: same-variable Y axes use one range; X stays automatic.
+    - ``shared``: same scientific variables are synchronized wherever they occur
+      on X or Y, preserving the previous combined behavior.
+    - ``focus``: zoom each panel to the current analysis selection while keeping
+      all rows plotted; explicit panel ranges still win.
+
+    Different variables are never forced to the same numeric range. Manual C5
+    limits remain the highest-priority viewport override in every mode.
+    """
+    result = [{"x": None, "y": None} for _ in panels]
+    normalized = str(mode or "independent").casefold()
+    shared_axes = _shared_axes_for_mode(normalized)
+    if normalized not in {"shared", "shared_x", "shared_y", "focus"} or dataframe.empty:
+        return apply_manual_panel_limits(panels, result)
+
+    focus = tuple(dict.fromkeys(str(value) for value in focus_ids if str(value)))
+    scope = dataframe
+    if normalized == "focus":
+        if not focus or id_column not in dataframe.columns:
+            return apply_manual_panel_limits(panels, result)
+        wanted = set(focus)
+        scope = dataframe.loc[dataframe[id_column].astype(str).isin(wanted)].copy()
+        if scope.empty:
+            return apply_manual_panel_limits(panels, result)
+
+    if shared_axes:
+        # Combined `shared` retains the earlier cross-axis behavior for the same
+        # variable. X-only / Y-only intentionally affect only their named axis.
+        cross_axis = normalized == "shared"
+        cache: dict[tuple[str, bool] | tuple[str, str, bool], tuple[float, float] | None] = {}
+        for panel in panels:
+            for axis in shared_axes:
+                log_key = f"log_{axis}"
+                variable = str(panel.get(axis) or "")
+                if not variable or variable not in scope.columns:
+                    continue
+                log_value = bool(panel.get(log_key, False))
+                key = (variable, log_value) if cross_axis else (axis, variable, log_value)
+                if key not in cache:
+                    cache[key] = _padded_limits(scope[variable], log=log_value)
+        for index, panel in enumerate(panels):
+            for axis in shared_axes:
+                log_key = f"log_{axis}"
+                variable = str(panel.get(axis) or "")
+                log_value = bool(panel.get(log_key, False))
+                key = (variable, log_value) if cross_axis else (axis, variable, log_value)
+                result[index][axis] = cache.get(key)
+        return apply_manual_panel_limits(panels, result)
+
+    for index, panel in enumerate(panels):
+        x = str(panel.get("x") or "")
+        y = str(panel.get("y") or "")
+        if x not in scope.columns or y not in scope.columns:
+            continue
+        log_x = bool(panel.get("log_x", False))
+        log_y = bool(panel.get("log_y", False))
+        work = _numeric_panel(scope, x, y, log_x, log_y)
+        if work.empty:
+            continue
+        result[index]["x"] = _padded_limits(work[x], log=log_x)
+        result[index]["y"] = _padded_limits(work[y], log=log_y)
+    return apply_manual_panel_limits(panels, result)
+
+
 def build_multi_panel_scatter(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -38,16 +182,15 @@ def build_multi_panel_scatter(
     marker_size: float = 48.0,
     show_legend: bool = True,
     grid: bool = False,
+    axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
 ):
-    """Render several XY views from one immutable selection and one shared style map.
-
-    A panel may include a `panel_label` dictionary created by
-    `publication_composer.default_panel_label`. The label uses normalized axes
-    coordinates, which makes its position stable across journal presets and DPI.
-    """
+    """Render several XY views from one immutable selection and one shared style map."""
     valid = [panel for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
     if not valid:
         raise ValueError("Нет валидных панелей для построения")
+    limits = axis_limits or [{"x": None, "y": None} for _ in valid]
+    if len(limits) < len(valid):
+        limits = [*limits, *({"x": None, "y": None} for _ in range(len(valid) - len(limits)))]
     ncols = max(1, min(int(columns), len(valid)))
     nrows = int(math.ceil(len(valid) / ncols))
     with plt.rc_context({
@@ -105,6 +248,13 @@ def build_multi_panel_scatter(
                 ax.set_xscale("log")
             if log_y:
                 ax.set_yscale("log")
+            panel_limits = limits[index] if index < len(limits) else {}
+            xlim = panel_limits.get("x") if isinstance(panel_limits, dict) else None
+            ylim = panel_limits.get("y") if isinstance(panel_limits, dict) else None
+            if xlim is not None and np.isfinite(xlim).all() and xlim[0] < xlim[1]:
+                ax.set_xlim(xlim)
+            if ylim is not None and np.isfinite(ylim).all() and ylim[0] < ylim[1]:
+                ax.set_ylim(ylim)
             if grid:
                 ax.grid(True, alpha=0.18)
             ax.tick_params(direction="out", width=float(spine_width))
@@ -115,8 +265,6 @@ def build_multi_panel_scatter(
         for index in range(len(valid), nrows * ncols):
             axes.flat[index].axis("off")
         if show_legend and legend_handles:
-            # bbox_to_anchor is supported by older Matplotlib versions used by some
-            # Windows installations, unlike the newer "outside upper center" loc syntax.
             fig.legend(
                 legend_handles,
                 legend_labels,
