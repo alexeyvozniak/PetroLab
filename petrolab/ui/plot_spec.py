@@ -22,7 +22,11 @@ class PlotSpec:
     log_y: bool = False
     visible_sources: tuple[str, ...] = ()
     hidden_sources: tuple[str, ...] = ()
+    visible_series: tuple[str, ...] = ()
     style_map: dict[str, dict[str, Any]] = field(default_factory=dict)
+    marker_size: float = 0.0
+    figure_preset: str = ""
+    show_grid: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -30,6 +34,7 @@ class PlotSpec:
         payload["analysis_ids"] = list(self.analysis_ids)
         payload["visible_sources"] = list(self.visible_sources)
         payload["hidden_sources"] = list(self.hidden_sources)
+        payload["visible_series"] = list(self.visible_series)
         return payload
 
     @classmethod
@@ -47,7 +52,11 @@ class PlotSpec:
             log_y=bool(raw.get("log_y", False)),
             visible_sources=tuple(str(value) for value in raw.get("visible_sources", ()) if str(value)),
             hidden_sources=tuple(str(value) for value in raw.get("hidden_sources", ()) if str(value)),
+            visible_series=tuple(str(value) for value in raw.get("visible_series", ()) if str(value)),
             style_map={str(key): dict(value) for key, value in dict(raw.get("style_map") or {}).items()},
+            marker_size=float(raw.get("marker_size", 0.0) or 0.0),
+            figure_preset=str(raw.get("figure_preset") or ""),
+            show_grid=bool(raw.get("show_grid", False)),
         )
 
 
