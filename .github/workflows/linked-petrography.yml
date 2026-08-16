@@ -14,6 +14,7 @@ on:
       - "petrolab/slides.py"
       - "tests_linked_petrography.py"
       - "tests_linked_petrography_storage.py"
+      - "tests_linked_petrography_browser.py"
       - "docs/LINKED_PETROGRAPHY_SCENARIO.md"
       - ".github/workflows/linked-petrography.yml"
 
@@ -24,7 +25,7 @@ concurrency:
 jobs:
   graph-thin-section-roundtrip:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
@@ -42,11 +43,13 @@ jobs:
 
       - name: Install dependencies
         shell: cmd
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
 
       - name: Compile linked scientific path
         shell: cmd
-        run: python -m compileall -q petrolab/linked_petrography.py petrolab/ui/selection_components.py petrolab/ui/pages/thin_section_workspace.py tests_linked_petrography.py tests_linked_petrography_storage.py
+        run: python -m compileall -q petrolab/linked_petrography.py petrolab/ui/selection_components.py petrolab/ui/pages/thin_section_workspace.py tests_linked_petrography.py tests_linked_petrography_storage.py tests_linked_petrography_browser.py
 
       - name: Run graph to thin-section round-trip contract
         shell: cmd
@@ -67,3 +70,16 @@ jobs:
       - name: Streamlit smoke
         shell: cmd
         run: python tests_streamlit.py
+
+      - name: Run real browser graph to BSE golden path
+        shell: cmd
+        run: python tests_linked_petrography_browser.py
+
+      - name: Upload linked petrography screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-linked-petrography-browser
+          path: linked_petrography_browser_artifacts
+          if-no-files-found: warn
+          retention-days: 30
