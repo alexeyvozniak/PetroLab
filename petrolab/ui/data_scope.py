@@ -55,10 +55,20 @@ def render_analysis_scope(
         return None
 
     labels = {dataset_label(dataset): int(dataset["id"]) for dataset in datasets}
+    pending_raw = st.session_state.pop(f"{key_prefix}_dataset_ids_pending", [])
+    pending: set[int] = set()
+    for value in pending_raw or []:
+        try:
+            pending.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    defaults = [label for label, dataset_id in labels.items() if dataset_id in pending] if pending else list(labels)
+    if pending:
+        st.session_state.pop(f"{key_prefix}_datasets", None)
     selected_labels = st.multiselect(
         "Наборы данных",
         list(labels),
-        default=list(labels),
+        default=defaults,
         key=f"{key_prefix}_datasets",
     )
     dataset_ids = tuple(labels[label] for label in selected_labels)
