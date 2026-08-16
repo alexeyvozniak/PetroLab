@@ -142,61 +142,66 @@ def _selection_count(driver: webdriver.Chrome) -> int:
     return int(match.group(1)) if match else 0
 
 
-def _emit_first_plotly_selection(driver: webdriver.Chrome) -> str:
-    """Emit Plotly's real selection event using customdata from an actual rendered point."""
-    value = driver.execute_script(
+def _plotly_drag_box(driver: webdriver.Chrome) -> bool:
+    """Use Chrome's native input dispatcher on the actual Plotly drag surface."""
+    geometry = driver.execute_script(
         """
         const graph = document.querySelector('[data-testid="stPlotlyChart"] .js-plotly-plot');
-        if (!graph || typeof graph.emit !== 'function' || !graph._fullData) return '';
-        let curveNumber = -1;
-        let trace = null;
-        for (let i = 0; i < graph._fullData.length; i += 1) {
-            const candidate = graph._fullData[i];
-            if (candidate && candidate.customdata && candidate.customdata.length && candidate.x && candidate.x.length) {
-                curveNumber = i;
-                trace = candidate;
-                break;
-            }
-        }
-        if (!trace || curveNumber < 0) return '';
-        const customdata = trace.customdata[0];
-        const analysisId = Array.isArray(customdata) ? String(customdata[0] || '') : String(customdata || '');
-        if (!analysisId) return '';
-        const point = {
-            curveNumber,
-            pointNumber: 0,
-            pointIndex: 0,
-            x: trace.x[0],
-            y: trace.y[0],
-            customdata,
-            data: graph.data[curveNumber],
-            fullData: trace,
-            xaxis: graph._fullLayout.xaxis,
-            yaxis: graph._fullLayout.yaxis,
+        const surface = document.querySelector('[data-testid="stPlotlyChart"] .nsewdrag');
+        if (!graph || !surface || !window.Plotly) return null;
+        window.Plotly.relayout(graph, {dragmode: 'select'});
+        const rect = surface.getBoundingClientRect();
+        return {
+            mode: (graph._fullLayout && graph._fullLayout.dragmode) || '',
+            left: rect.left, top: rect.top, width: rect.width, height: rect.height,
         };
-        graph.emit('plotly_selected', {points: [point]});
-        return analysisId;
         """
     )
-    return str(value or "")
+    if not isinstance(geometry, dict) or geometry.get("mode") != "select":
+        return False
+    width = float(geometry.get("width") or 0.0)
+    height = float(geometry.get("height") or 0.0)
+    if width < 80 or height < 80:
+        return False
+    x1 = float(geometry["left"]) + width * 0.06
+    y1 = float(geometry["top"]) + height * 0.06
+    x2 = float(geometry["left"]) + width * 0.94
+    y2 = float(geometry["top"]) + height * 0.94
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mouseMoved", "x": x1, "y": y1,
+    })
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mousePressed", "x": x1, "y": y1,
+        "button": "left", "buttons": 1, "clickCount": 1,
+    })
+    steps = 18
+    for index in range(1, steps + 1):
+        fraction = index / steps
+        driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+            "type": "mouseMoved",
+            "x": x1 + (x2 - x1) * fraction,
+            "y": y1 + (y2 - y1) * fraction,
+            "button": "left", "buttons": 1,
+        })
+        time.sleep(0.025)
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mouseReleased", "x": x2, "y": y2,
+        "button": "left", "buttons": 0, "clickCount": 1,
+    })
+    return True
 
 
 def _assert_plotly_selection_handoff(driver: webdriver.Chrome, output: Path) -> None:
-    """Verify real-browser Plotly selection event -> SelectionContext -> multi-panel."""
+    """Physically brush Plotly in Chrome and verify SelectionContext -> multi-panel."""
     _click_primary_without_refresh(driver, "Графики", output, "linked_selection_xy")
     _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_TOOLS), "linked_selection_xy", output)
     wait = WebDriverWait(driver, 30)
     try:
-        # The JMP-like interaction modes are a visible product contract. Headless
-        # Chrome is unreliable at physically dragging Streamlit's segmented control,
-        # so the integration gate starts from Plotly's native event boundary below.
         for label in PLOT_TOOLS:
             wait.until(lambda d, value=label: bool(_main_buttons(d, value)))
-
-        analysis_id = str(wait.until(lambda d: _emit_first_plotly_selection(d) or False))
-        assert analysis_id, "Rendered Plotly graph exposed no selectable analysis customdata"
+        assert _plotly_drag_box(driver), "Plotly chart did not expose a native box-select surface"
         selected = int(wait.until(lambda d: _selection_count(d) or False))
-        assert selected > 0, "Plotly selection event did not reach PetroLab SelectionContext"
+        assert selected > 0, "Native Chrome box drag did not reach PetroLab SelectionContext"
 
         wait.until(lambda d: bool(_main_buttons(d, "Несколько")))
         multi_button = _main_buttons(driver, "Несколько")[0]
@@ -216,7 +221,7 @@ def _assert_plotly_selection_handoff(driver: webdriver.Chrome, output: Path) -> 
         except Exception:
             pass
         raise AssertionError(
-            "Real-browser Plotly selection did not survive the XY -> multi-panel handoff. "
+            "Real-browser Plotly brushing did not survive the XY -> multi-panel handoff. "
             f"Cause: {exc!r}. Main text: {main_text!r}"
         ) from exc
 
