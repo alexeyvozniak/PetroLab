@@ -32,6 +32,38 @@ def test_shared_ranges_follow_variable_not_panel_position() -> None:
     assert limits[1]["y"] == limits[2]["x"]
 
 
+def test_shared_x_only_synchronizes_same_variable_x_axes() -> None:
+    from petrolab.multi_panel_plotting import panel_axis_limits
+
+    panels = [
+        {"x": "TiO2", "y": "Al2O3", "log_x": False, "log_y": False},
+        {"x": "TiO2", "y": "MgO", "log_x": False, "log_y": False},
+        {"x": "MgO", "y": "TiO2", "log_x": False, "log_y": False},
+    ]
+    limits = panel_axis_limits(_frame(), panels, mode="shared_x")
+    assert limits[0]["x"] == limits[1]["x"]
+    assert limits[0]["x"] is not None
+    assert limits[2]["x"] is not None
+    assert limits[0]["x"] != limits[2]["x"], "different X variables must not share a numeric range"
+    assert all(item["y"] is None for item in limits), "shared X must leave every Y axis automatic"
+
+
+def test_shared_y_only_synchronizes_same_variable_y_axes() -> None:
+    from petrolab.multi_panel_plotting import panel_axis_limits
+
+    panels = [
+        {"x": "TiO2", "y": "Al2O3", "log_x": False, "log_y": False},
+        {"x": "Nb", "y": "Al2O3", "log_x": True, "log_y": False},
+        {"x": "MgO", "y": "TiO2", "log_x": False, "log_y": False},
+    ]
+    limits = panel_axis_limits(_frame(), panels, mode="shared_y")
+    assert limits[0]["y"] == limits[1]["y"]
+    assert limits[0]["y"] is not None
+    assert limits[2]["y"] is not None
+    assert limits[0]["y"] != limits[2]["y"], "different Y variables must not share a numeric range"
+    assert all(item["x"] is None for item in limits), "shared Y must leave every X axis automatic"
+
+
 def test_fit_selection_zooms_without_filtering_dataframe() -> None:
     from petrolab.multi_panel_plotting import panel_axis_limits
 
@@ -93,6 +125,22 @@ def test_manual_range_overrides_only_its_panel_axis() -> None:
     assert limits[0]["y"] != (0.0, 30.0)
 
 
+def test_manual_range_still_overrides_shared_x_or_shared_y() -> None:
+    from petrolab.multi_panel_plotting import panel_axis_limits
+
+    panels = [
+        {
+            "x": "TiO2", "y": "Al2O3", "log_x": False, "log_y": False,
+            "x_min": 0.0, "x_max": 4.0,
+        },
+        {"x": "TiO2", "y": "Al2O3", "log_x": False, "log_y": False},
+    ]
+    x_limits = panel_axis_limits(_frame(), panels, mode="shared_x")
+    assert x_limits[0]["x"] == (0.0, 4.0)
+    assert x_limits[1]["x"] != (0.0, 4.0)
+    assert x_limits[0]["y"] is None and x_limits[1]["y"] is None
+
+
 def test_manual_range_works_even_when_global_mode_is_auto_or_data_is_empty() -> None:
     from petrolab.multi_panel_plotting import panel_axis_limits
 
@@ -118,10 +166,13 @@ def test_invalid_or_nonpositive_log_manual_range_does_not_override_safe_auto() -
 
 def main() -> None:
     test_shared_ranges_follow_variable_not_panel_position()
+    test_shared_x_only_synchronizes_same_variable_x_axes()
+    test_shared_y_only_synchronizes_same_variable_y_axes()
     test_fit_selection_zooms_without_filtering_dataframe()
     test_log_ranges_remain_positive_and_plotly_converts_to_log10()
     test_independent_and_empty_focus_leave_autoscale_unforced()
     test_manual_range_overrides_only_its_panel_axis()
+    test_manual_range_still_overrides_shared_x_or_shared_y()
     test_manual_range_works_even_when_global_mode_is_auto_or_data_is_empty()
     test_invalid_or_nonpositive_log_manual_range_does_not_override_safe_auto()
     print("v0.15.8 multi-panel axis ranges: OK")
