@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'petrolab/table_views.py'
+      - 'petrolab/multi_panel_plotting.py'
       - 'petrolab/ui/table_view_state.py'
       - 'petrolab/ui/field_presets.py'
       - 'petrolab/ui/record_detail.py'
       - 'petrolab/ui/analysis_table.py'
       - 'petrolab/ui/selection_context.py'
+      - 'petrolab/ui/linked_panels.py'
       - 'petrolab/ui/plot_spec.py'
       - 'petrolab/ui/plot_manager.py'
       - 'petrolab/ui/panel_manager.py'
@@ -39,15 +41,18 @@ jobs:
         run: >-
           python -m py_compile
           petrolab/table_views.py
+          petrolab/multi_panel_plotting.py
           petrolab/ui/table_view_state.py
           petrolab/ui/field_presets.py
           petrolab/ui/record_detail.py
           petrolab/ui/analysis_table.py
           petrolab/ui/selection_context.py
+          petrolab/ui/linked_panels.py
           petrolab/ui/plot_spec.py
           petrolab/ui/plot_manager.py
           petrolab/ui/panel_manager.py
           petrolab/ui/pages/global_search.py
+          petrolab/ui/pages/multi_panel.py
       - name: Run saved-view state and persistence tests
         run: python tests_v0158_table_views.py
       - name: Run scientific field preset tests
@@ -58,6 +63,8 @@ jobs:
         run: python tests_v0158_series_selection.py
       - name: Run panel structure tests
         run: python tests_v0158_panel_manager.py
+      - name: Run shared and selection-fit axis tests
+        run: python tests_v0158_axis_ranges.py
       - name: Run linked-selection gate
         run: python tests_v0157_linked_selection.py
       - name: Run UI architecture contract
