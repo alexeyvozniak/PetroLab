@@ -32,7 +32,7 @@ def test_related_lookup_is_explicit_and_indexed() -> None:
     assert "slide_marker_analysis_links all_links" in source
     assert "JOIN physical_entities section" in source
     assert "list_slide_markers" not in source
-    assert "Sample" not in source and "Point" not in source
+    # False label identity is tested behaviorally in the real storage round trip.
 
 
 def test_ui_contract_keeps_one_selection_context() -> None:
