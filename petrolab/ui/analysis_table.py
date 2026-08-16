@@ -209,6 +209,62 @@ def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.Data
     return grouped, str(group_col)
 
 
+def _sort_control(
+    dataframe: pd.DataFrame,
+    *,
+    key_prefix: str,
+    group_col: str | None,
+) -> tuple[pd.DataFrame, str | None]:
+    candidates = [column for column in dataframe.columns if not str(column).startswith("_")]
+    if not candidates:
+        return dataframe, None
+    sort_key = f"{key_prefix}_sort_column"
+    current = str(st.session_state.get(sort_key, "Без сортировки"))
+    options = ["Без сортировки", *candidates]
+    if current not in options:
+        current = "Без сортировки"
+    label = "Сортировка" if current == "Без сортировки" else f"Сортировка · {current}"
+    with st.popover(label, width="stretch"):
+        column = st.selectbox(
+            "Сортировать по",
+            options,
+            index=options.index(current),
+            key=sort_key,
+        )
+        direction = st.radio(
+            "Направление",
+            ["По возрастанию", "По убыванию"],
+            horizontal=True,
+            key=f"{key_prefix}_sort_direction",
+        )
+        if column == "Без сортировки" or column not in dataframe.columns:
+            st.caption("Сортировка меняет только порядок строк текущего вида.")
+            return dataframe, None
+
+    ascending = direction == "По возрастанию"
+    try:
+        if group_col and group_col in dataframe.columns and group_col != column:
+            result = dataframe.sort_values(
+                [group_col, column],
+                ascending=[True, ascending],
+                na_position="last",
+                kind="stable",
+            )
+        else:
+            result = dataframe.sort_values(column, ascending=ascending, na_position="last", kind="stable")
+    except TypeError:
+        # Mixed object columns are still useful scientific metadata. Sort their display
+        # representation rather than failing the whole table view.
+        helper = dataframe[column].astype("string").fillna("")
+        result = dataframe.assign(_petrolab_sort=helper).sort_values(
+            _by=["_petrolab_sort"] if not group_col or group_col == column else [group_col, "_petrolab_sort"],
+            ascending=ascending if not group_col or group_col == column else [True, ascending],
+            na_position="last",
+            kind="stable",
+        ).drop(columns=["_petrolab_sort"])
+    return result, str(column)
+
+
 def _render_expanded_record(dataframe: pd.DataFrame, *, key_prefix: str) -> None:
     context = read_selection()
     if context.count != 1 or dataframe.empty or "_analysis_id" not in dataframe.columns:
@@ -243,7 +299,7 @@ def render_analysis_table(
         st.info("В текущем контексте нет аналитических строк.")
         return dataframe.iloc[0:0].copy()
 
-    toolbar = st.columns([4.2, 1.35, 1.35, 1.35], gap="small")
+    toolbar = st.columns([4.0, 1.2, 1.2, 1.2, 1.2], gap="small")
     with toolbar[0]:
         query = st.text_input(
             "Поиск в анализах",
@@ -257,8 +313,10 @@ def render_analysis_table(
         filtered = _filter_control(dataframe, key_prefix=key_prefix)
     with toolbar[3]:
         grouped, group_col = _group_control(filtered, key_prefix=key_prefix)
+    with toolbar[4]:
+        ordered, sort_col = _sort_control(grouped, key_prefix=key_prefix, group_col=group_col)
 
-    working = apply_quick_filter(grouped, str(query or ""))
+    working = apply_quick_filter(ordered, str(query or ""))
     if working.empty:
         st.info("По текущему поиску/фильтру ничего не найдено.")
         return working
@@ -278,12 +336,14 @@ def render_analysis_table(
         active_view.append(f"фильтр: {filter_name}")
     if group_col:
         active_view.append(f"группа: {group_col}")
+    if sort_col:
+        active_view.append(f"сортировка: {sort_col}")
     if query:
         active_view.append("поиск")
     st.caption(
         f"{len(working):,} строк".replace(",", " ")
         + (" · " + " · ".join(active_view) if active_view else "")
-        + " · фильтр и группировка меняют только вид"
+        + " · настройки меняют только вид"
     )
 
     edited = st.data_editor(
@@ -312,7 +372,7 @@ def render_analysis_table(
         st.rerun()
     c2.caption(
         "Чекбоксы задают тот же SelectionContext, который подсвечивается на XY/PCA/multi-panel. "
-        "Фильтр, группировка и скрытие полей Selection не меняют."
+        "Фильтр, группировка, сортировка и скрытие полей Selection не меняют."
     )
 
     _render_expanded_record(dataframe, key_prefix=key_prefix)
