@@ -7,10 +7,14 @@ on:
       - 'petrolab/ui/smart_plot_start.py'
       - 'petrolab/ui/plot_spec.py'
       - 'petrolab/ui/work_context.py'
+      - 'petrolab/ui/selection_components.py'
       - 'petrolab/ui/pages/plots_dashboard.py'
       - 'petrolab/ui/pages/plots_advanced.py'
+      - 'petrolab/ui/pages/statistics.py'
+      - 'petrolab/ui/pages/global_search.py'
       - 'petrolab/ui/intake_workflow.py'
       - 'tests_smart_plot_start.py'
+      - 'tests_ui_layout.py'
       - '.github/workflows/igpet-iogas-product-flow.yml'
       - '.clinerules/11-igpet-iogas-product-flow.md'
       - 'docs/IGPET_IOGAS_SYNTHESIS_AUDIT_AND_PLAN.md'
@@ -40,10 +44,16 @@ jobs:
           petrolab/ui/smart_plot_start.py
           petrolab/ui/plot_spec.py
           petrolab/ui/work_context.py
+          petrolab/ui/selection_components.py
+          petrolab/ui/intake_workflow.py
+          petrolab/ui/pages/global_search.py
+          petrolab/ui/pages/statistics.py
           petrolab/ui/pages/plots_dashboard.py
           petrolab/ui/pages/plots_advanced.py
       - name: Run Smart Start orchestration tests
         run: python tests_smart_plot_start.py
+      - name: Run UI scientific-flow contract
+        run: python tests_ui_layout.py
       - name: Run PlotSpec regression
         run: python tests_v0158_plot_spec_handoff.py
       - name: Run linked selection regression
