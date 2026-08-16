@@ -19,13 +19,16 @@ from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
 from petrolab.ui.plot_manager import render_series_manager
-from petrolab.ui.plot_spec import PlotSpec, send_to_multi_panel, set_current_plot_spec
+from petrolab.ui.plot_spec import PlotSpec, read_current_plot_spec, send_to_multi_panel, set_current_plot_spec
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.smart_plot_start import (
+    QUICK_CUSTOM_GRAPH_CHOICE,
     advanced_recipe_from_spec,
     clear_exact_plot_scope,
     consume_plot_scope,
+    restore_quick_plot_state,
     seed_xy_state,
+    sync_xy_recommendation_state,
     xy_recommendations,
 )
 from petrolab.ui.source_controls import render_source_visibility_controls
@@ -43,7 +46,6 @@ _CURATED_GROUPS = (
     "PetroLab Generation", "Generation", WORK_GROUP_COLUMN, "Sample", "Grain", "Textural zone",
     SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал",
 )
-_CUSTOM_GRAPH_CHOICE = "__custom_axes__"
 
 
 def _apply_graph_choice(choice_axes: dict[str, tuple[str, str]]) -> None:
@@ -56,7 +58,7 @@ def _apply_graph_choice(choice_axes: dict[str, tuple[str, str]]) -> None:
 
 
 def _mark_custom_axes() -> None:
-    st.session_state["quick_graph_choice"] = _CUSTOM_GRAPH_CHOICE
+    st.session_state["quick_graph_choice"] = QUICK_CUSTOM_GRAPH_CHOICE
 
 
 def _swap_quick_axes() -> None:
@@ -66,7 +68,7 @@ def _swap_quick_axes() -> None:
         return
     st.session_state["quick_x"] = y
     st.session_state["quick_y"] = x
-    st.session_state["quick_graph_choice"] = _CUSTOM_GRAPH_CHOICE
+    st.session_state["quick_graph_choice"] = QUICK_CUSTOM_GRAPH_CHOICE
 
 
 def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources: list[str]) -> str | None:
@@ -77,9 +79,21 @@ def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources:
         and dataframe[column].nunique(dropna=True) <= 80
     ]
     curated = [column for column in _CURATED_GROUPS if column in categorical]
+    advanced = [column for column in categorical if column not in curated]
     options = ["Без группировки", *curated]
-    if any(column not in curated for column in categorical):
+    if advanced:
         options.append("Другой столбец…")
+
+    pending = str(st.session_state.pop("_quick_resume_group_pending", "") or "")
+    if pending:
+        if pending in curated:
+            st.session_state["quick_group"] = pending
+        elif pending in advanced:
+            st.session_state["quick_group"] = "Другой столбец…"
+            st.session_state["quick_group_advanced"] = pending
+        else:
+            st.session_state["quick_group"] = "Без группировки"
+
     suggested = SOURCE_LABEL_COLUMN if len(visible_sources) > 1 and SOURCE_LABEL_COLUMN in curated else "Без группировки"
     if st.session_state.get("quick_group") not in options:
         st.session_state.pop("quick_group", None)
@@ -91,9 +105,38 @@ def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources:
         help="Основные научные сущности показаны сразу; технические и редкие колонки спрятаны в «Другой столбец…».",
     )
     if group == "Другой столбец…":
-        advanced = [column for column in categorical if column not in curated]
+        current_advanced = st.session_state.get("quick_group_advanced")
+        if current_advanced not in advanced:
+            st.session_state.pop("quick_group_advanced", None)
         group = st.selectbox("Другой столбец", advanced, key="quick_group_advanced") if advanced else "Без группировки"
     return None if group == "Без группировки" else str(group)
+
+
+def _clear_quick_state_for_new_scope() -> None:
+    for key in (
+        "quick_plot_minerals", "quick_graph_choice", "quick_x", "quick_y",
+        "quick_group", "quick_group_advanced", "quick_plot_search",
+        "_quick_graph_recommendation_signature",
+    ):
+        st.session_state.pop(key, None)
+    for key in list(st.session_state):
+        if str(key).startswith("_quick_resume_"):
+            st.session_state.pop(key, None)
+
+
+def _apply_pending_dataset_resume(labels: dict[str, int]) -> None:
+    raw = st.session_state.pop("_quick_resume_dataset_ids", None)
+    if not isinstance(raw, (list, tuple)):
+        return
+    wanted: set[int] = set()
+    for value in raw:
+        try:
+            wanted.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    chosen = [label for label, dataset_id in labels.items() if dataset_id in wanted]
+    if chosen:
+        st.session_state["quick_plot_datasets"] = chosen
 
 
 def _quick_workspace(project_id: int) -> None:
@@ -124,11 +167,8 @@ def _quick_workspace(project_id: int) -> None:
     if st.session_state.get("_quick_plot_scope_signature") != scope_signature:
         st.session_state["_quick_plot_scope_signature"] = scope_signature
         st.session_state["quick_plot_datasets"] = default_labels
-        for key in (
-            "quick_plot_minerals", "quick_graph_choice", "quick_x", "quick_y",
-            "quick_group", "quick_group_advanced", "quick_plot_search",
-        ):
-            st.session_state.pop(key, None)
+        _clear_quick_state_for_new_scope()
+    _apply_pending_dataset_resume(labels)
 
     notice = st.session_state.pop("workflow_plot_notice", "")
     if notice:
@@ -231,6 +271,7 @@ def _quick_workspace(project_id: int) -> None:
             numeric_columns=numeric,
             recommendation=recommendation,
         )
+        sync_xy_recommendation_state(st.session_state, ranked)
 
         choice_axes = {f"rec:{index}": (item.x, item.y) for index, item in enumerate(ranked)}
         choice_labels = {
@@ -239,10 +280,10 @@ def _quick_workspace(project_id: int) -> None:
             )
             for index, item in enumerate(ranked)
         }
-        choice_labels[_CUSTOM_GRAPH_CHOICE] = "Свои оси"
-        choice_options = [*choice_axes, _CUSTOM_GRAPH_CHOICE]
+        choice_labels[QUICK_CUSTOM_GRAPH_CHOICE] = "Свои оси"
+        choice_options = [*choice_axes, QUICK_CUSTOM_GRAPH_CHOICE]
         if st.session_state.get("quick_graph_choice") not in choice_options:
-            st.session_state["quick_graph_choice"] = choice_options[0] if ranked else _CUSTOM_GRAPH_CHOICE
+            st.session_state["quick_graph_choice"] = choice_options[0] if ranked else QUICK_CUSTOM_GRAPH_CHOICE
         selected_choice = st.selectbox(
             "График",
             choice_options,
@@ -314,18 +355,38 @@ def _quick_workspace(project_id: int) -> None:
             st.info("После фильтрации не осталось точек для выбранных осей.")
             return
 
+        resume_group = str(st.session_state.get("_quick_resume_series_group") or "")
+        resume_visible_raw = st.session_state.get("_quick_resume_visible_series")
+        resume_visible = (
+            tuple(str(value) for value in resume_visible_raw if str(value))
+            if resume_group == str(group_col or "") and isinstance(resume_visible_raw, (list, tuple))
+            else None
+        )
+        series_epoch = str(st.session_state.get("_quick_series_epoch", 0))
+        series_token = f"{group_col or 'none'}_{series_epoch}"
         plot_source, managed_series = render_series_manager(
             plot_source,
             group_col,
             key_prefix="quick_plot",
+            initial_visible_series=resume_visible,
+            widget_token=series_token,
         )
         if plot_source.empty:
             return
+        st.session_state["_quick_resume_visible_series"] = list(managed_series)
+        st.session_state["_quick_resume_series_group"] = str(group_col or "")
+
         if group_col:
             names = list(managed_series) or plot_source[group_col].astype(str).unique().tolist()
         else:
             names = ["Все точки"]
-        styles = style_map(style_dataframe([str(value) for value in names]))
+        existing_styles = st.session_state.get("_quick_resume_style_map")
+        if not isinstance(existing_styles, dict):
+            existing_styles = {}
+        styles = style_map(style_dataframe([str(value) for value in names], existing=existing_styles))
+        st.session_state["_quick_resume_style_map"] = {
+            str(key): dict(value) for key, value in styles.items()
+        }
         render_badges([
             (f"{len(plot_source):,} точек".replace(",", " "), "accent"),
             (f"{len(names)} групп", "neutral"),
@@ -471,10 +532,14 @@ def render_plots_dashboard_page() -> None:
     if st.session_state.get("_plots_show_advanced"):
         back_col, text_col = st.columns([1, 4])
         if back_col.button("← К обычному графику", width="stretch", key="plots_back_from_advanced"):
+            current = read_current_plot_spec()
+            if current is not None:
+                restore_quick_plot_state(st.session_state, current)
+                st.session_state["_quick_resume_dataset_ids"] = list(current.dataset_ids)
             st.session_state.pop("_plots_show_advanced", None)
             st.rerun()
         text_col.caption(
-            "Глубокая настройка продолжает текущий PlotSpec. Данные, оси, источники и группировка не выбираются заново."
+            "Глубокая настройка продолжает текущий PlotSpec. При возврате compact-workbench восстанавливает представимые настройки; deep-only диапазоны/выбросы остаются в advanced recipe и не становятся новым DataUniverse."
         )
         render_advanced_xy_workspace(project_id)
         return
