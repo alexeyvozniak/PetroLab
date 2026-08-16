@@ -46,6 +46,9 @@ jobs:
           petrolab/rock_staged_service.py
           petrolab/rock_comparison.py
           petrolab/rock_work_groups.py
+          petrolab/ui/intake_workflow.py
+          petrolab/ui/universal_intake.py
+          petrolab/ui/universal_intake_extensions.py
           petrolab/ui/staging_editor.py
           petrolab/ui/staged_intake.py
           petrolab/ui/source_controls.py
@@ -53,6 +56,7 @@ jobs:
           petrolab/ui/rock_linked_panels.py
           petrolab/ui/workflow_continuity_v0154.py
           petrolab/ui/workflow_cluster_bridge_v0154.py
+          petrolab/ui/pages/add_data.py
           petrolab/ui/pages/__init__.py
           petrolab/ui/pages/multi_panel.py
           petrolab/ui/pages/v0152_publication_wrappers.py
