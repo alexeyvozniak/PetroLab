@@ -3,6 +3,7 @@ from petrolab.ui.smart_plot_start import (
     advanced_recipe_from_spec,
     choose_xy_recommendation,
     resolve_plot_scope,
+    seed_import_plot_handoff,
     seed_xy_state,
 )
 
@@ -87,6 +88,21 @@ def test_seed_xy_state_repairs_invalid_axes_with_recommendation():
     assert (x, y) == ("Al2O3", "TiO2")
     assert state["quick_x"] == "Al2O3"
     assert state["quick_y"] == "TiO2"
+
+
+def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
+    state = {
+        "multi_panel_layout": "2x2",
+        "_multi_panel_incoming_visible_series": ["old"],
+        "keep_me": 1,
+    }
+    datasets = seed_import_plot_handoff(state, [7, "8", 7, "bad"])
+    assert datasets == (7, 8)
+    assert state["workflow_plot_dataset_ids"] == [7, 8]
+    assert "безопасный стартовый график" in state["workflow_plot_notice"]
+    assert "multi_panel_layout" not in state
+    assert "_multi_panel_incoming_visible_series" not in state
+    assert state["keep_me"] == 1
 
 
 def test_advanced_recipe_is_adapter_from_plotspec_not_new_truth():
