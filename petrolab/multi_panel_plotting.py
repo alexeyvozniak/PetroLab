@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from typing import Iterable
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from petrolab.group_styles import display_group_series
@@ -22,6 +24,95 @@ def _numeric_panel(dataframe: pd.DataFrame, x: str, y: str, log_x: bool, log_y: 
     return work
 
 
+def _padded_limits(values: pd.Series, *, log: bool) -> tuple[float, float] | None:
+    numeric = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+    if log:
+        numeric = numeric[numeric > 0]
+    if numeric.empty:
+        return None
+    lower = float(numeric.min())
+    upper = float(numeric.max())
+    if lower == upper:
+        if log:
+            factor = 1.15
+            return lower / factor, upper * factor
+        pad = max(abs(lower) * 0.05, 0.5)
+        return lower - pad, upper + pad
+    if log:
+        log_lower = math.log10(lower)
+        log_upper = math.log10(upper)
+        pad = max((log_upper - log_lower) * 0.045, 0.015)
+        return 10 ** (log_lower - pad), 10 ** (log_upper + pad)
+    pad = (upper - lower) * 0.045
+    return lower - pad, upper + pad
+
+
+def panel_axis_limits(
+    dataframe: pd.DataFrame,
+    panels: list[dict],
+    *,
+    mode: str = "independent",
+    focus_ids: Iterable[str] = (),
+    id_column: str = "_analysis_id",
+) -> list[dict[str, tuple[float, float] | None]]:
+    """Resolve panel axis ranges without changing the plotted row universe.
+
+    Modes:
+    - ``independent``: Matplotlib autoscale (no explicit limits).
+    - ``shared``: equal ranges are used whenever the same scientific variable
+      appears on several panel axes. Different variables are never forced into
+      a common range.
+    - ``focus``: every panel is zoomed to the current analysis selection while
+      the full dataframe remains plotted as visual context.
+    """
+    result = [{"x": None, "y": None} for _ in panels]
+    normalized = str(mode or "independent").casefold()
+    if normalized not in {"shared", "focus"} or dataframe.empty:
+        return result
+
+    focus = tuple(dict.fromkeys(str(value) for value in focus_ids if str(value)))
+    scope = dataframe
+    if normalized == "focus":
+        if not focus or id_column not in dataframe.columns:
+            return result
+        wanted = set(focus)
+        scope = dataframe.loc[dataframe[id_column].astype(str).isin(wanted)].copy()
+        if scope.empty:
+            return result
+
+    if normalized == "shared":
+        cache: dict[tuple[str, bool], tuple[float, float] | None] = {}
+        for panel in panels:
+            for axis, log_key in (("x", "log_x"), ("y", "log_y")):
+                variable = str(panel.get(axis) or "")
+                if not variable or variable not in scope.columns:
+                    continue
+                key = (variable, bool(panel.get(log_key, False)))
+                if key not in cache:
+                    cache[key] = _padded_limits(scope[variable], log=key[1])
+        for index, panel in enumerate(panels):
+            for axis, log_key in (("x", "log_x"), ("y", "log_y")):
+                variable = str(panel.get(axis) or "")
+                result[index][axis] = cache.get((variable, bool(panel.get(log_key, False))))
+        return result
+
+    # Fit-selection deliberately uses each panel's paired valid rows: a point
+    # that cannot be drawn on that panel must not influence its zoom window.
+    for index, panel in enumerate(panels):
+        x = str(panel.get("x") or "")
+        y = str(panel.get("y") or "")
+        if x not in scope.columns or y not in scope.columns:
+            continue
+        log_x = bool(panel.get("log_x", False))
+        log_y = bool(panel.get("log_y", False))
+        work = _numeric_panel(scope, x, y, log_x, log_y)
+        if work.empty:
+            continue
+        result[index]["x"] = _padded_limits(work[x], log=log_x)
+        result[index]["y"] = _padded_limits(work[y], log=log_y)
+    return result
+
+
 def build_multi_panel_scatter(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -38,16 +129,21 @@ def build_multi_panel_scatter(
     marker_size: float = 48.0,
     show_legend: bool = True,
     grid: bool = False,
+    axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
 ):
     """Render several XY views from one immutable selection and one shared style map.
 
+    ``axis_limits`` controls only the viewport. It never filters or duplicates
+    the dataframe, so Selection/Hide/Exclude and source provenance stay intact.
     A panel may include a `panel_label` dictionary created by
-    `publication_composer.default_panel_label`. The label uses normalized axes
-    coordinates, which makes its position stable across journal presets and DPI.
+    `publication_composer.default_panel_label`.
     """
     valid = [panel for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
     if not valid:
         raise ValueError("Нет валидных панелей для построения")
+    limits = axis_limits or [{"x": None, "y": None} for _ in valid]
+    if len(limits) < len(valid):
+        limits = [*limits, *({"x": None, "y": None} for _ in range(len(valid) - len(limits)))]
     ncols = max(1, min(int(columns), len(valid)))
     nrows = int(math.ceil(len(valid) / ncols))
     with plt.rc_context({
@@ -105,6 +201,13 @@ def build_multi_panel_scatter(
                 ax.set_xscale("log")
             if log_y:
                 ax.set_yscale("log")
+            panel_limits = limits[index] if index < len(limits) else {}
+            xlim = panel_limits.get("x") if isinstance(panel_limits, dict) else None
+            ylim = panel_limits.get("y") if isinstance(panel_limits, dict) else None
+            if xlim is not None and np.isfinite(xlim).all() and xlim[0] < xlim[1]:
+                ax.set_xlim(xlim)
+            if ylim is not None and np.isfinite(ylim).all() and ylim[0] < ylim[1]:
+                ax.set_ylim(ylim)
             if grid:
                 ax.grid(True, alpha=0.18)
             ax.tick_params(direction="out", width=float(spine_width))
@@ -115,8 +218,6 @@ def build_multi_panel_scatter(
         for index in range(len(valid), nrows * ncols):
             axes.flat[index].axis("off")
         if show_legend and legend_handles:
-            # bbox_to_anchor is supported by older Matplotlib versions used by some
-            # Windows installations, unlike the newer "outside upper center" loc syntax.
             fig.legend(
                 legend_handles,
                 legend_labels,
