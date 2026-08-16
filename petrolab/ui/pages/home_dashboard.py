@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from petrolab.dataset_visibility import visible_working_datasets
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import formula_status
 from petrolab.minerals.registry import labels as mineral_labels
@@ -107,7 +108,7 @@ def render_home_dashboard_page() -> None:
         return
 
     project_id = int(project["id"])
-    datasets = list_accessible_datasets(project_id)
+    datasets = visible_working_datasets(list_accessible_datasets(project_id))
     analyses = sum(int(item.get("row_count") or 0) for item in datasets)
     stale = sum(int(formula_status(int(item["id"])).stale_rows) for item in datasets)
     health = project_health(project_id)
