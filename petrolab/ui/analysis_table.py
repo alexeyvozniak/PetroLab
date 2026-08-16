@@ -401,6 +401,33 @@ def selected_positions_from_table_event(event: object, *, row_count: int) -> lis
     return sorted(result)
 
 
+def _analysis_row_positions(dataframe: pd.DataFrame, analysis_ids: tuple[str, ...] | list[str]) -> list[int]:
+    if dataframe.empty or "_analysis_id" not in dataframe.columns:
+        return []
+    wanted = {str(value) for value in analysis_ids}
+    return [
+        position
+        for position, value in enumerate(dataframe["_analysis_id"].astype(str).tolist())
+        if value in wanted
+    ]
+
+
+def _sync_grid_from_context(dataframe: pd.DataFrame, *, key_prefix: str, grid_key: str) -> None:
+    """Mirror external canonical Selection into the table without fighting mouse events."""
+    context_ids = tuple(str(value) for value in read_selection().analysis_ids)
+    sync_key = f"{key_prefix}_grid_context_ids"
+    previous = st.session_state.get(sync_key)
+    previous_ids = tuple(previous) if isinstance(previous, (list, tuple)) else None
+    mouse = st.session_state.get(f"{key_prefix}_mouse_selection_ids")
+    mouse_ids = tuple(mouse) if isinstance(mouse, (list, tuple)) else ()
+    if previous_ids == context_ids:
+        return
+    if context_ids != mouse_ids:
+        rows = _analysis_row_positions(dataframe, context_ids)
+        st.session_state[grid_key] = {"selection": {"rows": rows}}
+    st.session_state[sync_key] = context_ids
+
+
 def _sync_mouse_selection(event: object, dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
     positions = selected_positions_from_table_event(event, row_count=len(dataframe))
     selected_ids = (
@@ -413,6 +440,7 @@ def _sync_mouse_selection(event: object, dataframe: pd.DataFrame, *, key_prefix:
     previous_token = tuple(previous) if isinstance(previous, (list, tuple)) else None
     if previous_token != current_token:
         st.session_state[state_key] = current_token
+        st.session_state[f"{key_prefix}_grid_context_ids"] = current_token
         if selected_ids:
             set_selection(selected_ids, origin="Таблица · мышью", mode="replace", label="Диапазон таблицы")
         elif previous_token is not None:
@@ -487,14 +515,8 @@ def render_analysis_table(
         + " · потяните мышью по ячейкам, чтобы выбрать строки"
     )
 
-    selected_now = set(selection_context.analysis_ids)
-    default_rows = [
-        position
-        for position, analysis_id in enumerate(working["_analysis_id"].astype(str).tolist())
-        if analysis_id in selected_now
-    ]
     grid_key = f"{key_prefix}_grid"
-    selection_default = {"selection": {"rows": default_rows}} if default_rows else None
+    _sync_grid_from_context(working, key_prefix=key_prefix, grid_key=grid_key)
     event = st.dataframe(
         editor[visible],
         width="stretch",
@@ -504,7 +526,6 @@ def render_analysis_table(
         key=grid_key,
         on_select="rerun",
         selection_mode=["multi-row", "multi-cell"],
-        selection_default=selection_default,
     )
     mouse_ids = _sync_mouse_selection(event, working, key_prefix=key_prefix)
 
@@ -530,10 +551,12 @@ def render_analysis_table(
     if c5.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
         clear_selection()
         st.session_state[f"{key_prefix}_mouse_selection_ids"] = ()
+        st.session_state[f"{key_prefix}_grid_context_ids"] = ()
+        st.session_state[grid_key] = {"selection": {"rows": []}}
         st.rerun()
     note.caption(
         "Протяните прямоугольник по любым ячейкам: все затронутые строки сразу становятся Selection. "
-        "«Все видимые» и «+ Видимые» работают с текущим фильтром; Hide/Filter/Sort сами Selection не меняют."
+        "Selection с графика/шлифа подсвечивается здесь теми же строками; Hide/Filter/Sort сами Selection не меняют."
     )
 
     _render_expanded_record(dataframe, project_id=project_id)
