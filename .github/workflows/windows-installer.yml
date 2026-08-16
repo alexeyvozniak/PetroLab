@@ -44,7 +44,20 @@ jobs:
 
       - name: Build native launcher, branded icons and installer
         shell: pwsh
-        run: .\installer\build_windows_package.ps1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          # The one-shot release PR contains only this workflow change. Build and
+          # stamp the exact current main commit so the installed build SHA and
+          # rolling tag both refer to the released source tree.
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request" -and $env:GITHUB_HEAD_REF -eq "release/v0157-publish") {
+              $targetSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha'
+              if ($LASTEXITCODE -ne 0 -or -not $targetSha) { throw "Could not resolve main release SHA." }
+              $env:GITHUB_SHA = $targetSha.Trim()
+              Write-Host "One-shot release build targets main $env:GITHUB_SHA"
+          }
+          .\installer\build_windows_package.ps1
 
       - name: Smoke-test the actual installed PetroLab.exe
         shell: pwsh
@@ -64,7 +77,9 @@ jobs:
           retention-days: 14
 
       - name: Wait for full Windows verification
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' && github.head_ref == 'release/v0157-publish')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,20 +103,31 @@ jobs:
           throw "Timed out waiting for full Windows verification of $env:GITHUB_SHA."
 
       - name: Publish rolling Windows installer
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' && github.head_ref == 'release/v0157-publish')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
+          $targetSha = $env:GITHUB_SHA
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request" -and $env:GITHUB_HEAD_REF -eq "release/v0157-publish") {
+              $targetSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha'
+              if ($LASTEXITCODE -ne 0 -or -not $targetSha) { throw "Could not resolve main release SHA." }
+              $targetSha = $targetSha.Trim()
+              git fetch origin $targetSha --depth=1
+              if ($LASTEXITCODE -ne 0) { throw "Could not fetch main release SHA." }
+          }
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f windows-latest $env:GITHUB_SHA
+          git tag -f windows-latest $targetSha
           git push origin refs/tags/windows-latest --force
 
           gh release view windows-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $env:GITHUB_SHA --notes "Rolling Windows installer for the current fully verified PetroLab build. The installer contains a native PetroLab launcher, branded Windows icons, startup diagnostics and preserves scientific user data across update/uninstall."
+            gh release create windows-latest --title "PetroLab for Windows" --prerelease --target $targetSha --notes "Rolling Windows installer for the current fully verified PetroLab build. The installer contains a native PetroLab launcher, branded Windows icons, startup diagnostics and preserves scientific user data across update/uninstall."
           }
           gh release upload windows-latest `
             dist\PetroLab-Setup-x64.exe `
