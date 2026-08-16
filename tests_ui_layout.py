@@ -44,8 +44,10 @@ assert not list(UI.glob("*_page_policy.py")), "runtime page policy module return
 for ui_file in [
     "selection_context.py", "selection_components.py", "analysis_table.py",
     "navigation_state.py", "plot_spec.py", "linked_panels.py", "xy_components.py",
+    "plot_manager.py", "panel_manager.py",
 ]:
     assert (UI / ui_file).exists(), ui_file
+assert (ROOT / "petrolab" / "dataset_visibility.py").exists()
 
 selection_context = (UI / "selection_context.py").read_text(encoding="utf-8")
 for marker in [
@@ -61,14 +63,19 @@ for marker in [
 ]:
     assert marker in selection_components, marker
 
+# Airtable-like table controls are one canonical working surface. View controls
+# must remain separate from the scientific linked Selection.
 analysis_table = (UI / "analysis_table.py").read_text(encoding="utf-8")
 for marker in [
-    "def render_analysis_table(", '"Основное"', '"Химия"', '"Расчёты"', '"Все"',
+    "def render_analysis_table(", '"Основное"', '"Химия"', '"Расчёты"', '"Все"', '"Свои"',
     '"Выбрать"', "human_point_label", "set_selection", "Другой столбец…",
+    'st.popover("Поля"', 'st.popover("Фильтр"', 'st.popover("Группа"', 'st.popover("Сортировка"',
+    '"Все видимые"', '"Инвертировать"', "clear_selection", "Карточка точки",
 ]:
     assert marker in analysis_table, marker
 assert "_analysis_id" in analysis_table, "immutable ID must exist internally"
 
+# JMP-like graph selection tools stay visible and write only through SelectionContext.
 xy = (UI / "xy_components.py").read_text(encoding="utf-8")
 for marker in [
     '"Точка"', '"Прямоугольник"', '"Лассо"', '"Панорама"',
@@ -88,17 +95,30 @@ plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 for marker in [
     '"Быстрое построение"', '"Расширенный редактор"',
     "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
-    "＋ Добавить этот график в несколько диаграмм",
+    "＋ Добавить этот график в несколько диаграмм", "render_series_manager",
 ]:
     assert marker in plots, marker
 assert "st.tabs(" not in plots, "quick and advanced XY must not both execute on every rerun"
 
+# Origin-like managers own series visibility/order and the multi-panel layer list.
+plot_manager = (UI / "plot_manager.py").read_text(encoding="utf-8")
+for marker in ["def render_series_manager(", '"Показывать"', '"Серия"', '"Порядок"']:
+    assert marker in plot_manager, marker
+panel_manager = (UI / "panel_manager.py").read_text(encoding="utf-8")
+for marker in [
+    "def render_panel_manager(", '"Панель"', '"X"', '"Y"', '"Название"', '"log X"', '"log Y"', '"Порядок"',
+    "_saved_source", "_inbox_token",
+]:
+    assert marker in panel_manager, marker
+
 multi = (PAGES / "multi_panel.py").read_text(encoding="utf-8")
 for marker in [
     "peek_multi_panel_inbox", "render_linked_panel_selection", "render_selection_panel",
-    '"Сравнить на нескольких диаграммах"', "_ordered_panels",
+    '"Сравнить на нескольких диаграммах"', "render_panel_manager", "render_series_manager",
+    "_SCOPE_IDS_KEY", '"Весь набор"',
 ]:
     assert marker in multi, marker
+assert "def _ordered_panels(" not in multi, "vertical card/order workflow returned after Panel Manager consolidation"
 linked = (UI / "linked_panels.py").read_text(encoding="utf-8")
 for marker in ["read_selection", "set_selection", "read_row_states", "render_selection_mode"]:
     assert marker in linked, marker
@@ -132,7 +152,7 @@ for marker in ["human_point_label", '"Выбрать"', "st.data_editor(", "_pro
 assert "aid[:10]" not in generations and "analysis_id[:" not in generations
 
 home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
-for marker in ["home_recent_datasets_table", 'selection_mode="single-row"', "_open_dataset"]:
+for marker in ["home_recent_datasets_table", 'selection_mode="single-row"', "_open_dataset", "visible_working_datasets"]:
     assert marker in home, marker
 workspace = (PAGES / "object_workspace.py").read_text(encoding="utf-8")
 assert "render_analysis_table" in workspace
@@ -207,4 +227,4 @@ for path in sorted(PAGES.glob("*.py")):
         width = int(match.group(1))
         assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
 
-print("v0.15.7 linked-workflow UI structure tests: OK")
+print("v0.15.7 Airtable/JMP/Origin UI structure tests: OK")
