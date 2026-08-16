@@ -77,11 +77,31 @@ def _assert_primary_navigation(driver: webdriver.Chrome, output: Path) -> None:
         assert implementation_label not in visible, f"Implementation route leaked into primary navigation: {implementation_label}"
 
 
+def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
+    """Navigate inside one Streamlit websocket session so Back history is meaningful."""
+    wait = WebDriverWait(driver, 25)
+    try:
+        wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
+        button = _visible_sidebar_buttons(driver, label)[0]
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", button)
+        button.click()
+        time.sleep(0.8)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
+    except Exception:
+        output.mkdir(parents=True, exist_ok=True)
+        driver.save_screenshot(str(output / f"{slug}_navigation_failure.png"))
+        raise
+
+
 def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
-    _select_page(driver, "Данные", output, "back_data")
+    # Do not use _select_page here: that viewport helper intentionally hard-refreshes
+    # before each independent screenshot page. A hard refresh starts a new Streamlit
+    # frontend session and therefore cannot test navigation history by definition.
+    _click_primary_without_refresh(driver, "Данные", output, "back_data")
     _wait_for_page_content(driver, ("Рабочий стол",), "back_data", output)
-    _select_page(driver, "Графики", output, "back_plots")
+    _click_primary_without_refresh(driver, "Графики", output, "back_plots")
     _wait_for_page_content(driver, ("XY-диаграммы",), "back_plots", output)
+
     wait = WebDriverWait(driver, 20)
     try:
         wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
