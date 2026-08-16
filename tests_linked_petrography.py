@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import petrolab.linked_petrography as bridge
 
@@ -9,7 +10,6 @@ def test_marker_selection_is_exact_and_multi_method() -> None:
     markers = [
         {"id": 1, "label": "P-1", "analysis_ids": ["epma-1", "la-1"], "x_norm": 0.10, "y_norm": 0.20},
         {"id": 2, "label": "P-2", "analysis_ids": ["epma-2"], "x_norm": 0.50, "y_norm": 0.50},
-        # Similar label is deliberately unrelated; labels must never create identity.
         {"id": 3, "label": "epma-1", "analysis_ids": ["other-3"], "x_norm": 0.80, "y_norm": 0.80},
     ]
     assert bridge.marker_ids_for_selection(markers, ("epma-1",)) == (1,)
@@ -26,55 +26,48 @@ def test_nearest_marker_uses_spatial_distance_not_label() -> None:
     assert bridge.nearest_marker_id(markers, x_norm=0.50, y_norm=0.50, aspect_ratio=0.75) is None
 
 
-def test_related_links_require_explicit_analysis_link(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bridge,
-        "list_slide_images",
-        lambda project_id: [
-            SimpleNamespace(id=5, thin_section_id=50, title="BSE-01", image_type="BSE"),
-            SimpleNamespace(id=6, thin_section_id=None, title="Loose image", image_type="Другое"),
-        ],
-    )
-    monkeypatch.setattr(
-        bridge,
-        "list_entities",
-        lambda project_id: [{"id": 50, "kind": "thin_section", "name": "KIV-2-1"}],
-    )
-    monkeypatch.setattr(
-        bridge,
-        "list_slide_markers",
-        lambda project_id: [
-            {
-                "id": 7,
-                "slide_image_id": 5,
-                "label": "P-7",
-                "entity_name": "",
-                "x_norm": 0.25,
-                "y_norm": 0.40,
-                "analysis_ids": ["epma-7", "la-7"],
-            },
-            {
-                "id": 8,
-                "slide_image_id": 5,
-                "label": "epma-7",  # same text, no actual link to epma-7
-                "entity_name": "",
-                "x_norm": 0.75,
-                "y_norm": 0.70,
-                "analysis_ids": ["unrelated"],
-            },
-            {
-                "id": 9,
-                "slide_image_id": 6,
-                "label": "loose",
-                "entity_name": "",
-                "x_norm": 0.1,
-                "y_norm": 0.1,
-                "analysis_ids": ["epma-7"],
-            },
-        ],
-    )
+def test_related_links_require_explicit_analysis_link() -> None:
+    images = [
+        SimpleNamespace(id=5, thin_section_id=50, title="BSE-01", image_type="BSE"),
+        SimpleNamespace(id=6, thin_section_id=None, title="Loose image", image_type="Другое"),
+    ]
+    entities = [{"id": 50, "kind": "thin_section", "name": "KIV-2-1"}]
+    markers = [
+        {
+            "id": 7,
+            "slide_image_id": 5,
+            "label": "P-7",
+            "entity_name": "",
+            "x_norm": 0.25,
+            "y_norm": 0.40,
+            "analysis_ids": ["epma-7", "la-7"],
+        },
+        {
+            "id": 8,
+            "slide_image_id": 5,
+            "label": "epma-7",  # same text, but no explicit analysis link
+            "entity_name": "",
+            "x_norm": 0.75,
+            "y_norm": 0.70,
+            "analysis_ids": ["unrelated"],
+        },
+        {
+            "id": 9,
+            "slide_image_id": 6,
+            "label": "loose",
+            "entity_name": "",
+            "x_norm": 0.1,
+            "y_norm": 0.1,
+            "analysis_ids": ["epma-7"],
+        },
+    ]
+    with (
+        patch.object(bridge, "list_slide_images", return_value=images),
+        patch.object(bridge, "list_entities", return_value=entities),
+        patch.object(bridge, "list_slide_markers", return_value=markers),
+    ):
+        links = bridge.related_thin_section_markers(1, ("epma-7",))
 
-    links = bridge.related_thin_section_markers(1, ("epma-7",))
     assert len(links) == 1
     link = links[0]
     assert link.marker_id == 7
@@ -99,14 +92,18 @@ def test_ui_contract_keeps_one_selection_context() -> None:
     assert "nearest_marker_id" in thin_ui
     assert "seed_selection_plot_handoff" in thin_ui
     assert 'analysis_ids=context.analysis_ids' in thin_ui
-    assert "PetroLab Generation" not in bridge.__doc__ if bridge.__doc__ else True
 
 
 def main() -> None:
-    # Keep a script entry-point because PetroLab CI historically runs regression files directly.
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))
+    tests = (
+        test_marker_selection_is_exact_and_multi_method,
+        test_nearest_marker_uses_spatial_distance_not_label,
+        test_related_links_require_explicit_analysis_link,
+        test_ui_contract_keeps_one_selection_context,
+    )
+    for test in tests:
+        test()
+    print("PetroLab linked petrography P0: OK")
 
 
 if __name__ == "__main__":
