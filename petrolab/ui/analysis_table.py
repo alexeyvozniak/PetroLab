@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
-from petrolab.dataframe_utils import apply_quick_filter, human_point_label
+from petrolab.dataframe_utils import apply_quick_filter, display_value, human_point_label
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.ui.selection_components import render_selection_panel
@@ -25,6 +25,7 @@ _GROUPING_COLUMNS = (
     PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN, "Generation", WORK_GROUP_COLUMN,
     "Sample", "Grain", "Textural zone", SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал", "Mineral",
 )
+_FIELD_MODES = ("Основное", "Химия", "Расчёты", "Все", "Свои")
 
 
 def _chemical_columns(dataframe: pd.DataFrame) -> list[str]:
@@ -60,36 +61,174 @@ def _columns_for_mode(dataframe: pd.DataFrame, mode: str) -> list[str]:
     return list(dict.fromkeys([*identity, *body]))
 
 
-def _apply_group_filter(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame:
+def _field_candidates(dataframe: pd.DataFrame) -> list[str]:
+    return [column for column in dataframe.columns if not str(column).startswith("_")]
+
+
+def _field_control(dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
+    mode_key = f"{key_prefix}_column_mode"
+    current_mode = str(st.session_state.get(mode_key, "Основное"))
+    if current_mode not in _FIELD_MODES:
+        current_mode = "Основное"
+    with st.popover(f"Поля · {current_mode}", width="stretch"):
+        mode = st.radio(
+            "Набор полей",
+            _FIELD_MODES,
+            index=_FIELD_MODES.index(current_mode),
+            key=mode_key,
+            horizontal=False,
+        )
+        if mode == "Свои":
+            available = _field_candidates(dataframe)
+            defaults = [column for column in _columns_for_mode(dataframe, "Основное") if column in available]
+            chosen = st.multiselect(
+                "Показывать поля",
+                available,
+                default=defaults,
+                key=f"{key_prefix}_custom_fields",
+                placeholder="Выберите поля",
+            )
+            identity = [column for column in _IDENTITY_COLUMNS if column in dataframe.columns]
+            return list(dict.fromkeys([*identity, *chosen]))
+    return _columns_for_mode(dataframe, str(mode))
+
+
+def _filter_candidates(dataframe: pd.DataFrame) -> list[str]:
+    curated = [column for column in _IDENTITY_COLUMNS if column in dataframe.columns]
+    others = [
+        column for column in dataframe.columns
+        if not str(column).startswith("_")
+        and column not in curated
+        and (
+            pd.api.types.is_numeric_dtype(dataframe[column])
+            or dataframe[column].nunique(dropna=True) <= 120
+        )
+    ]
+    return list(dict.fromkeys([*curated, *others]))
+
+
+def _filter_control(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame:
+    candidates = _filter_candidates(dataframe)
+    if not candidates:
+        return dataframe
+    filter_key = f"{key_prefix}_filter_column"
+    current = str(st.session_state.get(filter_key, "Без фильтра"))
+    options = ["Без фильтра", *candidates]
+    if current not in options:
+        current = "Без фильтра"
+    label = "Фильтр" if current == "Без фильтра" else f"Фильтр · {current}"
+    with st.popover(label, width="stretch"):
+        column = st.selectbox(
+            "Поле",
+            options,
+            index=options.index(current),
+            key=filter_key,
+        )
+        if column == "Без фильтра" or column not in dataframe.columns:
+            st.caption("Фильтр меняет только текущий вид. Selection, Hide и Exclude остаются прежними.")
+            return dataframe
+
+        series = dataframe[column]
+        if pd.api.types.is_numeric_dtype(series):
+            numeric = pd.to_numeric(series, errors="coerce").dropna()
+            if numeric.empty:
+                return dataframe
+            lower = float(numeric.min())
+            upper = float(numeric.max())
+            c1, c2 = st.columns(2)
+            minimum = c1.number_input(
+                "От",
+                value=lower,
+                key=f"{key_prefix}_filter_min_{column}",
+            )
+            maximum = c2.number_input(
+                "До",
+                value=upper,
+                key=f"{key_prefix}_filter_max_{column}",
+            )
+            if float(minimum) > float(maximum):
+                st.warning("Нижняя граница больше верхней.")
+                return dataframe.iloc[0:0].copy()
+            values = pd.to_numeric(dataframe[column], errors="coerce")
+            return dataframe.loc[values.between(float(minimum), float(maximum), inclusive="both")].copy()
+
+        values = sorted(
+            {str(value) for value in series.dropna().tolist() if str(value).strip()},
+            key=str.casefold,
+        )
+        chosen = st.multiselect(
+            "Оставить значения",
+            values,
+            key=f"{key_prefix}_filter_values_{column}",
+            placeholder="Все значения",
+        )
+        if not chosen:
+            return dataframe
+        return dataframe.loc[dataframe[column].astype(str).isin(chosen)].copy()
+
+
+def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.DataFrame, str | None]:
     candidates = [
         column for column in _GROUPING_COLUMNS
         if column in dataframe.columns and dataframe[column].nunique(dropna=True) > 1
     ]
-    if not candidates:
-        return dataframe
-    group_col = st.selectbox(
-        "Группировать / отфильтровать по",
-        ["Не группировать", *candidates, "Другой столбец…"],
-        key=f"{key_prefix}_group_col",
-    )
-    if group_col == "Другой столбец…":
-        advanced = [
-            column for column in dataframe.columns
-            if not str(column).startswith("_") and dataframe[column].nunique(dropna=True) <= 100
-        ]
-        group_col = st.selectbox("Другой столбец", advanced, key=f"{key_prefix}_advanced_group_col") if advanced else "Не группировать"
-    if group_col == "Не группировать" or group_col not in dataframe.columns:
-        return dataframe
-    values = sorted(dataframe[group_col].dropna().astype(str).unique(), key=str.casefold)
-    chosen = st.multiselect(
-        f"{group_col}: оставить значения",
-        values,
-        key=f"{key_prefix}_group_values",
-        placeholder="Все значения",
-    )
-    if not chosen:
-        return dataframe
-    return dataframe[dataframe[group_col].astype(str).isin(chosen)].copy()
+    advanced = [
+        column for column in dataframe.columns
+        if not str(column).startswith("_")
+        and column not in candidates
+        and 1 < dataframe[column].nunique(dropna=True) <= 100
+    ]
+    options = ["Не группировать", *candidates]
+    if advanced:
+        options.append("Другой столбец…")
+    group_key = f"{key_prefix}_group_col"
+    current = str(st.session_state.get(group_key, "Не группировать"))
+    if current not in options:
+        current = "Не группировать"
+    label = "Группа" if current == "Не группировать" else f"Группа · {current}"
+    with st.popover(label, width="stretch"):
+        group_col = st.selectbox(
+            "Группировать по",
+            options,
+            index=options.index(current),
+            key=group_key,
+        )
+        if group_col == "Другой столбец…":
+            group_col = st.selectbox(
+                "Другой столбец",
+                advanced,
+                key=f"{key_prefix}_advanced_group_col",
+            ) if advanced else "Не группировать"
+        if group_col == "Не группировать" or group_col not in dataframe.columns:
+            st.caption("Группировка меняет порядок текущего вида, но не создаёт Work Group или Generation.")
+            return dataframe, None
+        st.caption("Строки одной группы будут стоять рядом; сама колонка группы остаётся видимой в таблице.")
+
+    grouped = dataframe.assign(_petrolab_group_sort=dataframe[group_col].astype("string").fillna(""))
+    grouped = grouped.sort_values("_petrolab_group_sort", kind="stable").drop(columns=["_petrolab_group_sort"])
+    return grouped, str(group_col)
+
+
+def _render_expanded_record(dataframe: pd.DataFrame, *, key_prefix: str) -> None:
+    context = read_selection()
+    if context.count != 1 or dataframe.empty or "_analysis_id" not in dataframe.columns:
+        return
+    analysis_id = str(context.analysis_ids[0])
+    match = dataframe.loc[dataframe["_analysis_id"].astype(str).eq(analysis_id)]
+    if match.empty:
+        return
+    row = match.iloc[0]
+    label = human_point_label(row)
+    with st.expander(f"Карточка точки · {label}", expanded=False):
+        st.caption("Развёрнутая запись без перехода на другую страницу. Внутренние ID остаются скрытыми.")
+        columns = [column for column in dataframe.columns if not str(column).startswith("_")]
+        details = pd.DataFrame(
+            {
+                "Поле": columns,
+                "Значение": [display_value(row.get(column)) for column in columns],
+            }
+        )
+        st.dataframe(details, width="stretch", hide_index=True, height=360)
 
 
 def render_analysis_table(
@@ -99,29 +238,27 @@ def render_analysis_table(
     key_prefix: str,
     height: int = 560,
 ) -> pd.DataFrame:
-    """Render the canonical row-selection workspace and return the displayed rows."""
+    """Render the canonical Airtable/JMP-inspired analysis workspace."""
     if dataframe.empty or "_analysis_id" not in dataframe.columns:
         st.info("В текущем контексте нет аналитических строк.")
         return dataframe.iloc[0:0].copy()
 
-    top1, top2 = st.columns([2.2, 1.4])
-    with top1:
+    toolbar = st.columns([4.2, 1.35, 1.35, 1.35], gap="small")
+    with toolbar[0]:
         query = st.text_input(
             "Поиск в анализах",
             key=f"{key_prefix}_query",
-            placeholder="Sample, Grain, Point, Generation, элемент…",
+            placeholder="🔎 Sample, Grain, Point, Generation, элемент…",
             label_visibility="collapsed",
         )
-    with top2:
-        mode = st.segmented_control(
-            "Колонки",
-            ["Основное", "Химия", "Расчёты", "Все"],
-            default="Основное",
-            key=f"{key_prefix}_column_mode",
-        ) or "Основное"
+    with toolbar[1]:
+        visible_columns = _field_control(dataframe, key_prefix=key_prefix)
+    with toolbar[2]:
+        filtered = _filter_control(dataframe, key_prefix=key_prefix)
+    with toolbar[3]:
+        grouped, group_col = _group_control(filtered, key_prefix=key_prefix)
 
-    working = apply_quick_filter(dataframe, str(query or ""))
-    working = _apply_group_filter(working, key_prefix=key_prefix)
+    working = apply_quick_filter(grouped, str(query or ""))
     if working.empty:
         st.info("По текущему поиску/фильтру ничего не найдено.")
         return working
@@ -130,8 +267,24 @@ def render_analysis_table(
     editor = working.copy()
     editor.insert(0, "Выбрать", editor["_analysis_id"].astype(str).isin(current))
     editor.insert(1, "Точка", [human_point_label(row) for _, row in editor.iterrows()])
-    visible = ["Выбрать", "Точка", *_columns_for_mode(editor, str(mode))]
+    if group_col and group_col in editor.columns:
+        visible_columns = [group_col, *[column for column in visible_columns if column != group_col]]
+    visible = ["Выбрать", "Точка", *visible_columns]
     visible = list(dict.fromkeys(column for column in visible if column in editor.columns))
+
+    active_view = []
+    filter_name = str(st.session_state.get(f"{key_prefix}_filter_column", "Без фильтра"))
+    if filter_name != "Без фильтра":
+        active_view.append(f"фильтр: {filter_name}")
+    if group_col:
+        active_view.append(f"группа: {group_col}")
+    if query:
+        active_view.append("поиск")
+    st.caption(
+        f"{len(working):,} строк".replace(",", " ")
+        + (" · " + " · ".join(active_view) if active_view else "")
+        + " · фильтр и группировка меняют только вид"
+    )
 
     edited = st.data_editor(
         editor[visible],
@@ -157,7 +310,11 @@ def render_analysis_table(
     ):
         set_selection(checked_ids, origin="Таблица", mode="replace")
         st.rerun()
-    c2.caption("Чекбоксы задают тот же SelectionContext, который подсвечивается на XY/PCA/multi-panel. Фильтр таблицы сам по себе Selection не меняет.")
+    c2.caption(
+        "Чекбоксы задают тот же SelectionContext, который подсвечивается на XY/PCA/multi-panel. "
+        "Фильтр, группировка и скрытие полей Selection не меняют."
+    )
 
+    _render_expanded_record(dataframe, key_prefix=key_prefix)
     render_selection_panel(dataframe, project_id=project_id, key_prefix=f"{key_prefix}_selection")
     return working
