@@ -8,8 +8,13 @@ import streamlit as st
 from petrolab.ui.plot_spec import PlotSpec
 
 
-def _context_token(numeric: list[str], panel_count: int) -> str:
-    return hashlib.sha1("\x1f".join([*numeric, str(panel_count)]).encode("utf-8")).hexdigest()[:10]
+def _context_token(numeric: list[str]) -> str:
+    """Token for the available scientific columns, independent of panel count.
+
+    Panel count is deliberately excluded so add/remove/duplicate operations can
+    preserve the remaining panel specifications instead of rebuilding defaults.
+    """
+    return hashlib.sha1("\x1f".join(numeric).encode("utf-8")).hexdigest()[:10]
 
 
 def _inbox_token(inbox: PlotSpec | None) -> str:
@@ -52,9 +57,21 @@ def _default_rows(
                 "log X": bool(inbox.log_x) if index == 0 and inbox is not None else False,
                 "log Y": bool(inbox.log_y) if index == 0 and inbox is not None else False,
                 "Порядок": index + 1,
+                "Убрать": False,
+                "Дублировать": False,
             }
         )
     return pd.DataFrame(rows)
+
+
+def _normalize_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    for column, default in (("Убрать", False), ("Дублировать", False)):
+        if column not in result.columns:
+            result[column] = default
+    result["Панель"] = list(range(1, len(result) + 1))
+    result["Порядок"] = list(range(1, len(result) + 1))
+    return result
 
 
 def _saved_source(
@@ -69,7 +86,7 @@ def _saved_source(
     context_key = f"_{key_prefix}_panel_context"
     inbox_key = f"_{key_prefix}_panel_inbox_token"
     widget_key = f"{key_prefix}_panel_manager"
-    context = _context_token(numeric, panel_count)
+    context = _context_token(numeric)
     incoming = _inbox_token(inbox)
 
     saved = st.session_state.get(seed_key)
@@ -91,7 +108,54 @@ def _saved_source(
             st.session_state[inbox_key] = incoming
         st.session_state.pop(widget_key, None)
         return source
-    return saved_frame
+    return _normalize_rows(saved_frame)
+
+
+def _apply_panel_structure_actions(
+    edited: pd.DataFrame,
+    *,
+    key_prefix: str,
+    minimum: int = 1,
+    maximum: int = 10,
+) -> bool:
+    """Apply remove/duplicate operations and schedule a rerun.
+
+    Returns True when state was rewritten and caller should stop rendering the
+    current pass. The page slider uses `<key_prefix>_count`, so updating that key
+    makes the manager and visible panel count converge on the next rerun.
+    """
+    remove_mask = edited.get("Убрать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
+    duplicate_mask = edited.get("Дублировать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
+    if not remove_mask.any() and not duplicate_mask.any():
+        return False
+
+    kept = edited.loc[~remove_mask].copy()
+    if len(kept) < minimum:
+        st.warning("Нужно оставить хотя бы одну панель.")
+        return False
+
+    rows: list[dict] = []
+    for index, row in kept.iterrows():
+        payload = row.to_dict()
+        payload["Убрать"] = False
+        payload["Дублировать"] = False
+        rows.append(payload)
+        if bool(duplicate_mask.get(index, False)) and len(rows) < maximum:
+            clone = dict(payload)
+            title = str(clone.get("Название") or "").strip()
+            clone["Название"] = f"{title} · копия" if title else "Копия панели"
+            rows.append(clone)
+
+    if len(rows) > maximum:
+        rows = rows[:maximum]
+        st.info(f"Максимум {maximum} панелей; лишние копии не добавлены.")
+
+    normalized = _normalize_rows(pd.DataFrame(rows))
+    st.session_state[f"_{key_prefix}_panel_seed"] = normalized.to_dict("records")
+    st.session_state[f"{key_prefix}_count"] = int(len(normalized))
+    st.session_state.pop(f"{key_prefix}_panel_manager", None)
+    st.rerun()
+    return True
 
 
 def render_panel_manager(
@@ -116,8 +180,8 @@ def render_panel_manager(
     widget_key = f"{key_prefix}_panel_manager"
     seed_key = f"_{key_prefix}_panel_seed"
     st.caption(
-        "Одна строка = одна панель. Меняйте оси, название, логарифмический масштаб и порядок здесь; "
-        "исходные данные и linked Selection остаются общими."
+        "Одна строка = одна панель. Меняйте оси, название, масштаб и порядок; "
+        "панель можно убрать или дублировать без пересборки остальных."
     )
     edited = st.data_editor(
         source,
@@ -132,12 +196,22 @@ def render_panel_manager(
             "log X": st.column_config.CheckboxColumn("log X", width="small"),
             "log Y": st.column_config.CheckboxColumn("log Y", width="small"),
             "Порядок": st.column_config.NumberColumn(
-                "Порядок", min_value=1, max_value=panel_count, step=1, required=True, width="small"
+                "Порядок", min_value=1, max_value=max(1, panel_count), step=1, required=True, width="small"
             ),
+            "Убрать": st.column_config.CheckboxColumn("Убрать", width="small"),
+            "Дублировать": st.column_config.CheckboxColumn("Копия", width="small"),
         },
         key=widget_key,
     )
     st.session_state[seed_key] = edited.to_dict("records")
+
+    if (
+        edited.get("Убрать", pd.Series(False, index=edited.index)).fillna(False).astype(bool).any()
+        or edited.get("Дублировать", pd.Series(False, index=edited.index)).fillna(False).astype(bool).any()
+    ):
+        if st.button("Применить состав панелей", type="primary", width="stretch", key=f"{key_prefix}_apply_panel_structure"):
+            if _apply_panel_structure_actions(edited, key_prefix=key_prefix):
+                return []
 
     problems: list[str] = []
     for index, row in edited.iterrows():
