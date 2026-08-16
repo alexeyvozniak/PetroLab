@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import math
 
 import pandas as pd
 import streamlit as st
 
 from petrolab.ui.plot_spec import PlotSpec
+
+
+_RANGE_COLUMNS = ("X min", "X max", "Y min", "Y max")
 
 
 def _context_token(numeric: list[str]) -> str:
@@ -52,6 +56,10 @@ def _default_rows(
                 ),
                 "log X": bool(inbox.log_x) if index == 0 and inbox is not None else False,
                 "log Y": bool(inbox.log_y) if index == 0 and inbox is not None else False,
+                "X min": None,
+                "X max": None,
+                "Y min": None,
+                "Y max": None,
                 "Порядок": index + 1,
                 "Убрать": False,
                 "Дублировать": False,
@@ -65,9 +73,40 @@ def _normalize_rows(frame: pd.DataFrame) -> pd.DataFrame:
     for column, default in (("Убрать", False), ("Дублировать", False)):
         if column not in result.columns:
             result[column] = default
+    for column in _RANGE_COLUMNS:
+        if column not in result.columns:
+            result[column] = None
     result["Панель"] = list(range(1, len(result) + 1))
     result["Порядок"] = list(range(1, len(result) + 1))
     return result
+
+
+def _optional_float(value) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _panel_range_problems(row: pd.Series, panel_number: int) -> list[str]:
+    problems: list[str] = []
+    for axis, minimum_key, maximum_key, log_key in (
+        ("X", "X min", "X max", "log X"),
+        ("Y", "Y min", "Y max", "log Y"),
+    ):
+        minimum = _optional_float(row.get(minimum_key))
+        maximum = _optional_float(row.get(maximum_key))
+        if (minimum is None) != (maximum is None):
+            problems.append(f"панель {panel_number}: для {axis} задайте обе границы или оставьте обе пустыми")
+            continue
+        if minimum is None or maximum is None:
+            continue
+        if minimum >= maximum:
+            problems.append(f"панель {panel_number}: {axis} min должен быть меньше {axis} max")
+        if bool(row.get(log_key)) and minimum <= 0:
+            problems.append(f"панель {panel_number}: log {axis} требует положительной нижней границы")
+    return problems
 
 
 def _panel_rows_after_actions(
@@ -76,11 +115,7 @@ def _panel_rows_after_actions(
     minimum: int = 1,
     maximum: int = 10,
 ) -> tuple[pd.DataFrame | None, bool]:
-    """Return the new panel specification after remove/duplicate requests.
-
-    The returned bool reports whether rows were truncated at ``maximum``.
-    ``None`` means the request would remove too many panels.
-    """
+    """Return the new panel specification after remove/duplicate requests."""
     remove_mask = edited.get("Убрать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
     duplicate_mask = edited.get("Дублировать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
     kept = edited.loc[~remove_mask].copy()
@@ -188,18 +223,12 @@ def render_panel_manager(
     if len(numeric) < 2 or panel_count < 1:
         return []
 
-    source = _saved_source(
-        numeric,
-        defaults,
-        panel_count,
-        inbox,
-        key_prefix=key_prefix,
-    )
+    source = _saved_source(numeric, defaults, panel_count, inbox, key_prefix=key_prefix)
     widget_key = f"{key_prefix}_panel_manager"
     seed_key = f"_{key_prefix}_panel_seed"
     st.caption(
-        "Одна строка = одна панель. Меняйте оси, название, масштаб и порядок; "
-        "панель можно убрать или дублировать без пересборки остальных."
+        "Одна строка = одна панель. Пустые X/Y min/max означают auto; заполненная пара границ "
+        "переопределяет общий масштаб только для этой панели."
     )
     edited = st.data_editor(
         source,
@@ -213,6 +242,10 @@ def render_panel_manager(
             "Название": st.column_config.TextColumn("Название", width="large"),
             "log X": st.column_config.CheckboxColumn("log X", width="small"),
             "log Y": st.column_config.CheckboxColumn("log Y", width="small"),
+            "X min": st.column_config.NumberColumn("X min", width="small"),
+            "X max": st.column_config.NumberColumn("X max", width="small"),
+            "Y min": st.column_config.NumberColumn("Y min", width="small"),
+            "Y max": st.column_config.NumberColumn("Y max", width="small"),
             "Порядок": st.column_config.NumberColumn(
                 "Порядок", min_value=1, max_value=max(1, panel_count), step=1, required=True, width="small"
             ),
@@ -233,8 +266,10 @@ def render_panel_manager(
 
     problems: list[str] = []
     for index, row in edited.iterrows():
+        panel_number = int(row.get("Панель") or index + 1)
         if str(row.get("X")) == str(row.get("Y")):
-            problems.append(f"панель {int(row.get('Панель') or index + 1)}: X и Y совпадают")
+            problems.append(f"панель {panel_number}: X и Y совпадают")
+        problems.extend(_panel_range_problems(row, panel_number))
     positions = pd.to_numeric(edited["Порядок"], errors="coerce")
     if positions.isna().any() or positions.duplicated().any():
         problems.append("порядок панелей должен состоять из уникальных чисел")
@@ -256,6 +291,10 @@ def render_panel_manager(
                 "title": str(row.get("Название") or "").strip(),
                 "log_x": bool(row.get("log X")),
                 "log_y": bool(row.get("log Y")),
+                "x_min": _optional_float(row.get("X min")),
+                "x_max": _optional_float(row.get("X max")),
+                "y_min": _optional_float(row.get("Y min")),
+                "y_max": _optional_float(row.get("Y max")),
             }
         )
     return panels
