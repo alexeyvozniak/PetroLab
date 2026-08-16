@@ -8,6 +8,7 @@ import streamlit as st
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
+from petrolab.ui.acceptance_layout import apply_acceptance_layout
 from petrolab.ui.interface_hotfix_v0156 import apply_interface_hotfix
 from petrolab.ui.navigation import render_sidebar
 from petrolab.ui.pages import (
@@ -37,6 +38,7 @@ st.set_page_config(page_title="ПетроЛаб", page_icon="◈", layout="wide"
 ensure_storage()
 settings = load_settings()
 apply_theme(str(settings.get("ui_density", "comfortable")))
+apply_acceptance_layout()
 apply_interface_hotfix()
 apply_release_chrome()
 st.session_state.setdefault("loaded_recipe", None)
