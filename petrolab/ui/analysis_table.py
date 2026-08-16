@@ -4,11 +4,12 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
-from petrolab.dataframe_utils import apply_quick_filter, display_value, human_point_label
+from petrolab.dataframe_utils import apply_quick_filter, human_point_label
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.table_views import delete_table_view, list_table_views, save_table_view
 from petrolab.ui.field_presets import FIELD_MODES, columns_for_mode, normalize_field_mode
+from petrolab.ui.record_detail import render_record_detail
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
@@ -322,7 +323,7 @@ def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix
             st.rerun()
 
 
-def _render_expanded_record(dataframe: pd.DataFrame) -> None:
+def _render_expanded_record(dataframe: pd.DataFrame, *, project_id: int | None) -> None:
     context = read_selection()
     if context.count != 1 or dataframe.empty or "_analysis_id" not in dataframe.columns:
         return
@@ -333,15 +334,7 @@ def _render_expanded_record(dataframe: pd.DataFrame) -> None:
     row = match.iloc[0]
     label = human_point_label(row)
     with st.expander(f"Карточка точки · {label}", expanded=False):
-        st.caption("Развёрнутая запись без перехода на другую страницу. Внутренние ID остаются скрытыми.")
-        columns = [column for column in dataframe.columns if not str(column).startswith("_")]
-        details = pd.DataFrame(
-            {
-                "Поле": columns,
-                "Значение": [display_value(row.get(column)) for column in columns],
-            }
-        )
-        st.dataframe(details, width="stretch", hide_index=True, height=360)
+        render_record_detail(row, dataframe, project_id=project_id)
 
 
 def _render_view_selection_actions(working: pd.DataFrame, *, key_prefix: str) -> None:
@@ -475,6 +468,6 @@ def render_analysis_table(
         "Фильтр, группировка, сортировка, скрытие полей и сохранённые виды — только текущий вид."
     )
 
-    _render_expanded_record(dataframe)
+    _render_expanded_record(dataframe, project_id=project_id)
     render_selection_panel(dataframe, project_id=project_id, key_prefix=f"{key_prefix}_selection")
     return working
