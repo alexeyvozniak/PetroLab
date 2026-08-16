@@ -81,6 +81,17 @@ def _appearance_defaults() -> tuple[str, bool]:
         return "", False
 
 
+def _known_multi_panel_preset(name: str) -> str:
+    """Return a preset only when the multi-panel workspace can actually render it."""
+    try:
+        from petrolab.visualization_presets import FIGURE_PRESETS
+
+        value = str(name or "")
+        return value if value in FIGURE_PRESETS else ""
+    except Exception:
+        return ""
+
+
 def normalize_plot_spec(
     spec: PlotSpec,
     state: MutableMapping[str, Any] | None = None,
@@ -126,11 +137,14 @@ def normalize_plot_spec(
 
 
 def _seed_multi_panel_appearance(spec: PlotSpec, store: MutableMapping[str, Any]) -> None:
-    """Seed only multi-panel widget defaults; scientific panel specs stay separate."""
+    """Seed only valid multi-panel widget defaults; preserve richer spec metadata separately."""
     if spec.marker_size > 0:
         store["multi_panel_marker"] = int(round(spec.marker_size))
-    if spec.figure_preset:
-        store["multi_panel_preset"] = spec.figure_preset
+    compatible_preset = _known_multi_panel_preset(spec.figure_preset)
+    if compatible_preset:
+        store["multi_panel_preset"] = compatible_preset
+    else:
+        store.pop("multi_panel_preset", None)
     store["multi_panel_grid"] = bool(spec.show_grid)
     if spec.visible_series:
         store[MULTI_PANEL_VISIBLE_SERIES_KEY] = list(spec.visible_series)
