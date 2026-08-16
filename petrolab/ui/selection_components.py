@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 import pandas as pd
 import streamlit as st
 
@@ -13,6 +15,7 @@ from petrolab.ui.selection_context import (
     read_selection,
     set_row_state,
 )
+from petrolab.ui.selection_export import resolve_selection_dataframe, selection_xlsx_bytes
 
 
 _CHEMISTRY_PRIORITY = (
@@ -67,6 +70,10 @@ def _selected_dataset_ids(selected: pd.DataFrame) -> list[int]:
     return list(dict.fromkeys(int(value) for value in numeric.tolist()))
 
 
+def _selection_token(analysis_ids: tuple[str, ...]) -> str:
+    return hashlib.sha1("\x1f".join(analysis_ids).encode("utf-8")).hexdigest()[:14]
+
+
 def render_selection_panel(
     dataframe: pd.DataFrame,
     *,
@@ -84,6 +91,13 @@ def render_selection_panel(
     title = f"Выбрано: {context.count}"
     if context.label:
         title += f" · {context.label}"
+    export_bytes_key = f"_{key_prefix}_selection_export_bytes"
+    export_token_key = f"_{key_prefix}_selection_export_token"
+    token = _selection_token(context.analysis_ids)
+    if st.session_state.get(export_token_key) != token:
+        st.session_state.pop(export_bytes_key, None)
+        st.session_state.pop(export_token_key, None)
+
     with st.container(border=True):
         header, clear_col = st.columns([5, 1])
         header.markdown(f"**{title}**")
@@ -102,7 +116,7 @@ def render_selection_panel(
             st.info("Отбор сохранён, но выбранные анализы не входят в текущий вид. Перейдите к таблице/графику с этим контекстом.")
 
         st.caption("Один и тот же отбор используется между таблицей, XY, multi-panel и статистикой. Сохранение как группа/Generation — отдельное действие.")
-        a1, a2, a3, a4, a5 = st.columns(5)
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
             if dataset_ids:
                 st.session_state["workflow_plot_dataset_ids"] = dataset_ids
@@ -130,6 +144,35 @@ def render_selection_panel(
             st.session_state["formulae_analysis_ids_pending"] = list(context.analysis_ids)
             navigate("formulae")
             st.rerun()
+        if a6.button(
+            "Экспорт",
+            key=f"{key_prefix}_prepare_export",
+            width="stretch",
+            help="Подготовить точный XLSX по analysis_id текущего Selection. Фильтр, Hide и Exclude не урезают файл.",
+        ):
+            with st.spinner("Собираю точный отбор…"):
+                exact = resolve_selection_dataframe(
+                    project_id,
+                    context.analysis_ids,
+                    current_dataframe=dataframe,
+                )
+                if exact.empty:
+                    st.warning("Не удалось найти выбранные анализы в доступных наборах проекта.")
+                else:
+                    st.session_state[export_bytes_key] = selection_xlsx_bytes(exact)
+                    st.session_state[export_token_key] = token
+
+        prepared = st.session_state.get(export_bytes_key)
+        if isinstance(prepared, (bytes, bytearray)) and prepared:
+            st.download_button(
+                f"Скачать Selection · {context.count} · XLSX",
+                data=bytes(prepared),
+                file_name="petrolab_selection.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+                key=f"{key_prefix}_download_export",
+            )
+            st.caption("Экспорт содержит человекочитаемую точку и научные поля; внутренние `_…` поля PetroLab не выгружаются.")
 
         with st.expander("Сохранить / классифицировать отбор", expanded=False):
             existing = list_work_groups(project_id) if project_id is not None else list_work_groups()
