@@ -100,20 +100,22 @@ for marker in ["class PlotSpec", "dataset_ids", "analysis_ids", "group_column", 
     assert marker in plot_spec, marker
 smart_start = (UI / "smart_plot_start.py").read_text(encoding="utf-8")
 for marker in [
-    "resolve_plot_scope", "choose_xy_recommendation", "seed_xy_state",
-    "seed_import_plot_handoff", "seed_selection_plot_handoff", "advanced_recipe_from_spec",
+    "resolve_plot_scope", "consume_plot_scope", "clear_exact_plot_scope",
+    "choose_xy_recommendation", "seed_xy_state", "seed_import_plot_handoff",
+    "seed_selection_plot_handoff", "advanced_recipe_from_spec",
 ]:
     assert marker in smart_start, marker
 plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 for marker in [
-    "resolve_plot_scope", "choose_xy_recommendation", "seed_xy_state", '"Smart Start ·',
-    "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
+    "consume_plot_scope", "clear_exact_plot_scope", "choose_xy_recommendation", "seed_xy_state",
+    '"Smart Start ·', '"Весь набор"', "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
     '"＋ Добавить диаграмму"', '"Настроить подробнее"', "advanced_recipe_from_spec",
     "render_series_manager", "_plots_show_advanced",
 ]:
     assert marker in plots, marker
 for obsolete_mode in ['"Быстрое построение"', '"Расширенный редактор"', '"Режим XY"']:
     assert obsolete_mode not in plots, f"up-front XY mode fork returned: {obsolete_mode}"
+assert "workflow_plot_analysis_ids" not in plots, "route scope must be consumed centrally, not pop-only in the page"
 assert "st.tabs(" not in plots, "compact and deep XY must not both execute on every rerun"
 
 # Origin-like managers own series visibility/order and the multi-panel layer list.
@@ -259,4 +261,4 @@ for path in sorted(PAGES.glob("*.py")):
         width = int(match.group(1))
         assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
 
-print("v0.15.8 Airtable/JMP/Origin + Smart Start UI structure tests: OK")
+print("v0.15.8 Airtable/JMP/Origin + stable Smart Start UI structure tests: OK")
