@@ -13,6 +13,7 @@ from petrolab.ui.selection_context import (
     clear_selection,
     read_row_states,
     read_selection,
+    set_row_display,
     set_row_state,
 )
 from petrolab.ui.selection_export import resolve_selection_dataframe, selection_xlsx_bytes
@@ -23,6 +24,18 @@ _CHEMISTRY_PRIORITY = (
     "MnO", "MgO", "CaO", "Na2O", "K2O", "P2O5", "F", "Cl",
     "Mg#", "Ni", "Cr", "Co", "Sc", "V", "Rb", "Sr", "Ba", "Nb", "Ta", "Zr", "Hf",
 )
+_DISPLAY_MARKERS = {
+    "Не менять": "",
+    "Круг": "o",
+    "Квадрат": "s",
+    "Треугольник вверх": "^",
+    "Ромб": "D",
+    "Треугольник вниз": "v",
+    "Крест": "P",
+    "X": "X",
+    "Шестиугольник": "h",
+    "Звезда": "*",
+}
 
 
 def render_selection_mode(*, key_prefix: str, default: str = "replace") -> str:
@@ -120,8 +133,6 @@ def render_selection_panel(
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
             if dataset_ids:
                 st.session_state["workflow_plot_dataset_ids"] = dataset_ids
-            # Selection remains a highlight, not a filter: the XY view keeps the
-            # full dataset population and reads the same canonical analysis_ids.
             navigate("plots")
             st.rerun()
         if a2.button("Несколько", key=f"{key_prefix}_to_multi", width="stretch"):
@@ -151,11 +162,7 @@ def render_selection_panel(
             help="Подготовить точный XLSX по analysis_id текущего Selection. Фильтр, Hide и Exclude не урезают файл.",
         ):
             with st.spinner("Собираю точный отбор…"):
-                exact = resolve_selection_dataframe(
-                    project_id,
-                    context.analysis_ids,
-                    current_dataframe=dataframe,
-                )
+                exact = resolve_selection_dataframe(project_id, context.analysis_ids, current_dataframe=dataframe)
                 if exact.empty:
                     st.warning("Не удалось найти выбранные анализы в доступных наборах проекта.")
                 else:
@@ -173,6 +180,53 @@ def render_selection_panel(
                 key=f"{key_prefix}_download_export",
             )
             st.caption("Экспорт содержит человекочитаемую точку и научные поля; внутренние `_…` поля PetroLab не выгружаются.")
+
+        with st.expander("Временная маркировка", expanded=False):
+            st.caption(
+                "JMP-подобное оформление для исследования: подпись, цвет и маркер видны на связанных графиках, "
+                "но не записываются в данные, Work Group или Generation."
+            )
+            states = read_row_states()
+            current = set(context.analysis_ids)
+            labelled_here = len(current & set(states.labelled))
+            colored_here = sum(analysis_id in states.display_color for analysis_id in current)
+            marked_here = sum(analysis_id in states.display_marker for analysis_id in current)
+            st.caption(
+                f"В текущем Selection: подписано {labelled_here}; свой цвет {colored_here}; свой маркер {marked_here}."
+            )
+
+            l1, l2 = st.columns(2)
+            if l1.button("Подписать точки", key=f"{key_prefix}_label_rows", width="stretch"):
+                set_row_state("labelled", context.analysis_ids, mode="add")
+                st.rerun()
+            if l2.button("Убрать подписи", key=f"{key_prefix}_unlabel_rows", width="stretch"):
+                set_row_state("labelled", context.analysis_ids, mode="subtract")
+                st.rerun()
+
+            use_color = st.checkbox("Задать временный цвет", key=f"{key_prefix}_use_display_color")
+            color = st.color_picker("Цвет", "#d62728", key=f"{key_prefix}_display_color") if use_color else None
+            marker_label = st.selectbox(
+                "Временный маркер",
+                list(_DISPLAY_MARKERS),
+                key=f"{key_prefix}_display_marker",
+            )
+            marker = _DISPLAY_MARKERS[marker_label]
+            d1, d2 = st.columns(2)
+            if d1.button(
+                "Применить оформление",
+                disabled=not use_color and not marker,
+                key=f"{key_prefix}_apply_display_style",
+                width="stretch",
+            ):
+                set_row_display(
+                    context.analysis_ids,
+                    color=str(color) if use_color and color else None,
+                    marker=marker or None,
+                )
+                st.rerun()
+            if d2.button("Сбросить цвет и маркер", key=f"{key_prefix}_reset_display_style", width="stretch"):
+                set_row_display(context.analysis_ids, clear_color=True, clear_marker=True)
+                st.rerun()
 
         with st.expander("Сохранить / классифицировать отбор", expanded=False):
             existing = list_work_groups(project_id) if project_id is not None else list_work_groups()
