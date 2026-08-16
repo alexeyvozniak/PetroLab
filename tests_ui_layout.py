@@ -44,7 +44,7 @@ assert not list(UI.glob("*_page_policy.py")), "runtime page policy module return
 for ui_file in [
     "selection_context.py", "selection_components.py", "analysis_table.py",
     "navigation_state.py", "plot_spec.py", "linked_panels.py", "xy_components.py",
-    "plot_manager.py", "panel_manager.py", "intake_workflow.py",
+    "plot_manager.py", "panel_manager.py", "intake_workflow.py", "smart_plot_start.py",
     "table_view_state.py", "field_presets.py", "record_detail.py",
 ]:
     assert (UI / ui_file).exists(), ui_file
@@ -61,7 +61,7 @@ selection_components = (UI / "selection_components.py").read_text(encoding="utf-
 for marker in [
     "def render_selection_panel(", "set_work_group", "clear_work_group", "assign_generation",
     "set_row_state", 'navigate("plots")', 'navigate("multi_panel")', 'navigate("statistics")',
-    'navigate("grain_profile")', 'navigate("formulae")',
+    'navigate("grain_profile")', 'navigate("formulae")', "seed_selection_plot_handoff",
 ]:
     assert marker in selection_components, marker
 
@@ -98,14 +98,23 @@ assert "st.data_editor(pd.DataFrame(polygon" not in xy, "raw polygon-coordinate 
 plot_spec = (UI / "plot_spec.py").read_text(encoding="utf-8")
 for marker in ["class PlotSpec", "dataset_ids", "analysis_ids", "group_column", "style_map", "send_to_multi_panel"]:
     assert marker in plot_spec, marker
+smart_start = (UI / "smart_plot_start.py").read_text(encoding="utf-8")
+for marker in [
+    "resolve_plot_scope", "choose_xy_recommendation", "seed_xy_state",
+    "seed_import_plot_handoff", "seed_selection_plot_handoff", "advanced_recipe_from_spec",
+]:
+    assert marker in smart_start, marker
 plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 for marker in [
-    '"Быстрое построение"', '"Расширенный редактор"',
+    "resolve_plot_scope", "choose_xy_recommendation", "seed_xy_state", '"Smart Start ·',
     "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
-    "＋ Добавить этот график в несколько диаграмм", "render_series_manager",
+    '"＋ Добавить диаграмму"', '"Настроить подробнее"', "advanced_recipe_from_spec",
+    "render_series_manager", "_plots_show_advanced",
 ]:
     assert marker in plots, marker
-assert "st.tabs(" not in plots, "quick and advanced XY must not both execute on every rerun"
+for obsolete_mode in ['"Быстрое построение"', '"Расширенный редактор"', '"Режим XY"']:
+    assert obsolete_mode not in plots, f"up-front XY mode fork returned: {obsolete_mode}"
+assert "st.tabs(" not in plots, "compact and deep XY must not both execute on every rerun"
 
 # Origin-like managers own series visibility/order and the multi-panel layer list.
 # Series rows can also explicitly feed the shared JMP SelectionContext.
@@ -250,4 +259,4 @@ for path in sorted(PAGES.glob("*.py")):
         width = int(match.group(1))
         assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
 
-print("v0.15.8 Airtable/JMP/Origin UI structure tests: OK")
+print("v0.15.8 Airtable/JMP/Origin + Smart Start UI structure tests: OK")
