@@ -45,11 +45,15 @@ jobs:
 
       - name: Compile acceptance code
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py tests_v0159_plot_universe.py tests_v0159_release_gate.py
+        run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py tests_v0159_plot_universe.py tests_v0159_release_gate.py tests_v0159_update_channel.py
 
       - name: Verify installed-client update visibility
         shell: cmd
         run: python -c "from petrolab import __version__; from petrolab.update_checker import is_newer; assert __version__ == '0.15.9', __version__; assert is_newer(__version__, '0.15.8'); print('0.15.8 clients can detect 0.15.9')"
+
+      - name: Guard verified update channel
+        shell: cmd
+        run: python tests_v0159_update_channel.py
 
       - name: Guard PlotSpec DataUniverse semantics
         shell: cmd
