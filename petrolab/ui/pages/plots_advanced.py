@@ -31,6 +31,7 @@ from petrolab.source_registry import (
     attach_study_metadata,
 )
 from petrolab.ui.advanced_plot_handoff import advanced_plot_spec
+from petrolab.ui.advanced_recipe_state import store_current_advanced_recipe
 from petrolab.ui.navigation import navigate
 from petrolab.ui.plot_actions import (
     delete_plot_recipe,
@@ -448,6 +449,10 @@ def _export_and_save(
 
     current_recipe = {
         "dataset_ids": selected_ids,
+        "analysis_ids": (
+            plot_dataframe["_analysis_id"].astype(str).drop_duplicates().tolist()
+            if "_analysis_id" in plot_dataframe.columns else []
+        ),
         "minerals": selected_minerals,
         "query": query,
         "column_filters": chosen_filters,
@@ -461,6 +466,7 @@ def _export_and_save(
         **appearance,
         "style_map": styles,
     }
+    store_current_advanced_recipe(st.session_state, current_recipe)
     with st.expander("Сохранить текущий рецепт графика", expanded=False):
         recipe_name = st.text_input("Название рецепта", key="save_recipe_name")
         project_recipe = st.checkbox("Сохранить как проектный рецепт", value=True)
