@@ -16,6 +16,7 @@ on:
       - 'petrolab/ui/selection_components.py'
       - 'petrolab/ui/linked_panels.py'
       - 'petrolab/ui/plot_spec.py'
+      - 'petrolab/ui/advanced_plot_handoff.py'
       - 'petrolab/ui/plot_manager.py'
       - 'petrolab/ui/panel_manager.py'
       - 'petrolab/ui/pages/**'
@@ -57,10 +58,12 @@ jobs:
           petrolab/ui/selection_components.py
           petrolab/ui/linked_panels.py
           petrolab/ui/plot_spec.py
+          petrolab/ui/advanced_plot_handoff.py
           petrolab/ui/plot_manager.py
           petrolab/ui/panel_manager.py
           petrolab/ui/pages/global_search.py
           petrolab/ui/pages/multi_panel.py
+          petrolab/ui/pages/plots_advanced.py
       - name: Run saved-view state and persistence tests
         run: python tests_v0158_table_views.py
       - name: Run semantic quick view tests
@@ -79,6 +82,8 @@ jobs:
         run: python tests_v0158_axis_ranges.py
       - name: Run complete PlotSpec handoff tests
         run: python tests_v0158_plot_spec_handoff.py
+      - name: Run advanced XY handoff tests
+        run: python tests_v0158_advanced_plot_handoff.py
       - name: Run exact Selection export tests
         run: python tests_v0158_selection_export.py
       - name: Run JMP row display-state tests
