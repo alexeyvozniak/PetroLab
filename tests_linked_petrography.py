@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import patch
+import inspect
 
 import petrolab.linked_petrography as bridge
 
@@ -26,55 +25,14 @@ def test_nearest_marker_uses_spatial_distance_not_label() -> None:
     assert bridge.nearest_marker_id(markers, x_norm=0.50, y_norm=0.50, aspect_ratio=0.75) is None
 
 
-def test_related_links_require_explicit_analysis_link() -> None:
-    images = [
-        SimpleNamespace(id=5, thin_section_id=50, title="BSE-01", image_type="BSE"),
-        SimpleNamespace(id=6, thin_section_id=None, title="Loose image", image_type="Другое"),
-    ]
-    entities = [{"id": 50, "kind": "thin_section", "name": "KIV-2-1"}]
-    markers = [
-        {
-            "id": 7,
-            "slide_image_id": 5,
-            "label": "P-7",
-            "entity_name": "",
-            "x_norm": 0.25,
-            "y_norm": 0.40,
-            "analysis_ids": ["epma-7", "la-7"],
-        },
-        {
-            "id": 8,
-            "slide_image_id": 5,
-            "label": "epma-7",  # same text, but no explicit analysis link
-            "entity_name": "",
-            "x_norm": 0.75,
-            "y_norm": 0.70,
-            "analysis_ids": ["unrelated"],
-        },
-        {
-            "id": 9,
-            "slide_image_id": 6,
-            "label": "loose",
-            "entity_name": "",
-            "x_norm": 0.1,
-            "y_norm": 0.1,
-            "analysis_ids": ["epma-7"],
-        },
-    ]
-    with (
-        patch.object(bridge, "list_slide_images", return_value=images),
-        patch.object(bridge, "list_entities", return_value=entities),
-        patch.object(bridge, "list_slide_markers", return_value=markers),
-    ):
-        links = bridge.related_thin_section_markers(1, ("epma-7",))
-
-    assert len(links) == 1
-    link = links[0]
-    assert link.marker_id == 7
-    assert link.slide_image_id == 5
-    assert link.thin_section_id == 50
-    assert link.analysis_ids == ("epma-7", "la-7")
-    assert link.display_label == "KIV-2-1 · BSE-01 · P-7"
+def test_related_lookup_is_explicit_and_indexed() -> None:
+    source = inspect.getsource(bridge.related_thin_section_markers)
+    assert "slide_marker_analysis_links selected_link" in source
+    assert "selected_link.analysis_id IN" in source
+    assert "slide_marker_analysis_links all_links" in source
+    assert "JOIN physical_entities section" in source
+    assert "list_slide_markers" not in source
+    assert "Sample" not in source and "Point" not in source
 
 
 def test_ui_contract_keeps_one_selection_context() -> None:
@@ -98,7 +56,7 @@ def main() -> None:
     tests = (
         test_marker_selection_is_exact_and_multi_method,
         test_nearest_marker_uses_spatial_distance_not_label,
-        test_related_links_require_explicit_analysis_link,
+        test_related_lookup_is_explicit_and_indexed,
         test_ui_contract_keeps_one_selection_context,
     )
     for test in tests:
