@@ -30,11 +30,14 @@ from petrolab.source_registry import (
     SOURCE_TYPE_COLUMN,
     attach_study_metadata,
 )
+from petrolab.ui.advanced_plot_handoff import advanced_plot_spec
+from petrolab.ui.navigation import navigate
 from petrolab.ui.plot_actions import (
     delete_plot_recipe,
     delete_style_profile,
     render_plot_confirmations,
 )
+from petrolab.ui.plot_spec import send_to_multi_panel, set_current_plot_spec
 from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import (
     apply_interactive_exclusions,
@@ -326,6 +329,29 @@ def _export_and_save(
     appearance: dict,
     styles: dict,
 ) -> None:
+    spec = advanced_plot_spec(
+        plot_dataframe,
+        dataset_ids=selected_ids,
+        x=x,
+        y=y,
+        group_column=group_col,
+        visible_sources=visible_sources,
+        hidden_sources=hidden_sources,
+        journal_preset=preset,
+        appearance=appearance,
+        styles=styles,
+    )
+    set_current_plot_spec(spec)
+    if st.button(
+        "＋ Добавить этот график в несколько диаграмм",
+        type="primary",
+        width="stretch",
+        key="advanced_send_to_multi",
+    ):
+        send_to_multi_panel(spec)
+        navigate("multi_panel")
+        st.rerun()
+
     st.subheader("Публикационная фигура")
     figure = build_scatter(
         plot_dataframe,
