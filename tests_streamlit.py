@@ -85,6 +85,15 @@ def assert_primary_navigation(app) -> None:
         assert legacy not in actual, f"Implementation route leaked into primary sidebar: {legacy}"
 
 
+def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
+    """The primary Data task must never be blank while working datasets exist."""
+    open_page(app, "Данные", "workspace")
+    assert str(app.session_state["workspace_mode"]) == "Массив данных", app.session_state["workspace_mode"]
+    selectors = [widget for widget in app.selectbox if widget.label == "Массив данных"]
+    assert selectors, "Data workspace did not expose the existing dataset selector"
+    assert any("UI mica" in str(option) for option in selectors[0].options), selectors[0].options
+
+
 def assert_back_restores_route(app) -> None:
     open_page(app, "Данные", "workspace")
     open_page(app, "Графики", "plots")
@@ -116,6 +125,7 @@ def main() -> None:
         assert_no_exceptions(app, "Главная")
         assert_single_project_context(app, "Главная")
         assert_primary_navigation(app)
+        assert_data_workspace_defaults_to_existing_dataset(app)
         assert_back_restores_route(app)
 
         pages = [
