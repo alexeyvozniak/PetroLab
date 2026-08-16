@@ -19,6 +19,7 @@ from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.linked_panels import render_linked_panel_selection
+from petrolab.ui.plot_manager import render_series_manager
 from petrolab.ui.plot_spec import PlotSpec, clear_multi_panel_inbox, peek_multi_panel_inbox
 from petrolab.ui.project_context import active_project
 from petrolab.ui.selection_components import render_selection_panel
@@ -256,9 +257,19 @@ def render_multi_panel_page() -> None:
     panels = _ordered_panels(panels)
 
     group_col = _group_control(dataframe, numeric, inbox)
+    dataframe, managed_series = render_series_manager(
+        dataframe,
+        group_col,
+        key_prefix="multi_panel",
+    )
+    if dataframe.empty:
+        return
+
     styles: dict = {}
     if group_col:
-        groups = sorted(dataframe[group_col].astype("string").fillna("Без группы").replace("", "Без группы").unique().tolist())
+        groups = list(managed_series) or sorted(
+            dataframe[group_col].astype("string").fillna("Без группы").replace("", "Без группы").unique().tolist()
+        )
         existing = inbox.style_map if inbox is not None and inbox.group_column == group_col else {}
         with st.expander("Стили серий · общие для всех графиков", expanded=False):
             editor = st.data_editor(
