@@ -18,6 +18,7 @@ from petrolab.services.image_service import (
     SCOPE_DATASET,
     SCOPE_FIELD,
     create_assigned_image_batch,
+    image_preview_bytes,
 )
 from petrolab.services.import_service import (
     ImportSchemaPreview,
@@ -37,7 +38,7 @@ from petrolab.ui.layout import render_badges, render_hint, render_section_header
 
 
 _TABLE_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".csv"}
-_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
 _KIND_TABLE = "Аналитическая таблица"
 _KIND_IMAGE = "Изображение / карта / фотография"
 _KIND_SKIP = "Не добавлять"
@@ -333,7 +334,8 @@ def _render_image_wizard(project_id: int, image_files: list[tuple[str, bytes]], 
     left, right = st.columns([1.3, 1])
     with left:
         try:
-            st.image(raw, caption=name, width="stretch")
+            preview = image_preview_bytes(ImagePayload(name, raw))
+            st.image(preview, caption=name, width="stretch")
         except Exception:
             st.info("Предпросмотр недоступен, но файл можно проверить и сохранить.")
     with right:
@@ -400,7 +402,7 @@ def render_universal_intake(project_id: int) -> None:
     )
     uploads = st.file_uploader(
         "Файлы",
-        type=["xlsx", "xlsm", "xls", "csv", "png", "jpg", "jpeg", "webp", "tif", "tiff"],
+        type=["xlsx", "xlsm", "xls", "csv", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp"],
         accept_multiple_files=True,
         key="universal_intake_files",
     )
