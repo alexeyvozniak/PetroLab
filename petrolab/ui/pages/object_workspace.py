@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.dataframe_utils import human_point_label
+from petrolab.dataset_visibility import visible_working_datasets
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.measurement_registry import list_entities
@@ -366,11 +367,15 @@ def render_object_workspace_page() -> None:
         st.info("Сначала создайте или выберите проект.")
         return
     project_id = int(project["id"])
-    datasets = list_accessible_datasets(project_id)
+    datasets = visible_working_datasets(list_accessible_datasets(project_id))
+    samples = list_samples(project_id)
+    current_mode = str(st.session_state.get("workspace_mode") or "")
+    if current_mode not in {"Sample", "Массив данных"}:
+        current_mode = "Sample" if samples or not datasets else "Массив данных"
     mode = st.segmented_control(
         "Работать с", ["Sample", "Массив данных"],
-        default=str(st.session_state.get("workspace_mode") or "Sample"), key="workspace_mode",
-    ) or "Sample"
+        default=current_mode, key="workspace_mode",
+    ) or current_mode
     incoming = str(st.session_state.pop("workspace_query_pending", "") or "")
     if incoming:
         st.session_state["workspace_query"] = incoming
