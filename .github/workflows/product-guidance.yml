@@ -12,21 +12,31 @@ on:
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
+      - "petrolab/ui/analysis_table.py"
       - "petrolab/ui/batch_actions.py"
-      - "petrolab/ui/workflow_routing.py"
-      - "petrolab/ui/navigation.py"
-      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/intake_workflow.py"
       - "petrolab/ui/linked_panels.py"
+      - "petrolab/ui/navigation.py"
+      - "petrolab/ui/panel_manager.py"
+      - "petrolab/ui/plot_manager.py"
       - "petrolab/ui/plot_spec.py"
+      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/source_controls.py"
+      - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/pages/add_data.py"
       - "petrolab/ui/pages/attention.py"
       - "petrolab/ui/pages/batch_edit.py"
       - "petrolab/ui/pages/change_log.py"
       - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/multi_panel.py"
+      - "petrolab/ui/pages/object_workspace.py"
+      - "petrolab/ui/pages/plots_dashboard.py"
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
       - "tests_product_ui_viewports.py"
+      - "tests_streamlit.py"
+      - "tests_ui_layout.py"
       - "tests_v0157_linked_selection.py"
       - ".github/workflows/product-guidance.yml"
   pull_request:
@@ -37,21 +47,31 @@ on:
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
+      - "petrolab/ui/analysis_table.py"
       - "petrolab/ui/batch_actions.py"
-      - "petrolab/ui/workflow_routing.py"
-      - "petrolab/ui/navigation.py"
-      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/intake_workflow.py"
       - "petrolab/ui/linked_panels.py"
+      - "petrolab/ui/navigation.py"
+      - "petrolab/ui/panel_manager.py"
+      - "petrolab/ui/plot_manager.py"
       - "petrolab/ui/plot_spec.py"
+      - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/source_controls.py"
+      - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/pages/add_data.py"
       - "petrolab/ui/pages/attention.py"
       - "petrolab/ui/pages/batch_edit.py"
       - "petrolab/ui/pages/change_log.py"
       - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/multi_panel.py"
+      - "petrolab/ui/pages/object_workspace.py"
+      - "petrolab/ui/pages/plots_dashboard.py"
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
       - "tests_product_ui_viewports.py"
+      - "tests_streamlit.py"
+      - "tests_ui_layout.py"
       - "tests_v0157_linked_selection.py"
       - ".github/workflows/product-guidance.yml"
 
@@ -82,24 +102,37 @@ jobs:
           petrolab/smart_start.py
           petrolab/edit_undo.py
           petrolab/interactive_plotting.py
-          petrolab/ui/batch_actions.py
-          petrolab/ui/workflow_routing.py
-          petrolab/ui/navigation.py
-          petrolab/ui/selection_context.py
+          petrolab/ui/analysis_table.py
+          petrolab/ui/intake_workflow.py
           petrolab/ui/linked_panels.py
+          petrolab/ui/navigation.py
+          petrolab/ui/panel_manager.py
+          petrolab/ui/plot_manager.py
           petrolab/ui/plot_spec.py
+          petrolab/ui/selection_context.py
+          petrolab/ui/source_controls.py
+          petrolab/ui/workflow_routing.py
           petrolab/ui/pages/add_data.py
           petrolab/ui/pages/attention.py
           petrolab/ui/pages/batch_edit.py
           petrolab/ui/pages/change_log.py
           petrolab/ui/pages/home_dashboard.py
+          petrolab/ui/pages/multi_panel.py
+          petrolab/ui/pages/object_workspace.py
+          petrolab/ui/pages/plots_dashboard.py
           tests_product_guidance.py
           tests_product_ui_viewports.py
+          tests_streamlit.py
+          tests_ui_layout.py
           tests_v0157_linked_selection.py
       - name: Run product guidance regressions
         run: python tests_product_guidance.py
       - name: Run linked-selection integration gate
         run: python tests_v0157_linked_selection.py
+      - name: Run Streamlit workspace regressions
+        run: python tests_streamlit.py
+      - name: Run UI architecture contract
+        run: python tests_ui_layout.py
       - name: Run guided workflow regressions
         run: python tests_guided_workflow.py
       - name: Run architecture regressions
