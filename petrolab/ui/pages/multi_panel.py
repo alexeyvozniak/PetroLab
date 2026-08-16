@@ -307,27 +307,38 @@ def render_multi_panel_page() -> None:
     grid = c3.checkbox("Сетка", value=preset.grid, key="multi_panel_grid")
 
     selection = read_selection()
-    scale_options = ["Авто", "Одинаковые переменные"]
+    scale_options = ["Авто", "Общая X", "Общая Y", "X+Y"]
     if mode == "Обычные анализы" and selection.count:
         scale_options.append("По отбору")
     current_scale = str(st.session_state.get("multi_panel_scale", "Авто"))
+    legacy_scale = {"Одинаковые переменные": "X+Y"}
+    current_scale = legacy_scale.get(current_scale, current_scale)
     if current_scale not in scale_options:
         st.session_state["multi_panel_scale"] = "Авто"
         current_scale = "Авто"
+    elif st.session_state.get("multi_panel_scale") != current_scale:
+        st.session_state["multi_panel_scale"] = current_scale
     scale = st.segmented_control(
         "Масштаб панелей",
         scale_options,
         default=current_scale,
         key="multi_panel_scale",
-        help="«Одинаковые переменные» синхронизирует диапазон только у одной и той же научной переменной. «По отбору» зумирует на Selection, не скрывая остальные точки.",
+        help=(
+            "«Общая X» и «Общая Y» синхронизируют только соответствующую ось и только у одной и той же "
+            "научной переменной. «X+Y» синхронизирует обе. «По отбору» зумирует на Selection, не скрывая "
+            "остальные точки. Ручные min/max конкретной панели имеют приоритет."
+        ),
     ) or current_scale
 
     plot_dataframe = _plot_dataframe(dataframe) if mode == "Обычные анализы" else dataframe
-    axis_mode = "independent"
+    axis_mode = {
+        "Авто": "independent",
+        "Общая X": "shared_x",
+        "Общая Y": "shared_y",
+        "X+Y": "shared",
+    }.get(str(scale), "independent")
     focus_ids: tuple[str, ...] = ()
-    if scale == "Одинаковые переменные":
-        axis_mode = "shared"
-    elif scale == "По отбору" and selection.count:
+    if scale == "По отбору" and selection.count:
         axis_mode = "focus"
         focus_ids = selection.analysis_ids
         st.caption(f"Масштаб по текущему Selection · {selection.count} анализов; остальные точки остаются на графике.")
