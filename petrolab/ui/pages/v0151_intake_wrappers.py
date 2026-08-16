@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from petrolab.db import list_accessible_datasets
+from petrolab.db import list_accessible_datasets, unlink_dataset_from_project
 from petrolab.ui import staged_intake as _staged
 from petrolab.ui import universal_intake as _universal
 from petrolab.ui import universal_intake_extensions as _extensions
@@ -14,20 +14,61 @@ from . import add_data as _add_data
 from . import quick_import as _quick_import
 
 
-# Публичная точка расширения для последующих workflow-обёрток. Важно, чтобы
-# render_add_data_page использовал именно этот alias: тогда внешний bridge может
-# временно подменить wizard (например, добавить Textural zone), не лезя во
-# внутренности universal_intake_extensions и не расходясь по версиям модулей.
 render_image_wizard_multi_dataset = _extensions.render_image_wizard_multi_dataset
 
 
 def _project_session_token(project_id: int, token: str) -> str:
-    """Разделять transient-state импорта между проектами, не меняя identity сохранённых данных."""
     return f"p{int(project_id)}_{str(token)}"
 
 
+def _render_recent_import_undo(project_id: int) -> None:
+    """Offer a safe membership-only undo immediately after import.
+
+    This intentionally does NOT delete the global dataset, analyses or source files.
+    It only removes the freshly imported working datasets from the active project.
+    """
+    recent_target = st.session_state.get("workflow_recent_import_target")
+    try:
+        if recent_target is None or int(recent_target) != int(project_id):
+            return
+    except (TypeError, ValueError):
+        return
+    recent: list[int] = []
+    for value in st.session_state.get("workflow_recent_dataset_ids", []) or []:
+        try:
+            dataset_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if dataset_id not in recent:
+            recent.append(dataset_id)
+    if not recent:
+        return
+    accessible = {int(item["id"]): item for item in list_accessible_datasets(int(project_id))}
+    linked = [dataset_id for dataset_id in recent if dataset_id in accessible]
+    if not linked:
+        return
+    names = [str(accessible[dataset_id].get("name") or f"Набор {dataset_id}") for dataset_id in linked]
+    with st.container(border=True):
+        st.markdown("**Последний импорт**")
+        st.caption(" · ".join(names[:6]) + (" …" if len(names) > 6 else ""))
+        st.caption(
+            "«Отменить импорт» безопасно уберёт эти наборы только из текущего проекта. "
+            "Исходные файлы, анализы и общая библиотека останутся на месте."
+        )
+        if st.button(
+            "↶ Отменить этот импорт",
+            key=f"undo_recent_import_{project_id}",
+            width="stretch",
+        ):
+            for dataset_id in linked:
+                unlink_dataset_from_project(int(project_id), int(dataset_id))
+            st.session_state.pop("workflow_recent_dataset_ids", None)
+            st.session_state.pop("workflow_recent_import_target", None)
+            st.success(f"Убрано из проекта наборов: {len(linked)}. Данные в общей базе сохранены.")
+            st.rerun()
+
+
 def _render_table_with_locked_provenance(original_table, project_id: int, name: str, data: bytes, token: str):
-    """Не позволять уже записанному внешнему provenance тихо смениться в той же intake-сессии."""
     source_widget_key = f"universal_source_kind_{token}"
     study_key = f"universal_study_id_{token}"
     lock_key = f"universal_locked_source_kind_{token}"
@@ -72,8 +113,6 @@ def render_add_data_page() -> None:
         if int(target_project_id) != project_id:
             raise ValueError("Контекст универсального импорта сменился между рендерами")
 
-        # В обычном режиме staging должен сохранить тот же provenance-lock,
-        # который действует у безопасного импорта без структурных преобразований.
         original_staged_provenance = _staged.render_table_import_with_provenance
 
         def locked_provenance(base_original, pid: int, filename: str, raw: bytes, intake_token: str):
@@ -101,6 +140,8 @@ def render_add_data_page() -> None:
         _universal._render_table_import = original_table
         _universal._render_image_wizard = original_images
 
+    _render_recent_import_undo(project_id)
+
 
 def render_quick_import_page() -> None:
     _quick_import.render_quick_import_page()
@@ -109,6 +150,7 @@ def render_quick_import_page() -> None:
     if not completed or project is None:
         return
     project_id = int(project["id"])
+    _render_recent_import_undo(project_id)
     recent_target = st.session_state.get("workflow_recent_import_target")
     if recent_target is not None:
         try:
@@ -124,7 +166,7 @@ def render_quick_import_page() -> None:
     st.markdown("### Следующий естественный шаг")
     st.caption(
         "Если к этим анализам есть BSE, EDS-карты или фотографии, их можно привязать сейчас. "
-        "Если фотографии относятся к нескольким автоматически разобранным фазовым наборам, откройте «Добавить данные → Универсальный +»: там dataset выбирается отдельно для каждого изображения."
+        "Если фотографии относятся к нескольким автоматически разобранным фазовым наборам, откройте «Добавить данные»: там dataset выбирается отдельно для каждого изображения."
     )
     dataset_id = st.selectbox(
         "К какому рабочему набору относятся фотографии",
