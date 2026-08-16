@@ -3,16 +3,16 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.analysis_groups import WORK_GROUP_COLUMN, list_work_groups, set_work_group
-from petrolab.dataframe_utils import display_value, row_identity
-from petrolab.group_envelopes import compute_group_envelope
+from petrolab.analysis_groups import WORK_GROUP_COLUMN
+from petrolab.dataframe_utils import display_value, human_point_label
 from petrolab.interactive_plotting import build_interactive_scatter, selected_analysis_ids
 from petrolab.outliers import OutlierResult, apply_numeric_ranges, exclude_analysis_ids, robust_outliers
 from petrolab.plotting import MARKERS
 from petrolab.settings_service import load_settings
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.ui.components import collect_related_images, render_asset_gallery
-from petrolab.ui.plot_actions import clear_work_group
+from petrolab.ui.selection_components import render_selection_mode, render_selection_panel
+from petrolab.ui.selection_context import read_row_states, read_selection, set_selection
 
 
 GROUP_COLORS = (
@@ -84,10 +84,8 @@ def point_label(row: pd.Series) -> str:
     source = row.get(SOURCE_LABEL_COLUMN, "")
     if pd.isna(source) or not str(source).strip():
         source = row.get("Источник", "")
-    return (
-        f"{row_identity(row)} · {source} · "
-        f"строка {row.get('_source_row', '—')} · {str(row.get('_analysis_id', ''))[:8]}"
-    )
+    label = human_point_label(row)
+    return f"{label} · {source}" if str(source).strip() else label
 
 
 def grouped_outliers(
@@ -240,21 +238,61 @@ def sanitize_xy_rows(dataframe: pd.DataFrame, x: str, y: str, *, log_x: bool = F
     return work
 
 
-def render_quick_interactive(dataframe: pd.DataFrame, x: str, y: str, group_column: str | None, *, x_label: str, y_label: str, title: str, log_x: bool, log_y: bool, styles: dict) -> None:
+def _plot_interaction_controls(key_prefix: str) -> tuple[str, str | bool]:
+    left, right = st.columns([1.3, 1])
+    with left:
+        tool = st.segmented_control(
+            "Инструмент",
+            ["Точка", "Прямоугольник", "Лассо", "Панорама"],
+            default="Лассо",
+            key=f"{key_prefix}_tool",
+        )
+    with right:
+        mode = render_selection_mode(key_prefix=key_prefix)
+    dragmode: str | bool = {
+        "Точка": False,
+        "Прямоугольник": "select",
+        "Лассо": "lasso",
+        "Панорама": "pan",
+    }.get(str(tool or "Лассо"), "lasso")
+    return mode, dragmode
+
+
+def _visible_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
+    states = read_row_states()
+    if dataframe.empty or not states.hidden or "_analysis_id" not in dataframe.columns:
+        return dataframe
+    hidden = set(states.hidden)
+    return dataframe[~dataframe["_analysis_id"].astype(str).isin(hidden)].copy()
+
+
+def render_quick_interactive(dataframe: pd.DataFrame, x: str, y: str, group_column: str | None, *, x_label: str, y_label: str, title: str, log_x: bool, log_y: bool, styles: dict, project_id: int | None = None) -> None:
     st.subheader("Интерактивный график")
-    st.caption("Наведите курсор для компактных координат и свойств. Кликните точку или выделите область; для исключений используйте расширенный редактор.")
-    figure = build_interactive_scatter(dataframe, x, y, group_column, x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y, style_map=styles)
-    event = st.plotly_chart(figure, width="stretch", theme=None, key="petrolab_quick_interactive_plot", on_select="rerun", selection_mode=("points", "box", "lasso"), config={"displaylogo": False, "scrollZoom": True})
-    selected_ids = selected_analysis_ids(event)
-    if selected_ids:
-        st.caption(f"Выбрано точек: {len(selected_ids)}.")
+    st.caption("Отбор связан с таблицей и другими графиками. Hide, Exclude, Work Group и Generation — отдельные действия.")
+    mode, dragmode = _plot_interaction_controls("quick_xy")
+    visible = _visible_rows(dataframe)
+    context = read_selection()
+    figure = build_interactive_scatter(
+        visible, x, y, group_column,
+        x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y,
+        style_map=styles, selected_ids=context.analysis_ids, dragmode=dragmode,
+    )
+    event = st.plotly_chart(
+        figure, width="stretch", theme=None, key="petrolab_quick_interactive_plot",
+        on_select="rerun", selection_mode=("points", "box", "lasso"),
+        config={"displaylogo": False, "scrollZoom": True},
+    )
+    incoming = selected_analysis_ids(event)
+    if incoming:
+        set_selection(incoming, origin="XY", mode=mode)
+    render_selection_panel(dataframe, project_id=project_id, key_prefix="quick_xy_selection")
 
 
 def _render_selected_analysis(dataframe: pd.DataFrame, selected_ids: list[str], project_id: int, x: str, y: str) -> None:
     selected = dataframe[dataframe["_analysis_id"].astype(str).isin(selected_ids)].copy()
     if selected.empty:
         return
-    summary = [column for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, x, y, "Набор", "Источник", "_source_row"] if column in selected.columns]
+    summary = [column for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, x, y, "Набор", "Источник"] if column in selected.columns]
     st.markdown(f"**Выбрано точек: {len(selected)}**")
     st.dataframe(selected[summary].head(1000), width="stretch", hide_index=True, height=240)
     point_map = {point_label(row): str(row["_analysis_id"]) for _, row in selected.iterrows()}
@@ -287,130 +325,80 @@ def _field_editor(dataframe: pd.DataFrame, x: str, y: str, group_column: str | N
         if isinstance(saved, dict):
             styles.setdefault(name, {}).update(saved)
 
-    with st.expander("Оформление и ручная коррекция полей", expanded=False):
-        st.caption(
-            "Цвет, прозрачность и контур не меняют метод расчёта. Если изменить узлы геометрии, "
-            "поле помечается как manual; исходный hull/ellipse/KDE остаётся доступным для возврата."
-        )
-        chosen = st.selectbox("Группа / генерация", group_names, key="field_editor_group")
+    with st.expander("Поля групп", expanded=False):
+        st.caption("Редактируйте научный метод и оформление поля. Таблица координат вершин больше не является обычным способом работы.")
+        chosen = st.selectbox("Группа / Generation", group_names, key="field_editor_group")
         style = styles.setdefault(chosen, {})
-        group_mask = groups == chosen
-        subset = dataframe.loc[group_mask].copy()
-        base_color = str(style.get("color", "#636EFA"))
-
+        method_options = {
+            "Confidence ellipse": "confidence_ellipse",
+            "Convex hull": "convex_hull",
+            "KDE": "kde",
+        }
+        reverse = {value: key for key, value in method_options.items()}
+        method_label = st.selectbox(
+            "Метод поля",
+            list(method_options),
+            index=list(method_options).index(reverse.get(str(style.get("envelope_method", "confidence_ellipse")), "Confidence ellipse")),
+            key=f"field_method_{chosen}",
+        )
+        level = st.slider(
+            "Уровень / покрытие",
+            min_value=0.50,
+            max_value=0.99,
+            value=float(style.get("envelope_level", 0.90) or 0.90),
+            step=0.01,
+            key=f"field_level_{chosen}",
+        )
         c1, c2, c3 = st.columns(3)
-        fill_enabled = c1.checkbox("Заливка поля", value=bool(style.get("envelope_fill", True)), key=f"field_fill_{chosen}")
-        fill_color = c2.color_picker("Цвет заливки", value=str(style.get("envelope_fill_color") or base_color), key=f"field_fill_color_{chosen}")
-        fill_alpha = c3.slider("Прозрачность заливки", 0.0, 1.0, float(style.get("envelope_alpha", 0.16) or 0.0), 0.02, key=f"field_alpha_{chosen}")
-
-        l1, l2, l3 = st.columns(3)
-        line_color = l1.color_picker("Цвет контура поля", value=str(style.get("envelope_line_color") or base_color), key=f"field_line_color_{chosen}")
-        line_width = l2.number_input("Толщина контура", min_value=0.0, max_value=8.0, value=float(style.get("envelope_line_width", 1.5) or 0.0), step=0.25, key=f"field_line_width_{chosen}")
+        fill_enabled = c1.checkbox("Заливка", value=bool(style.get("envelope_fill", True)), key=f"field_fill_{chosen}")
+        fill_alpha = c2.slider("Alpha", 0.0, 1.0, float(style.get("envelope_alpha", 0.16) or 0.0), 0.02, key=f"field_alpha_{chosen}")
+        line_width = c3.number_input("Контур, px", 0.0, 8.0, float(style.get("envelope_line_width", 1.5) or 0.0), 0.25, key=f"field_line_width_{chosen}")
         dash_options = ["solid", "dash", "dot", "dashdot"]
         current_dash = str(style.get("envelope_line_dash", "solid") or "solid")
         if current_dash not in dash_options:
             current_dash = "solid"
-        line_dash = l3.selectbox("Линия", dash_options, index=dash_options.index(current_dash), key=f"field_line_dash_{chosen}")
-
+        line_dash = st.selectbox("Тип линии", dash_options, index=dash_options.index(current_dash), key=f"field_line_dash_{chosen}")
         style.update({
-            "envelope_fill": fill_enabled,
-            "envelope_fill_color": fill_color,
-            "envelope_alpha": fill_alpha,
-            "envelope_line_color": line_color,
-            "envelope_line_width": line_width,
+            "envelope_method": method_options[method_label],
+            "envelope_level": float(level),
+            "envelope_fill": bool(fill_enabled),
+            "envelope_alpha": float(fill_alpha),
+            "envelope_line_width": float(line_width),
             "envelope_line_dash": line_dash,
         })
 
-        method = str(style.get("envelope_method", "confidence_ellipse") or "confidence_ellipse")
-        level = float(style.get("envelope_level", 0.90) or 0.90)
         manual_points = style.get("manual_envelope_points")
         manual_active = isinstance(manual_points, list) and len(manual_points) >= 3
-
         if manual_active:
-            st.warning(f"Поле «{chosen}» сейчас ручное. Исходное расчётное поле: {method}, уровень {level:.0%}.")
-            initial_points = manual_points
-        else:
-            try:
-                result = compute_group_envelope(subset, x, y, method=method, level=level)
-                initial_points = result.polygons[0].tolist() if result.polygons else []
-            except Exception:
-                initial_points = []
-
-        manual_mode = st.checkbox("Редактировать геометрию вручную", value=manual_active, key=f"field_manual_mode_{chosen}")
-        if manual_mode and initial_points:
-            vertices = pd.DataFrame(initial_points, columns=[x, y])
-            edited = st.data_editor(
-                vertices,
-                width="stretch",
-                hide_index=False,
-                num_rows="dynamic",
-                column_config={
-                    x: st.column_config.NumberColumn(x, format="%.6g"),
-                    y: st.column_config.NumberColumn(y, format="%.6g"),
-                },
-                key=f"field_vertices_{chosen}",
-            )
-            edited[x] = pd.to_numeric(edited[x], errors="coerce")
-            edited[y] = pd.to_numeric(edited[y], errors="coerce")
-            edited = edited.dropna(subset=[x, y])
-            if len(edited) >= 3:
-                points = edited[[x, y]].astype(float).values.tolist()
-                style["manual_envelope_points"] = points
-                style["envelope_geometry_status"] = "manual"
-                style["envelope_original_method"] = method
-                style["envelope_original_level"] = level
-                st.caption(f"Ручной контур: {len(points)} узлов. Эти координаты сохранятся в рецепте и SVG/PNG.")
-            else:
-                st.error("Для ручного поля нужно минимум три узла.")
-        elif not manual_mode:
-            style.pop("manual_envelope_points", None)
-            style.pop("envelope_geometry_status", None)
-
-        reset_col, info_col = st.columns([1, 2])
-        if reset_col.button("Вернуть расчётное поле", key=f"reset_manual_field_{chosen}", disabled=not manual_active):
-            style.pop("manual_envelope_points", None)
-            style.pop("envelope_geometry_status", None)
-            overrides[chosen] = {key: value for key, value in style.items() if key.startswith("envelope_")}
-            st.rerun()
-        info_col.caption("Ручная форма никогда не обозначается как статистическая confidence/KDE-граница.")
-
-        overrides[chosen] = {key: value for key, value in style.items() if key.startswith("envelope_") or key == "manual_envelope_points"}
+            st.warning("У этой группы сохранился старый ручной polygon. Он используется как manual, а не выдаётся за confidence/KDE-границу.")
+            if st.button("Вернуть расчётное поле", key=f"reset_manual_field_{chosen}"):
+                style.pop("manual_envelope_points", None)
+                style.pop("envelope_geometry_status", None)
+                st.rerun()
+        overrides[chosen] = {
+            key: value for key, value in style.items()
+            if key.startswith("envelope_") or key == "manual_envelope_points"
+        }
 
 
 def render_advanced_interactive(dataframe: pd.DataFrame, project_id: int, x: str, y: str, group_column: str | None, *, x_label: str, y_label: str, title: str, log_x: bool, log_y: bool, styles: dict) -> None:
     st.subheader("Интерактивный отбор точек")
-    st.caption("Наведите курсор для свойств. Кликните точку или выделите несколько рамкой/лассо. Исключения относятся только к текущему графику.")
+    st.caption("Выберите точки один раз и проверяйте тот же analysis_id-набор на других диаграммах и в статистике.")
     _field_editor(dataframe, x, y, group_column, styles)
-    figure = build_interactive_scatter(dataframe, x, y, group_column, x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y, style_map=styles)
-    event = st.plotly_chart(figure, width="stretch", theme=None, key="petrolab_advanced_interactive_plot", on_select="rerun", selection_mode=("points", "box", "lasso"), config={"displaylogo": False, "scrollZoom": True})
-    selected_ids = selected_analysis_ids(event)
-    active_excluded = [str(value) for value in st.session_state.get("plot_interactive_excluded_ids", [])]
-    if active_excluded:
-        st.caption(f"Интерактивно исключено: {len(active_excluded)} точек.")
-    if selected_ids:
-        action1, action2 = st.columns(2)
-        if action1.button(f"Скрыть выбранные на этом графике ({len(selected_ids)})", type="primary", key="exclude_plot_selection", width="stretch"):
-            st.session_state.plot_interactive_excluded_ids = sorted(set(active_excluded) | set(selected_ids))
-            st.rerun()
-        existing_groups = list_work_groups()
-        group_choice = action2.selectbox("Рабочая группа", ["Новая группа…"] + existing_groups, key="selected_work_group_choice")
-        new_group_name = ""
-        if group_choice == "Новая группа…":
-            new_group_name = st.text_input("Название новой рабочей группы", key="selected_work_group_name", placeholder="например, предполагаемые ксенокристы")
-        target_group = new_group_name.strip() if group_choice == "Новая группа…" else group_choice
-        g1, g2 = st.columns(2)
-        if g1.button("Назначить группу выбранным", disabled=not target_group, key="assign_work_group", width="stretch"):
-            changed = set_work_group(selected_ids, target_group)
-            st.success(f"Рабочая группа назначена для {changed} точек.")
-            st.rerun()
-        if g2.button("Убрать рабочую группу", key="clear_work_group", width="stretch"):
-            changed = clear_work_group(selected_ids)
-            if changed:
-                st.success(f"Рабочая группа очищена у {changed} точек.")
-                st.rerun()
-        _render_selected_analysis(dataframe, selected_ids, project_id, x, y)
-    else:
-        st.caption("Чтобы открыть анализ и изображения, выберите точку на графике.")
-    if active_excluded and st.button("Вернуть все скрытые на графике точки", key="restore_plot_selection"):
-        st.session_state.plot_interactive_excluded_ids = []
-        st.rerun()
+    mode, dragmode = _plot_interaction_controls("advanced_xy")
+    visible = _visible_rows(dataframe)
+    context = read_selection()
+    figure = build_interactive_scatter(
+        visible, x, y, group_column,
+        x_label=x_label, y_label=y_label, title=title, log_x=log_x, log_y=log_y,
+        style_map=styles, selected_ids=context.analysis_ids, dragmode=dragmode,
+    )
+    event = st.plotly_chart(
+        figure, width="stretch", theme=None, key="petrolab_advanced_interactive_plot",
+        on_select="rerun", selection_mode=("points", "box", "lasso"),
+        config={"displaylogo": False, "scrollZoom": True},
+    )
+    incoming = selected_analysis_ids(event)
+    if incoming:
+        set_selection(incoming, origin="XY", mode=mode)
+    render_selection_panel(dataframe, project_id=int(project_id), key_prefix="advanced_xy_selection")
