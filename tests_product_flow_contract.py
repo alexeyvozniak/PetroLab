@@ -18,6 +18,7 @@ def main() -> None:
         "def consume_plot_scope(",
         "def clear_exact_plot_scope(",
         "def seed_plot_handoff(",
+        "def xy_recommendations(",
         "_petrolab_plot_scope_analysis_ids",
         "_petrolab_plot_scope_dataset_ids",
         'state.pop("_plots_show_advanced", None)',
@@ -47,10 +48,22 @@ def main() -> None:
     # Progressive XY is mandatory: no front-door mode split before seeing a graph.
     for obsolete in ["Быстрое построение", "Расширенный редактор", "Режим XY"]:
         assert obsolete not in plots, obsolete
-    assert '"＋ Добавить диаграмму"' in plots
-    assert '"Настроить подробнее"' in plots
+    for marker in [
+        "xy_recommendations(",
+        '"График"',
+        '"Рекомендовано ·',
+        '"Другой график ·',
+        '"Свои оси"',
+        '"⇄"',
+        '"＋ Добавить диаграмму"',
+        '"Настроить подробнее"',
+        'st.expander("Экспорт и публикация"',
+    ]:
+        assert marker in plots, marker
+    assert "_mark_custom_axes" in plots, "manual axes must opt out of recommendation ownership"
+    assert "_swap_quick_axes" in plots, "axis swap must be one action"
 
-    print("IgPet/ioGAS exact scientific handoff contract: OK")
+    print("IgPet/ioGAS exact scientific handoff + compact workbench contract: OK")
 
 
 if __name__ == "__main__":
