@@ -1,0 +1,51 @@
+name: v0.15.8 master backlog regression
+
+on:
+  pull_request:
+    paths:
+      - 'petrolab/table_views.py'
+      - 'petrolab/ui/table_view_state.py'
+      - 'petrolab/ui/analysis_table.py'
+      - 'petrolab/ui/selection_context.py'
+      - 'petrolab/ui/plot_spec.py'
+      - 'petrolab/ui/plot_manager.py'
+      - 'petrolab/ui/panel_manager.py'
+      - 'petrolab/ui/pages/**'
+      - 'tests_v0158_*.py'
+      - '.github/workflows/v0158-master-backlog.yml'
+      - 'docs/MASTER_BACKLOG_V0158_PLUS.md'
+  workflow_dispatch:
+
+jobs:
+  master-backlog:
+    runs-on: windows-latest
+    env:
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      NUMEXPR_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile changed product core
+        run: >-
+          python -m py_compile
+          petrolab/table_views.py
+          petrolab/ui/table_view_state.py
+          petrolab/ui/analysis_table.py
+          petrolab/ui/selection_context.py
+          petrolab/ui/plot_spec.py
+      - name: Run saved-view state and persistence tests
+        run: python tests_v0158_table_views.py
+      - name: Run linked-selection gate
+        run: python tests_v0157_linked_selection.py
+      - name: Run UI architecture contract
+        run: python tests_ui_layout.py
+      - name: Run Streamlit workflow smoke
+        run: python tests_streamlit.py
