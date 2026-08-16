@@ -37,6 +37,9 @@ Name: "{userdocs}\PetroLab Data"
 Name: "{app}\logs"
 
 [Files]
+; Extracted by PrepareToInstall before normal file-in-use checks. Keep this first
+; because solid compression otherwise makes temporary extraction unnecessarily slow.
+Source: "shutdown_petrolab.ps1"; Flags: dontcopy noencryption
 Source: "..\dist\payload\current\*"; DestDir: "{app}\current"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\payload\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\PetroLab.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -64,3 +67,43 @@ Type: filesandordirs; Name: "{app}\runtime.previous"
 Type: filesandordirs; Name: "{app}\update-staging"
 Type: filesandordirs; Name: "{app}\logs"
 Type: files; Name: "{app}\petrolab-server.state"
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ScriptPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  try
+    ExtractTemporaryFile('shutdown_petrolab.ps1');
+    ScriptPath := ExpandConstant('{tmp}\shutdown_petrolab.ps1');
+    Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ScriptPath +
+      '" -InstallRoot "' + ExpandConstant('{app}') + '"';
+
+    Log('Stopping any PetroLab runtime owned by ' + ExpandConstant('{app}') + ' before upgrade.');
+    if not Exec(
+      ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+    begin
+      Result := 'Не удалось запустить безопасное завершение PetroLab перед обновлением: ' +
+        SysErrorMessage(ResultCode);
+      Exit;
+    end;
+
+    if ResultCode <> 0 then
+    begin
+      Result := 'PetroLab не удалось корректно завершить перед обновлением. ' +
+        'Закройте приложение и повторите установку. Код: ' + IntToStr(ResultCode);
+      Exit;
+    end;
+  except
+    Result := 'Не удалось подготовить PetroLab к обновлению: ' + GetExceptionMessage;
+  end;
+end;
