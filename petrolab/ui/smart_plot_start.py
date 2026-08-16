@@ -5,6 +5,7 @@ from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 from petrolab.smart_start import PlotRecommendation, recommendations
 from petrolab.ui.plot_spec import CURRENT_PLOT_SPEC_KEY, PlotSpec
+from petrolab.ui.work_context import WORK_CONTEXT_REVISION_KEY
 
 
 _PLOT_SCOPE_PROJECT_KEY = "_petrolab_plot_scope_project_id"
@@ -12,6 +13,7 @@ _PLOT_SCOPE_DATASETS_KEY = "_petrolab_plot_scope_dataset_ids"
 _PLOT_SCOPE_ANALYSES_KEY = "_petrolab_plot_scope_analysis_ids"
 _PLOT_SCOPE_CONTEXT_KEY = "_petrolab_plot_scope_context"
 _PLOT_SCOPE_LABEL_KEY = "_petrolab_plot_scope_label"
+_PLOT_SCOPE_WORK_REVISION_KEY = "_petrolab_plot_scope_work_context_revision"
 _WORK_CONTEXT_SIGNATURE_KEY = "_petrolab_plot_work_context_signature"
 QUICK_CUSTOM_GRAPH_CHOICE = "__custom_axes__"
 
@@ -70,6 +72,13 @@ def _work_context_signature(context: Mapping[str, Any] | None) -> tuple[Any, ...
     )
 
 
+def _work_context_revision(state: Mapping[str, Any]) -> int:
+    try:
+        return int(state.get(WORK_CONTEXT_REVISION_KEY, 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def resolve_plot_scope(
     *,
     available_dataset_ids: Iterable[int],
@@ -123,6 +132,7 @@ def _clear_persisted_plot_scope(state: MutableMapping[str, Any]) -> None:
         _PLOT_SCOPE_ANALYSES_KEY,
         _PLOT_SCOPE_CONTEXT_KEY,
         _PLOT_SCOPE_LABEL_KEY,
+        _PLOT_SCOPE_WORK_REVISION_KEY,
     ):
         state.pop(key, None)
 
@@ -166,8 +176,8 @@ def consume_plot_scope(
 
     Streamlit reruns after every widget interaction. A transient ``pop``-only handoff
     therefore shows the right point Selection once and can broaden on the very next
-    click. This function persists the resolved graph membership separately from the
-    global WorkContext until another explicit plot handoff or project change occurs.
+    click. Explicit graph membership persists until another explicit handoff, a
+    project change, or a materially new WorkContext becomes authoritative.
     """
     stored_project = state.get(_PLOT_SCOPE_PROJECT_KEY)
     try:
@@ -200,23 +210,33 @@ def consume_plot_scope(
         state[_PLOT_SCOPE_ANALYSES_KEY] = list(scope.analysis_ids)
         state[_PLOT_SCOPE_CONTEXT_KEY] = dict(scope.context)
         state[_PLOT_SCOPE_LABEL_KEY] = scope.context_label
+        state[_PLOT_SCOPE_WORK_REVISION_KEY] = _work_context_revision(state)
         return scope
 
     if state.get(_PLOT_SCOPE_PROJECT_KEY) is not None:
-        stored_context = state.get(_PLOT_SCOPE_CONTEXT_KEY)
-        scope = resolve_plot_scope(
-            available_dataset_ids=available_dataset_ids,
-            requested_dataset_ids=state.get(_PLOT_SCOPE_DATASETS_KEY, ()),
-            requested_analysis_ids=state.get(_PLOT_SCOPE_ANALYSES_KEY, ()),
-            requested_context=stored_context if isinstance(stored_context, Mapping) else {},
-        )
-        return ResolvedPlotScope(
-            dataset_ids=scope.dataset_ids,
-            analysis_ids=scope.analysis_ids,
-            context=scope.context,
-            context_label=str(state.get(_PLOT_SCOPE_LABEL_KEY) or scope.context_label),
-            explicit=True,
-        )
+        stored_revision = _work_context_revision({WORK_CONTEXT_REVISION_KEY: state.get(_PLOT_SCOPE_WORK_REVISION_KEY, 0)})
+        current_revision = _work_context_revision(state)
+        if stored_revision != current_revision:
+            # The user moved to another Sample/dataset/thin section after creating
+            # this exact graph scope. The newly selected WorkContext becomes the
+            # authoritative universe; stale search/Selection membership is retired.
+            _clear_persisted_plot_scope(state)
+            reset_quick_plot_presentation(state)
+        else:
+            stored_context = state.get(_PLOT_SCOPE_CONTEXT_KEY)
+            scope = resolve_plot_scope(
+                available_dataset_ids=available_dataset_ids,
+                requested_dataset_ids=state.get(_PLOT_SCOPE_DATASETS_KEY, ()),
+                requested_analysis_ids=state.get(_PLOT_SCOPE_ANALYSES_KEY, ()),
+                requested_context=stored_context if isinstance(stored_context, Mapping) else {},
+            )
+            return ResolvedPlotScope(
+                dataset_ids=scope.dataset_ids,
+                analysis_ids=scope.analysis_ids,
+                context=scope.context,
+                context_label=str(state.get(_PLOT_SCOPE_LABEL_KEY) or scope.context_label),
+                explicit=True,
+            )
 
     # WorkContext is the fallback universe only when no explicit graph scope exists.
     # A different WorkContext is also a new scientific question, so presentation is
