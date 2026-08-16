@@ -10,19 +10,16 @@ import pandas as pd
 
 def seed_database(base: Path) -> None:
     os.environ["PETROLAB_DATA_DIR"] = str(base / "data")
-    from petrolab.db import (
-        add_dataset,
-        create_project,
-        ensure_storage,
-        replace_dataset_rows,
-        save_plot_recipe,
-    )
+    from petrolab.db import add_dataset, create_project, ensure_storage, replace_dataset_rows
     from petrolab.repositories.rock_repository import create_rock, replace_composition
 
     ensure_storage()
     project_id = create_project("UI smoke", "Streamlit AppTest")
     frame = pd.DataFrame({
-        "Sample": ["A1", "A2", "A3"], "Generation": ["core", "rim", "core"],
+        "Sample": ["A1", "A2", "A3"],
+        "Grain": ["G1", "G1", "G1"],
+        "Point": ["P1", "P2", "P3"],
+        "Generation": ["core", "rim", "core"],
         "SiO2": [40.0, 41.0, 42.0], "Al2O3": [12.0, 13.0, 14.0],
         "TiO2": [3.0, 4.0, 5.0], "MgO": [20.0, 19.0, 18.0],
         "FeOt": [8.0, 9.0, 10.0], "K2O": [10.0, 10.0, 10.0],
@@ -38,11 +35,6 @@ def seed_database(base: Path) -> None:
         header_row=1, column_map={}, sync_enabled=False,
     )
     replace_dataset_rows(dataset_id, frame, source_rows=[2, 3, 4])
-    save_plot_recipe(
-        "UI destructive recipe",
-        {"x": "SiO2", "y": "TiO2", "dataset_ids": [dataset_id]},
-        project_id,
-    )
     rock_id = create_rock(project_id, "UI rock", massif="Kola", lithology="lamprophyre")
     replace_composition(
         rock_id,
@@ -62,58 +54,54 @@ def assert_single_project_context(app, page: str) -> None:
     assert not duplicates, f"Page {page!r} rendered a second project selector despite the sidebar context"
 
 
-def open_page(app, label: str) -> None:
-    buttons = {button.label: button for button in app.sidebar.button}
-    if label not in buttons:
-        raise AssertionError(f"Sidebar route not found: {label}; available={list(buttons)}")
-    buttons[label].click()
+def _sidebar_button(app, label: str):
+    for button in app.sidebar.button:
+        if button.label == label:
+            return button
+    raise AssertionError(
+        f"Sidebar route not found: {label}; available={[button.label for button in app.sidebar.button]}"
+    )
+
+
+def open_page(app, label: str, expected_route: str) -> None:
+    _sidebar_button(app, label).click()
     app.run(timeout=30)
     assert_no_exceptions(app, label)
     assert_single_project_context(app, label)
-
-
-def _selectbox(app, label: str):
-    for widget in app.selectbox:
-        if widget.label == label:
-            return widget
-    raise AssertionError(f"Selectbox not found: {label}")
-
-
-def _button(app, label: str):
-    for widget in app.button:
-        if widget.label == label:
-            return widget
-    raise AssertionError(f"Button not found: {label}")
-
-
-def assert_recipe_delete_requires_second_click(app) -> None:
-    from petrolab.db import list_plot_recipes
-
-    open_page(app, "XY-диаграммы")
-    selector = _selectbox(app, "Загрузить рецепт")
-    option = next(value for value in selector.options if str(value).startswith("UI destructive recipe"))
-    selector.set_value(option)
-    app.run(timeout=30)
-    assert_no_exceptions(app, "XY-диаграммы / recipe selection")
-
-    before = list_plot_recipes()
-    assert any(record["name"] == "UI destructive recipe" for record in before)
-    _button(app, "Удалить рецепт").click()
-    app.run(timeout=30)
-    assert_no_exceptions(app, "XY-диаграммы / first delete click")
-    after_first = list_plot_recipes()
-    assert any(record["name"] == "UI destructive recipe" for record in after_first), (
-        "First destructive click must not delete the recipe"
-    )
-    assert any("Удаление рецепта" in str(item.value) for item in app.warning), (
-        "First destructive click must expose a confirmation warning"
+    assert str(app.session_state["nav_route"]) == expected_route, (
+        label, app.session_state["nav_route"]
     )
 
-    _button(app, "Удалить рецепт").click()
+
+def assert_primary_navigation(app) -> None:
+    expected = [
+        "Главная", "Данные", "Графики", "Статистика", "Шлифы и изображения",
+        "Расчёты", "Публикация", "Поиск", "Настройки",
+    ]
+    actual = [button.label for button in app.sidebar.button]
+    missing = [label for label in expected if label not in actual]
+    assert not missing, f"Primary task navigation is incomplete: {missing}; actual={actual}"
+    for legacy in ["Минералогические модули", "Быстрый импорт", "Новые анализы", "Редактор пород"]:
+        assert legacy not in actual, f"Implementation route leaked into primary sidebar: {legacy}"
+
+
+def assert_back_restores_route(app) -> None:
+    open_page(app, "Данные", "workspace")
+    open_page(app, "Графики", "plots")
+    _sidebar_button(app, "← Назад").click()
     app.run(timeout=30)
-    assert_no_exceptions(app, "XY-диаграммы / confirmed recipe delete")
-    after_second = list_plot_recipes()
-    assert not any(record["name"] == "UI destructive recipe" for record in after_second)
+    assert_no_exceptions(app, "Back to Data")
+    assert str(app.session_state["nav_route"]) == "workspace", app.session_state["nav_route"]
+
+
+def assert_hidden_routes_remain_addressable(app) -> None:
+    # Compatibility routes are intentionally not menu items, but old recipes and
+    # contextual actions can still navigate to them.
+    for route in ["formulae", "generations", "grain_profile", "multi_panel"]:
+        app.session_state["nav_route"] = route
+        app.run(timeout=30)
+        assert_no_exceptions(app, f"hidden route {route}")
+        assert str(app.session_state["nav_route"]) == route
 
 
 def main() -> None:
@@ -127,17 +115,24 @@ def main() -> None:
         app = AppTest.from_file("app.py", default_timeout=30).run(timeout=30)
         assert_no_exceptions(app, "Главная")
         assert_single_project_context(app, "Главная")
-        assert_recipe_delete_requires_second_click(app)
+        assert_primary_navigation(app)
+        assert_back_restores_route(app)
+
         pages = [
-            "Главная", "Новые анализы", "База анализов", "Расчёты",
-            "XY-диаграммы", "Треугольные", "Научные диаграммы", "Статистика",
-            "Породы", "Изображения", "Минералогические модули",
-            "Таблицы для статьи", "Экспорт", "Проекты", "Настройки",
-            "Справка", "Что нового", "История правок данных",
+            ("Главная", "home"),
+            ("Данные", "workspace"),
+            ("Графики", "plots"),
+            ("Статистика", "statistics"),
+            ("Шлифы и изображения", "thin_section"),
+            ("Расчёты", "calculate"),
+            ("Публикация", "publish"),
+            ("Поиск", "search"),
+            ("Настройки", "settings"),
         ]
-        for page in pages:
-            open_page(app, page)
-        print("streamlit UI smoke test: OK")
+        for label, route in pages:
+            open_page(app, label, route)
+        assert_hidden_routes_remain_addressable(app)
+        print("streamlit linked-workflow smoke test: OK")
     finally:
         app = None
         gc.collect()
