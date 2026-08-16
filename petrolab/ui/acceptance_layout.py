@@ -11,6 +11,11 @@ leave too little room for scientific content. Rules are structural and keep data
 semantics untouched; current Chromium/Firefox/Safari support :has().
 */
 
+/* Leave the page eyebrow/context fully below Streamlit's fixed header. */
+.block-container {
+  padding-top: 1.55rem !important;
+}
+
 /* Home: do not squeeze seven quick actions into unreadable buttons on laptops. */
 @media (min-width: 768px) and (max-width: 1150px) {
   [data-testid="stHorizontalBlock"]:has(.st-key-home_workspace) {
