@@ -79,6 +79,8 @@ def test_exact_selection_scope_survives_streamlit_reruns_until_explicitly_broade
     assert first.analysis_ids == ("a2", "a4")
     assert first.context_label == "Selection · 2 точек"
 
+    state["quick_log_x"] = True
+    state["quick_plot_visibility_filters"] = {"source": ["Paper A"]}
     second = consume_plot_scope(
         state,
         project_id=5,
@@ -88,6 +90,9 @@ def test_exact_selection_scope_survives_streamlit_reruns_until_explicitly_broade
     assert second.dataset_ids == (10, 11)
     assert second.analysis_ids == ("a2", "a4")
     assert second.explicit is True
+    # Ordinary reruns of the same exact graph preserve presentation.
+    assert state["quick_log_x"] is True
+    assert state["quick_plot_visibility_filters"] == {"source": ["Paper A"]}
 
     clear_exact_plot_scope(state)
     broadened = consume_plot_scope(
@@ -100,11 +105,51 @@ def test_exact_selection_scope_survives_streamlit_reruns_until_explicitly_broade
     assert broadened.analysis_ids == ()
 
 
-def test_project_change_drops_persisted_plot_scope_instead_of_leaking_ids():
+def test_work_context_change_resets_old_log_source_and_series_presentation_once():
+    state = {}
+    first = consume_plot_scope(
+        state,
+        project_id=1,
+        available_dataset_ids=[10, 11],
+        work_context={"dataset_ids": [10], "analysis_ids": ["a1"], "label": "Sample A"},
+    )
+    assert first.analysis_ids == ("a1",)
+    state["quick_log_y"] = True
+    state["quick_plot_visibility_filters"] = {"source": ["Old paper"]}
+    state["quick_plot_series_manager_Generation_0"] = {"edited_rows": {}}
+    state[CURRENT_PLOT_SPEC_KEY] = {"dataset_ids": [10], "analysis_ids": ["a1"], "x": "X", "y": "Y"}
+
+    second = consume_plot_scope(
+        state,
+        project_id=1,
+        available_dataset_ids=[10, 11],
+        work_context={"dataset_ids": [11], "analysis_ids": ["b1"], "label": "Sample B"},
+    )
+    assert second.dataset_ids == (11,)
+    assert second.analysis_ids == ("b1",)
+    assert "quick_log_y" not in state
+    assert "quick_plot_visibility_filters" not in state
+    assert "quick_plot_series_manager_Generation_0" not in state
+    assert CURRENT_PLOT_SPEC_KEY not in state
+
+    state["quick_log_y"] = True
+    third = consume_plot_scope(
+        state,
+        project_id=1,
+        available_dataset_ids=[10, 11],
+        work_context={"dataset_ids": [11], "analysis_ids": ["b1"], "label": "Sample B"},
+    )
+    assert third.analysis_ids == ("b1",)
+    assert state["quick_log_y"] is True
+
+
+def test_project_change_drops_persisted_plot_scope_and_presentation_instead_of_leaking_ids():
     state = {}
     seed_selection_plot_handoff(state, dataset_ids=[10], analysis_ids=["a2"])
     first = consume_plot_scope(state, project_id=1, available_dataset_ids=[10])
     assert first.analysis_ids == ("a2",)
+    state["quick_log_x"] = True
+    state["quick_plot_visibility_filters"] = {"source": ["Project 1 paper"]}
 
     second = consume_plot_scope(
         state,
@@ -115,6 +160,8 @@ def test_project_change_drops_persisted_plot_scope_instead_of_leaking_ids():
     assert second.dataset_ids == (20,)
     assert second.analysis_ids == ("b1",)
     assert second.context_label == "Project 2"
+    assert "quick_log_x" not in state
+    assert "quick_plot_visibility_filters" not in state
 
 
 def test_canonical_handoff_preserves_provenance_and_resets_stale_graph_state():
@@ -124,6 +171,10 @@ def test_canonical_handoff_preserves_provenance_and_resets_stale_graph_state():
         CURRENT_PLOT_SPEC_KEY: {"dataset_ids": [1], "analysis_ids": [], "x": "old-x", "y": "old-y"},
         "_quick_resume_style_map": {"old": {"marker": "o"}},
         "_quick_graph_recommendation_signature": (("old", "x", "y", "note"),),
+        "quick_log_x": True,
+        "quick_plot_visibility_filters": {"source": ["Old source"]},
+        "quick_plot_visibility_values_source": ["Old source"],
+        "quick_plot_series_manager_Generation_2": {"edited_rows": {}},
         "workflow_plot_notice": "old notice",
         "unrelated": 1,
     }
@@ -147,6 +198,10 @@ def test_canonical_handoff_preserves_provenance_and_resets_stale_graph_state():
     assert CURRENT_PLOT_SPEC_KEY not in state
     assert "_quick_resume_style_map" not in state
     assert "_quick_graph_recommendation_signature" not in state
+    assert "quick_log_x" not in state
+    assert "quick_plot_visibility_filters" not in state
+    assert "quick_plot_visibility_values_source" not in state
+    assert "quick_plot_series_manager_Generation_2" not in state
     assert state["unrelated"] == 1
 
 
