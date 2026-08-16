@@ -121,6 +121,28 @@ def seed_xy_state(
     return current_x, current_y
 
 
+def seed_import_plot_handoff(
+    state: MutableMapping[str, Any],
+    dataset_ids: Iterable[Any],
+) -> tuple[int, ...]:
+    """Prepare a freshly imported scope for the normal Smart Start plot workspace.
+
+    Multi-panel widget state belongs to a deeper exploratory view and must not leak
+    into the first post-import graph. The exact imported dataset ids are preserved;
+    no data copy or temporary dataset is created.
+    """
+    datasets = _unique_ints(dataset_ids)
+    for key in list(state):
+        if str(key).startswith("multi_panel_") or str(key).startswith("_multi_panel_"):
+            state.pop(key, None)
+    state["workflow_plot_dataset_ids"] = list(datasets)
+    state["workflow_plot_notice"] = (
+        "Открыты только что импортированные данные. PetroLab выбрал безопасный стартовый график; "
+        "оси можно сразу изменить."
+    )
+    return datasets
+
+
 def advanced_recipe_from_spec(
     spec: PlotSpec,
     *,
