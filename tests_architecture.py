@@ -69,8 +69,9 @@ assert ternary_controls.exists()
 assert "def render_ternary_selection(" in ternary_controls.read_text(encoding="utf-8")
 for ui_file in [
     "data_scope.py", "plot_style_controls.py", "rock_plots.py", "theme.py", "layout.py",
-    "navigation.py", "project_context.py", "destructive_actions.py", "xy_components.py",
-    "analysis_components.py", "image_components.py", "plot_actions.py",
+    "navigation.py", "navigation_state.py", "project_context.py", "destructive_actions.py",
+    "xy_components.py", "analysis_components.py", "analysis_table.py", "image_components.py",
+    "plot_actions.py", "plot_spec.py", "selection_context.py", "selection_components.py", "linked_panels.py",
 ]:
     assert (ui_dir / ui_file).exists(), ui_file
 
@@ -148,7 +149,7 @@ assert "apply_measurement_overrides" in import_service
 formula_page = (pages_dir / "formulae.py").read_text(encoding="utf-8")
 assert "save_formula_results" in formula_page and "calculate_formula_safe" in formula_page
 
-# XY implementation lives in dashboard/advanced/components/actions; there is no legacy plots page.
+# XY owns plot-local controls; shared scientific actions live in one canonical selection layer.
 plots_advanced = (pages_dir / "plots_advanced.py").read_text(encoding="utf-8")
 for marker in [
     "load_unified_with_derived", "render_outlier_controls", "render_advanced_interactive",
@@ -159,10 +160,21 @@ assert "from petrolab.ui.pages import plots" not in plots_advanced
 xy_components = (ui_dir / "xy_components.py").read_text(encoding="utf-8")
 for marker in [
     "robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids",
-    "set_work_group", "st.plotly_chart", "from petrolab.ui.plot_actions import clear_work_group",
+    "render_selection_panel", "render_selection_mode", "st.plotly_chart", "set_selection",
 ]:
     assert marker in xy_components, marker
+assert "set_work_group" not in xy_components, "group persistence belongs in shared selection actions"
+assert "assign_generation" not in xy_components, "Generation persistence belongs in shared selection actions"
 assert "from petrolab.ui.pages import plots" not in xy_components
+selection_components = (ui_dir / "selection_components.py").read_text(encoding="utf-8")
+for marker in [
+    "def render_selection_panel(", "set_work_group", "clear_work_group", "assign_generation",
+    "set_row_state", "read_selection", "navigate(\"statistics\")", "navigate(\"grain_profile\")",
+]:
+    assert marker in selection_components, marker
+selection_context = (ui_dir / "selection_context.py").read_text(encoding="utf-8")
+for marker in ["class SelectionContext", "replace", "add", "subtract", "class RowStates", "hidden", "excluded"]:
+    assert marker in selection_context, marker
 plot_actions = (ui_dir / "plot_actions.py").read_text(encoding="utf-8")
 for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "render_plot_confirmations", "confirm_then"]:
     assert marker in plot_actions, marker
