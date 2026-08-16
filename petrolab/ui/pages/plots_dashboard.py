@@ -17,6 +17,7 @@ from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
+from petrolab.ui.plot_manager import render_series_manager
 from petrolab.ui.plot_spec import PlotSpec, send_to_multi_panel, set_current_plot_spec
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.source_controls import render_source_visibility_controls
@@ -171,8 +172,16 @@ def _quick_workspace(project_id: int) -> None:
         if plot_source.empty:
             st.info("После фильтрации не осталось точек для выбранных осей.")
             return
+
+        plot_source, managed_series = render_series_manager(
+            plot_source,
+            group_col,
+            key_prefix="quick_plot",
+        )
+        if plot_source.empty:
+            return
         if group_col:
-            names = plot_source[group_col].astype(str).unique().tolist()
+            names = list(managed_series) or plot_source[group_col].astype(str).unique().tolist()
         else:
             names = ["Все точки"]
         styles = style_map(style_dataframe([str(value) for value in names]))
@@ -254,6 +263,7 @@ def _quick_workspace(project_id: int) -> None:
             "search": query,
             "visible_sources": visible_sources,
             "hidden_sources": hidden_sources,
+            "visible_series": list(managed_series),
             "qc_policy": "manual exclude and automatic QC exclusions omitted",
         },
         recipe={
