@@ -1,0 +1,52 @@
+name: IgPet to ioGAS product flow
+
+on:
+  pull_request:
+    paths:
+      - 'petrolab/smart_start.py'
+      - 'petrolab/ui/smart_plot_start.py'
+      - 'petrolab/ui/plot_spec.py'
+      - 'petrolab/ui/work_context.py'
+      - 'petrolab/ui/pages/plots_dashboard.py'
+      - 'petrolab/ui/pages/plots_advanced.py'
+      - 'petrolab/ui/intake_workflow.py'
+      - 'tests_smart_plot_start.py'
+      - '.github/workflows/igpet-iogas-product-flow.yml'
+      - '.clinerules/11-igpet-iogas-product-flow.md'
+      - 'docs/IGPET_IOGAS_SYNTHESIS_AUDIT_AND_PLAN.md'
+  workflow_dispatch:
+
+jobs:
+  product-flow:
+    runs-on: windows-latest
+    env:
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      NUMEXPR_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile Smart Start product flow
+        run: >-
+          python -m py_compile
+          petrolab/smart_start.py
+          petrolab/ui/smart_plot_start.py
+          petrolab/ui/plot_spec.py
+          petrolab/ui/work_context.py
+          petrolab/ui/pages/plots_dashboard.py
+          petrolab/ui/pages/plots_advanced.py
+      - name: Run Smart Start orchestration tests
+        run: python tests_smart_plot_start.py
+      - name: Run PlotSpec regression
+        run: python tests_v0158_plot_spec_handoff.py
+      - name: Run linked selection regression
+        run: python tests_v0157_linked_selection.py
+      - name: Run Streamlit smoke
+        run: python tests_streamlit.py
