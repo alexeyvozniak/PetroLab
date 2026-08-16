@@ -108,10 +108,10 @@ class ProductGuidanceTests(unittest.TestCase):
             self.assertNotIn(obsolete, navigation)
 
         for marker in [
-            "Единый вход",
+            "Перетащите файл один раз",
             "файл → листы/колонки → разнести строки по Sample",
             "Статья или данные коллеги отличаются только provenance",
-            "не reintroduce competing cards/routes",
+            "Do not reintroduce competing cards/routes here",
         ]:
             self.assertIn(marker, add_data)
         for obsolete in ["### Мои анализы", "### Статья / коллега", "### Полевые Sample", "pending_study_id"]:
