@@ -159,17 +159,19 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
             )
         )
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", drag_surface)
-        time.sleep(0.5)
+        time.sleep(0.8)
         size = drag_surface.size
         width = max(80, int(size.get("width", 0)))
         height = max(80, int(size.get("height", 0)))
-        # Select almost the complete plotting rectangle. This stays a real mouse drag,
-        # but avoids coupling the test to one journal preset or one exact point pixel.
-        x0, y0 = max(4, int(width * 0.05)), max(4, int(height * 0.05))
-        dx, dy = max(30, int(width * 0.88)), max(30, int(height * 0.88))
-        ActionChains(driver).move_to_element_with_offset(drag_surface, x0, y0).click_and_hold().move_by_offset(
-            dx, dy, duration=0.8
-        ).release().perform()
+        # Selenium/W3C element offsets are relative to the element centre. Keep the
+        # complete physical drag safely inside Plotly's nsewdrag surface.
+        start_x = -max(20, int(width * 0.40))
+        start_y = -max(20, int(height * 0.40))
+        dx = max(40, int(width * 0.80))
+        dy = max(40, int(height * 0.80))
+        ActionChains(driver).move_to_element_with_offset(
+            drag_surface, start_x, start_y
+        ).click_and_hold().move_by_offset(dx, dy, duration=0.8).release().perform()
 
         selected = int(wait.until(lambda d: _selection_count(d) or False))
         assert selected > 0, "Physical Plotly box drag did not create a linked Selection"
