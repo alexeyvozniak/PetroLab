@@ -1,14 +1,18 @@
-from petrolab.ui.plot_spec import PlotSpec
+from petrolab.ui.plot_spec import CURRENT_PLOT_SPEC_KEY, PlotSpec
 from petrolab.ui.smart_plot_start import (
+    QUICK_CUSTOM_GRAPH_CHOICE,
     advanced_recipe_from_spec,
     choose_xy_recommendation,
     clear_exact_plot_scope,
     consume_plot_scope,
     resolve_plot_scope,
+    restore_quick_plot_state,
     seed_import_plot_handoff,
     seed_plot_handoff,
     seed_selection_plot_handoff,
     seed_xy_state,
+    sync_xy_recommendation_state,
+    xy_recommendations,
 )
 
 
@@ -113,10 +117,13 @@ def test_project_change_drops_persisted_plot_scope_instead_of_leaking_ids():
     assert second.context_label == "Project 2"
 
 
-def test_canonical_handoff_preserves_provenance_and_resets_stale_deep_editor():
+def test_canonical_handoff_preserves_provenance_and_resets_stale_graph_state():
     state = {
         "_plots_show_advanced": True,
         "loaded_recipe": {"x": "old-x", "y": "old-y"},
+        CURRENT_PLOT_SPEC_KEY: {"dataset_ids": [1], "analysis_ids": [], "x": "old-x", "y": "old-y"},
+        "_quick_resume_style_map": {"old": {"marker": "o"}},
+        "_quick_graph_recommendation_signature": (("old", "x", "y", "note"),),
         "workflow_plot_notice": "old notice",
         "unrelated": 1,
     }
@@ -137,6 +144,9 @@ def test_canonical_handoff_preserves_provenance_and_resets_stale_deep_editor():
     assert state["workflow_plot_notice"] == "Новый точный поиск."
     assert "_plots_show_advanced" not in state
     assert "loaded_recipe" not in state
+    assert CURRENT_PLOT_SPEC_KEY not in state
+    assert "_quick_resume_style_map" not in state
+    assert "_quick_graph_recommendation_signature" not in state
     assert state["unrelated"] == 1
 
 
@@ -190,6 +200,71 @@ def test_seed_xy_state_repairs_invalid_axes_with_recommendation():
     assert (x, y) == ("Al2O3", "TiO2")
     assert state["quick_x"] == "Al2O3"
     assert state["quick_y"] == "TiO2"
+
+
+def test_recommendation_universe_change_updates_owned_axes_but_not_custom_axes():
+    mica = xy_recommendations(
+        ["mica"],
+        ["Al2O3", "TiO2", "FeO", "SiO2"],
+        ["Al2O3", "TiO2", "FeO", "SiO2"],
+    )
+    state = {"quick_graph_choice": "rec:0", "quick_x": "Al2O3", "quick_y": "TiO2"}
+    sync_xy_recommendation_state(state, mica)
+    assert (state["quick_x"], state["quick_y"]) == ("Al2O3", "TiO2")
+
+    mixed = xy_recommendations(
+        ["mica", "apatite"],
+        ["SiO2", "TiO2", "Al2O3"],
+        ["SiO2", "TiO2", "Al2O3"],
+    )
+    sync_xy_recommendation_state(state, mixed)
+    assert state["quick_graph_choice"] == "rec:0"
+    assert (state["quick_x"], state["quick_y"]) == ("SiO2", "TiO2")
+
+    custom = {
+        "quick_graph_choice": QUICK_CUSTOM_GRAPH_CHOICE,
+        "quick_x": "FeO",
+        "quick_y": "MgO",
+    }
+    sync_xy_recommendation_state(custom, mica)
+    assert custom["quick_graph_choice"] == QUICK_CUSTOM_GRAPH_CHOICE
+    assert (custom["quick_x"], custom["quick_y"]) == ("FeO", "MgO")
+
+
+def test_advanced_to_compact_restore_keeps_representable_plotspec_state_only():
+    state = {"_quick_series_epoch": 4}
+    spec = PlotSpec(
+        dataset_ids=(4, 5),
+        analysis_ids=("a", "b"),
+        x="FeO",
+        y="TiO2",
+        group_column="Generation",
+        title="Advanced mica view",
+        log_x=True,
+        log_y=False,
+        visible_sources=("Paper A",),
+        hidden_sources=("Paper B",),
+        visible_series=("core",),
+        style_map={"core": {"marker": "s", "alpha": 0.7}},
+        marker_size=52,
+    )
+    restore_quick_plot_state(state, spec)
+    assert state["quick_x"] == "FeO"
+    assert state["quick_y"] == "TiO2"
+    assert state["quick_graph_choice"] == QUICK_CUSTOM_GRAPH_CHOICE
+    assert state["quick_log_x"] is True
+    assert state["quick_log_y"] is False
+    assert state["quick_title"] == "Advanced mica view"
+    assert state["quick_marker_size"] == 52
+    assert state["_quick_resume_group_pending"] == "Generation"
+    assert state["_quick_resume_visible_series"] == ["core"]
+    assert state["_quick_resume_style_map"]["core"]["marker"] == "s"
+    assert state["quick_plot_visibility_filters"] == {"source": ["Paper A"]}
+    assert state["quick_plot_visibility_values_source"] == ["Paper A"]
+    assert state["_quick_series_epoch"] == 5
+    # Membership is deliberately not replaced here: DataUniverse and Selection
+    # belong to their own canonical contexts, not to the compact-view restore.
+    assert "workflow_plot_analysis_ids" not in state
 
 
 def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
