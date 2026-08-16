@@ -77,6 +77,17 @@ def apply_manual_panel_limits(
     return result
 
 
+def _shared_axes_for_mode(mode: str) -> tuple[str, ...]:
+    normalized = str(mode or "independent").casefold()
+    if normalized == "shared_x":
+        return ("x",)
+    if normalized == "shared_y":
+        return ("y",)
+    if normalized == "shared":
+        return ("x", "y")
+    return ()
+
+
 def panel_axis_limits(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -90,14 +101,20 @@ def panel_axis_limits(
     Modes:
     - ``independent``: plotting-library autoscale unless that panel has explicit
       X/Y min+max.
-    - ``shared``: equal ranges whenever the same scientific variable appears on
-      several axes; explicit range on one panel overrides only that axis/panel.
+    - ``shared_x``: same-variable X axes use one range; Y stays automatic.
+    - ``shared_y``: same-variable Y axes use one range; X stays automatic.
+    - ``shared``: same scientific variables are synchronized wherever they occur
+      on X or Y, preserving the previous combined behavior.
     - ``focus``: zoom each panel to the current analysis selection while keeping
       all rows plotted; explicit panel ranges still win.
+
+    Different variables are never forced to the same numeric range. Manual C5
+    limits remain the highest-priority viewport override in every mode.
     """
     result = [{"x": None, "y": None} for _ in panels]
     normalized = str(mode or "independent").casefold()
-    if normalized not in {"shared", "focus"} or dataframe.empty:
+    shared_axes = _shared_axes_for_mode(normalized)
+    if normalized not in {"shared", "shared_x", "shared_y", "focus"} or dataframe.empty:
         return apply_manual_panel_limits(panels, result)
 
     focus = tuple(dict.fromkeys(str(value) for value in focus_ids if str(value)))
@@ -110,20 +127,28 @@ def panel_axis_limits(
         if scope.empty:
             return apply_manual_panel_limits(panels, result)
 
-    if normalized == "shared":
-        cache: dict[tuple[str, bool], tuple[float, float] | None] = {}
+    if shared_axes:
+        # Combined `shared` retains the earlier cross-axis behavior for the same
+        # variable. X-only / Y-only intentionally affect only their named axis.
+        cross_axis = normalized == "shared"
+        cache: dict[tuple[str, bool] | tuple[str, str, bool], tuple[float, float] | None] = {}
         for panel in panels:
-            for axis, log_key in (("x", "log_x"), ("y", "log_y")):
+            for axis in shared_axes:
+                log_key = f"log_{axis}"
                 variable = str(panel.get(axis) or "")
                 if not variable or variable not in scope.columns:
                     continue
-                key = (variable, bool(panel.get(log_key, False)))
+                log_value = bool(panel.get(log_key, False))
+                key = (variable, log_value) if cross_axis else (axis, variable, log_value)
                 if key not in cache:
-                    cache[key] = _padded_limits(scope[variable], log=key[1])
+                    cache[key] = _padded_limits(scope[variable], log=log_value)
         for index, panel in enumerate(panels):
-            for axis, log_key in (("x", "log_x"), ("y", "log_y")):
+            for axis in shared_axes:
+                log_key = f"log_{axis}"
                 variable = str(panel.get(axis) or "")
-                result[index][axis] = cache.get((variable, bool(panel.get(log_key, False))))
+                log_value = bool(panel.get(log_key, False))
+                key = (variable, log_value) if cross_axis else (axis, variable, log_value)
+                result[index][axis] = cache.get(key)
         return apply_manual_panel_limits(panels, result)
 
     for index, panel in enumerate(panels):
