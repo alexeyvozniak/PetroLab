@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from petrolab.dataframe_utils import dataset_label
+from petrolab.dataframe_utils import dataset_label, human_point_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.derived import (
     formula_status,
@@ -18,8 +18,9 @@ from petrolab.minerals.formulae import methods_for
 from petrolab.repositories.rock_repository import composition_wide
 from petrolab.services.formula_service import calculate_formula_safe
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
-from petrolab.ui.project_context import active_project_id
 from petrolab.ui.navigation import navigate
+from petrolab.ui.project_context import active_project_id
+from petrolab.ui.selection_context import read_selection
 from petrolab.user_derived import (
     FORMULA_PRESETS,
     TARGET_DATASET,
@@ -47,8 +48,11 @@ def _render_classification_summary(result: pd.DataFrame) -> None:
     if not columns:
         return
     render_section_header("Автоматическая классификация", "Формальное имя только при достаточных данных")
+    view = result[_identity_columns(result) + columns].copy()
+    if "_analysis_id" in result.columns:
+        view.insert(0, "Точка", [human_point_label(row) for _, row in result.iterrows()])
     st.dataframe(
-        result[_identity_columns(result) + columns].head(1000),
+        view.head(1000),
         width="stretch", hide_index=True,
         height=min(420, 42 + 35 * min(len(result), 10)),
     )
@@ -70,13 +74,16 @@ def _render_full_validity_summary(result: pd.DataFrame) -> None:
                 "QC суммы", "QC химии", "QC железа",
             ] if column in result.columns
         ]
-        st.markdown("#### Проблемные строки во всём наборе")
+        problem = result.loc[invalid].copy()
+        view = problem[problem_columns].copy()
+        if "_analysis_id" in problem.columns:
+            view.insert(0, "Точка", [human_point_label(row) for _, row in problem.iterrows()])
+        st.markdown("#### Проблемные строки")
         st.caption(
-            "Таблица строится по полному результату, а не только по первым строкам предпросмотра. "
             "Невалидные строки сохраняют source chemistry, но formula-derived поля для них остаются пустыми."
         )
         st.dataframe(
-            result.loc[invalid, problem_columns].head(2000),
+            view.head(2000),
             width="stretch", hide_index=True, height=min(520, 45 + 28 * min(int(invalid.sum()), 16)),
         )
         if int(invalid.sum()) > 2000:
@@ -226,11 +233,7 @@ def _render_user_field_builder(
             args=(expression_key, insert_column),
         )
 
-        description = st.text_input(
-            "Комментарий / смысл показателя",
-            key=f"{key_prefix}_description",
-        )
-
+        description = st.text_input("Комментарий / смысл показателя", key=f"{key_prefix}_description")
         preview = None
         preview_error = ""
         clean_name = str(name).strip()
@@ -284,6 +287,34 @@ def _render_user_field_builder(
     _render_saved_user_fields(target_kind, target_id, key_prefix)
 
 
+def _requested_dataset_id(datasets: list[dict]) -> int | None:
+    ids = {int(item["id"]) for item in datasets}
+    legacy = st.session_state.pop("workflow_formula_dataset_id", None)
+    pending = st.session_state.pop("formulae_dataset_ids_pending", [])
+    candidates: list[int] = []
+    if legacy is not None:
+        try:
+            candidates.append(int(legacy))
+        except (TypeError, ValueError):
+            pass
+    for value in pending or []:
+        try:
+            candidates.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return next((value for value in candidates if value in ids), None)
+
+
+def _selection_ids_for_dataset(raw_source: pd.DataFrame) -> list[str]:
+    pending = [str(value) for value in st.session_state.pop("formulae_analysis_ids_pending", []) if str(value)]
+    canonical = list(read_selection().analysis_ids)
+    wanted = list(dict.fromkeys([*pending, *canonical]))
+    if not wanted or "_analysis_id" not in raw_source.columns:
+        return []
+    available = set(raw_source["_analysis_id"].astype(str))
+    return [value for value in wanted if value in available]
+
+
 def render_formulae_page() -> None:
     render_page_header(
         "Расчёты",
@@ -307,7 +338,7 @@ def render_formulae_page() -> None:
     if datasets:
         mapping = {dataset_label(dataset): dataset for dataset in datasets}
         dataset_labels = list(mapping)
-        requested_dataset = st.session_state.pop("workflow_formula_dataset_id", None)
+        requested_dataset = _requested_dataset_id(datasets)
         if requested_dataset is not None:
             st.session_state.pop("formula_dataset", None)
             st.session_state.pop("formula_method", None)
@@ -368,14 +399,31 @@ def render_formulae_page() -> None:
         st.info("В выбранном наборе нет аналитических строк.")
         return
 
+    selection_ids = _selection_ids_for_dataset(raw_source)
+    apfu_source = raw_source
+    selection_active = False
+    if selection_ids:
+        scope_label = st.segmented_control(
+            "Какие точки пересчитывать",
+            [f"Текущий отбор · {len(selection_ids)}", f"Весь набор · {len(raw_source)}"],
+            default=f"Текущий отбор · {len(selection_ids)}",
+            key=f"formula_scope_{dataset_id}",
+            help="Selection задаёт только область APFU; пользовательские вычисляемые поля выше остаются свойством всего набора.",
+        )
+        selection_active = str(scope_label or "").startswith("Текущий отбор")
+        if selection_active:
+            wanted = set(selection_ids)
+            apfu_source = raw_source[raw_source["_analysis_id"].astype(str).isin(wanted)].copy()
+            st.success(f"APFU будет рассчитан только для текущего научного отбора: {len(apfu_source)} точек.")
+
     assigned_source = attach_mineral_assignments(
-        raw_source, default_mineral_key=str(chosen["mineral_key"])
+        apfu_source, default_mineral_key=str(chosen["mineral_key"])
     )
     mineral_choices = sorted(
         value for value in assigned_source["Минерал"].dropna().astype(str).unique() if value
     )
     if not mineral_choices:
-        st.warning("В выбранном наборе не удалось определить минералогическую группу для структурного пересчёта.")
+        st.warning("В выбранных точках не удалось определить минералогическую группу для структурного пересчёта.")
         return
     target_mineral = st.selectbox(
         "Минерал для пересчёта",
@@ -386,11 +434,11 @@ def render_formulae_page() -> None:
     source = assigned_source.loc[
         assigned_source["Минерал"].astype(str).eq(target_mineral)
     ].copy()
-    point_specific = len(source) != len(raw_source) or target_mineral != str(chosen["mineral_key"])
+    point_specific = selection_active or len(source) != len(raw_source) or target_mineral != str(chosen["mineral_key"])
     if point_specific:
         st.info(
-            f"Выбрано {len(source)} из {len(raw_source)} точек. APFU сохранится только для этой "
-            "минералогической группы; остальные строки набора не будут переопределены."
+            f"В расчёт входит {len(source)} из {len(raw_source)} строк набора. APFU сохранится только для этих "
+            "analysis_id; остальные строки не будут переопределены."
         )
     methods = methods_for(target_mineral)
     if not methods:
@@ -430,7 +478,7 @@ def render_formulae_page() -> None:
     derived = _derived_columns(source, result.data)
     status = formula_status(dataset_id)
     status_badges = [
-        (f"{len(source)} анализов", "neutral"),
+        (f"{len(source)} анализов в расчёте", "neutral"),
         (f"{len(derived)} расчётных полей", "accent"),
     ]
     if status.has_active_formula and status.method_id == method.id:
@@ -455,12 +503,18 @@ def render_formulae_page() -> None:
 
     _render_full_validity_summary(result.data)
     _render_classification_summary(result.data)
-    render_section_header("Результаты", "Предпросмотр первых 1000 строк; validity summary выше относится ко всему набору")
+    render_section_header("Результаты", "Предпросмотр первых 1000 строк текущей области расчёта")
     identity = _identity_columns(result.data)
-    st.dataframe(result.data[identity + derived].head(1000), width="stretch", hide_index=True, height=520)
+    preview = result.data[identity + derived].copy()
+    if "_analysis_id" in result.data.columns:
+        preview.insert(0, "Точка", [human_point_label(row) for _, row in result.data.iterrows()])
+    st.dataframe(preview.head(1000), width="stretch", hide_index=True, height=520)
     with st.expander("Исходные и расчётные данные вместе"):
         visible = [column for column in result.data.columns if not str(column).startswith("_")]
-        st.dataframe(result.data[visible].head(500), width="stretch", hide_index=True, height=520)
+        full_view = result.data[visible].copy()
+        if "_analysis_id" in result.data.columns:
+            full_view.insert(0, "Точка", [human_point_label(row) for _, row in result.data.iterrows()])
+        st.dataframe(full_view.head(500), width="stretch", hide_index=True, height=520)
 
     st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
     if st.button("Сохранить расчёт в рабочую базу", type="primary", key="save_formula_results", width="stretch"):
@@ -475,7 +529,7 @@ def render_formulae_page() -> None:
         )
         st.success(f"Сохранено {len(saved.derived_columns)} полей для {saved.row_count} анализов.")
         st.session_state["workflow_plot_dataset_ids"] = [dataset_id]
-        st.session_state["workflow_plot_notice"] = "Расчёт сохранён. Выберите оси и постройте график."
+        st.session_state["workflow_plot_notice"] = "Расчёт сохранён. Текущий Selection останется подсвеченным на XY."
         st.session_state.pop("quick_plot_datasets", None)
         navigate("plots")
         st.rerun()
