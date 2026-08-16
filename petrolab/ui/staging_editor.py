@@ -91,24 +91,71 @@ def _role_mapping_controls(frame: pd.DataFrame, token: str, sheet: str) -> dict[
     return mapping
 
 
-def _row_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
-    if frame.empty:
-        return []
-    mode = st.segmented_control(
-        "Какие строки изменить",
-        ["Диапазон", "Отметить строки", "Весь лист"],
-        default="Диапазон",
-        key=f"staging_select_mode_{token}_{sheet}",
-    ) or "Диапазон"
-    if mode == "Весь лист":
-        return list(range(len(frame)))
-    if mode == "Диапазон":
-        left, right = st.columns(2)
-        start = int(left.number_input("С строки", 1, len(frame), 1, key=f"staging_start_{token}_{sheet}"))
-        stop = int(right.number_input("По строку", 1, len(frame), min(len(frame), start), key=f"staging_stop_{token}_{sheet}"))
-        lo, hi = sorted((start, stop))
-        return list(range(lo - 1, hi))
+def selected_positions_from_event(event: object, *, row_count: int) -> list[int]:
+    """Return unique dataframe row positions touched by row or cell selection.
 
+    Streamlit multi-cell returns rectangular cell coordinates. PetroLab deliberately
+    promotes any touched cell to its whole analytical row because Sample, Mineral,
+    Generation and similar staging fields belong to the analysis row, not one value.
+    """
+    selection = getattr(event, "selection", None)
+    if selection is None and isinstance(event, Mapping):
+        selection = event.get("selection", {})
+
+    def values(name: str) -> list:
+        if hasattr(selection, name):
+            return list(getattr(selection, name) or [])
+        if isinstance(selection, Mapping):
+            return list(selection.get(name, []) or [])
+        return []
+
+    positions: set[int] = set()
+    for raw in values("rows"):
+        try:
+            position = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= position < int(row_count):
+            positions.add(position)
+
+    for cell in values("cells"):
+        try:
+            position = int(cell[0])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0 <= position < int(row_count):
+            positions.add(position)
+    return sorted(positions)
+
+
+def _mouse_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
+    visible = frame.head(3000).copy()
+    display = visible.copy()
+    display.insert(0, "Строка", range(1, len(display) + 1))
+    st.caption(
+        "Потяните мышью по прямоугольному диапазону ячеек — как в Excel. "
+        "PetroLab выберет все строки, которых коснулся диапазон. Можно также выбирать строки целиком."
+    )
+    event = st.dataframe(
+        display,
+        hide_index=True,
+        width="stretch",
+        height=380,
+        key=_selection_key(token, sheet),
+        on_select="rerun",
+        selection_mode=["multi-row", "multi-cell"],
+        column_config={"Строка": st.column_config.NumberColumn("#", width="small")},
+    )
+    selected = selected_positions_from_event(event, row_count=len(visible))
+    if len(frame) > 3000:
+        st.warning(
+            "Для выделения мышью показаны первые 3000 строк. "
+            "Для более далёкого диапазона используйте «Номера строк» или сначала разделите лист."
+        )
+    return selected
+
+
+def _checkbox_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
     visible = frame.head(3000).copy()
     visible.insert(0, "Выбрать", False)
     edited = st.data_editor(
@@ -118,15 +165,45 @@ def _row_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
         height=340,
         disabled=[column for column in visible.columns if column != "Выбрать"],
         column_config={"Выбрать": st.column_config.CheckboxColumn("✓")},
-        key=_selection_key(token, sheet),
+        key=f"{_selection_key(token, sheet)}_checks",
     )
     if len(frame) > 3000:
-        st.warning("Для ручного выбора показаны первые 3000 строк; для длинных таблиц используйте диапазон.")
-    return [position for position, selected in enumerate(edited["Выбрать"].fillna(False).astype(bool).tolist()) if selected]
+        st.warning("Для галочек показаны первые 3000 строк; для длинных таблиц используйте «Номера строк».")
+    return [
+        position
+        for position, selected in enumerate(edited["Выбрать"].fillna(False).astype(bool).tolist())
+        if selected
+    ]
+
+
+def _row_selector(frame: pd.DataFrame, token: str, sheet: str) -> list[int]:
+    if frame.empty:
+        return []
+    mode = st.segmented_control(
+        "Какие строки изменить",
+        ["Выделить мышью", "Номера строк", "Галочки", "Весь лист"],
+        default="Выделить мышью",
+        key=f"staging_select_mode_{token}_{sheet}",
+        help=(
+            "Выделить мышью — протянуть прямоугольник по ячейкам; Номера строк — задать непрерывный диапазон; "
+            "Галочки — запасной точечный выбор; Весь лист — применить значение ко всем строкам."
+        ),
+    ) or "Выделить мышью"
+    if mode == "Весь лист":
+        return list(range(len(frame)))
+    if mode == "Выделить мышью":
+        return _mouse_selector(frame, token, sheet)
+    if mode == "Номера строк":
+        left, right = st.columns(2)
+        start = int(left.number_input("С строки", 1, len(frame), 1, key=f"staging_start_{token}_{sheet}"))
+        stop = int(right.number_input("По строку", 1, len(frame), min(len(frame), start), key=f"staging_stop_{token}_{sheet}"))
+        lo, hi = sorted((start, stop))
+        return list(range(lo - 1, hi))
+    return _checkbox_selector(frame, token, sheet)
 
 
 def _mass_assignment(frame: pd.DataFrame, token: str, sheet: str) -> pd.DataFrame:
-    render_section_header("Ручная адаптация", "Одно значение можно назначить сразу любому диапазону строк")
+    render_section_header("Ручная адаптация", "Выделите строки мышью и назначьте им одно значение — без галочек по одной")
     selected = _row_selector(frame, token, sheet)
     render_badges([(f"выбрано · {len(selected)}", "accent" if selected else "neutral")])
     left, right = st.columns(2)
