@@ -15,6 +15,11 @@ from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes, workbook_with_manifest
 from petrolab.settings_service import load_settings
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
+from petrolab.ui.advanced_recipe_state import (
+    advanced_recipe_for_entry,
+    current_advanced_recipe,
+    deep_state_summary,
+)
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
@@ -137,6 +142,17 @@ def _apply_pending_dataset_resume(labels: dict[str, int]) -> None:
     chosen = [label for label, dataset_id in labels.items() if dataset_id in wanted]
     if chosen:
         st.session_state["quick_plot_datasets"] = chosen
+
+
+def _deep_state_caption() -> None:
+    summary = deep_state_summary(current_advanced_recipe(st.session_state))
+    if not summary:
+        return
+    st.caption(
+        "Расширенные настройки сохранены отдельно и сейчас не применяются: "
+        + ", ".join(summary)
+        + ". «Настроить подробнее» восстановит их только если научный контекст совместим."
+    )
 
 
 def _quick_workspace(project_id: int) -> None:
@@ -427,6 +443,7 @@ def _quick_workspace(project_id: int) -> None:
             styles=styles,
             project_id=project_id,
         )
+        _deep_state_caption()
         multi_col, deep_col = st.columns(2)
         if multi_col.button(
             "＋ Добавить диаграмму",
@@ -444,11 +461,32 @@ def _quick_workspace(project_id: int) -> None:
             key="quick_open_advanced",
             help="Открыть глубокие настройки этого же графика без повторного выбора данных и осей.",
         ):
-            st.session_state["loaded_recipe"] = advanced_recipe_from_spec(
+            compact_recipe = advanced_recipe_from_spec(
                 spec,
                 minerals=selected_minerals,
                 query=query,
             )
+            merge = advanced_recipe_for_entry(
+                compact_recipe,
+                current_advanced_recipe(st.session_state),
+            )
+            st.session_state["loaded_recipe"] = merge.recipe
+            outlier_cfg = merge.recipe.get("outlier_filters", {})
+            st.session_state["plot_interactive_excluded_ids"] = list(
+                outlier_cfg.get("interactive_excluded_ids", [])
+                if isinstance(outlier_cfg, dict) else []
+            )
+            if merge.resumed_deep_state:
+                st.session_state["_plots_advanced_notice"] = (
+                    "Возвращены сохранённые расширенные настройки: "
+                    + ", ".join(merge.deep_summary)
+                    + "."
+                )
+            elif merge.dropped_incompatible_deep_state:
+                st.session_state["_plots_advanced_notice"] = (
+                    "Предыдущие deep-only настройки не применены, потому что изменились "
+                    "данные, минералы или X/Y. Это защищает новую диаграмму от скрытых старых фильтров."
+                )
             st.session_state["_plots_show_advanced"] = True
             st.rerun()
 
@@ -539,8 +577,11 @@ def render_plots_dashboard_page() -> None:
             st.session_state.pop("_plots_show_advanced", None)
             st.rerun()
         text_col.caption(
-            "Глубокая настройка продолжает текущий PlotSpec. При возврате compact-workbench восстанавливает представимые настройки; deep-only диапазоны/выбросы остаются в advanced recipe и не становятся новым DataUniverse."
+            "Глубокая настройка продолжает текущий PlotSpec. При возврате compact-workbench восстанавливает представимые настройки; deep-only диапазоны/выбросы сохраняются отдельно и не становятся новым DataUniverse."
         )
+        advanced_notice = str(st.session_state.pop("_plots_advanced_notice", "") or "")
+        if advanced_notice:
+            st.info(advanced_notice)
         render_advanced_xy_workspace(project_id)
         return
 
