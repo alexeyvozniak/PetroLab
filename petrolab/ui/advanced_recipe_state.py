@@ -23,6 +23,7 @@ _COMPACT_OWNED_KEYS = {
     "log_y",
     "marker_size",
     "style_map",
+    "_scientific_context",
 }
 
 _DEEP_ONLY_KEYS = {
@@ -79,6 +80,19 @@ def _unique_strings(values: Any) -> tuple[str, ...]:
         if item and item not in result:
             result.append(item)
     return tuple(result)
+
+
+def _context_fingerprint(value: Any) -> tuple[Any, ...]:
+    raw = value if isinstance(value, Mapping) else {}
+    return (
+        _unique_ints(raw.get("dataset_ids")),
+        _unique_strings(raw.get("analysis_ids")),
+        str(raw.get("sample_id") or ""),
+        str(raw.get("sample") or ""),
+        str(raw.get("thin_section_id") or ""),
+        str(raw.get("query") or ""),
+        str(raw.get("origin") or ""),
+    )
 
 
 def current_advanced_recipe(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -154,6 +168,12 @@ def _compatible_for_deep_resume(
     parked_minerals = _unique_strings(parked.get("minerals"))
     if compact_minerals and parked_minerals and compact_minerals != parked_minerals:
         return False
+
+    compact_context = compact.get("_scientific_context")
+    parked_context = parked.get("_scientific_context")
+    if compact_context is not None or parked_context is not None:
+        if _context_fingerprint(compact_context) != _context_fingerprint(parked_context):
+            return False
     return True
 
 
@@ -164,10 +184,10 @@ def advanced_recipe_for_entry(
     """Create the deep-editor recipe without silently reusing incompatible filters.
 
     Compact controls always win for state they can represent. Deep-only filters and
-    publication settings are resumed only when dataset scope, mineral scope and X/Y
-    still match the graph they were created for. Otherwise they are deliberately
-    discarded for this entry rather than being applied to a different scientific
-    question.
+    publication settings are resumed only when dataset scope, mineral scope, X/Y and
+    exact scientific context still match the graph they were created for. Otherwise
+    they are deliberately discarded for this entry rather than being applied to a
+    different scientific question.
     """
     compact = deepcopy(dict(compact_recipe))
     parked = deepcopy(dict(parked_recipe or {}))
