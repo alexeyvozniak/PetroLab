@@ -1,84 +1,53 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
 import os
 import sqlite3
-from contextlib import contextmanager
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
 
-APP_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("PETROLAB_DATA_DIR", str(APP_DIR / "petrolab_data"))).expanduser().resolve()
+from petrolab.config import DATA_DIR
+
 DB_PATH = DATA_DIR / "petrolab.sqlite3"
 ASSETS_DIR = DATA_DIR / "assets"
-BACKUPS_DIR = DATA_DIR / "backups"
-
-DATASET_EXTRA_COLUMNS = {
-    "source_path": "TEXT NOT NULL DEFAULT ''",
-    "source_kind": "TEXT NOT NULL DEFAULT 'upload'",
-    "header_row": "INTEGER NOT NULL DEFAULT 1",
-    "column_map_json": "TEXT NOT NULL DEFAULT '{}'",
-    "sync_enabled": "INTEGER NOT NULL DEFAULT 0",
-}
-
-# Raw observations live in one database.  Projects are working contexts that
-# reference those observations; this system row is intentionally hidden from
-# the project picker.
-LIBRARY_PROJECT_NAME = "Общая база"
-_LEGACY_LIBRARY_PROJECT_NAMES = ("Общая база", "Общая библиотека")
-
-META_COLUMNS = {
-    "_analysis_id", "_dataset_id", "_project_id", "_row_index", "_source_row",
-    "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel",
-}
+LIBRARY_PROJECT_NAME = "Общая база PetroLab"
+_LEGACY_LIBRARY_PROJECT_NAMES = (
+    LIBRARY_PROJECT_NAME,
+    "Общая библиотека анализов",
+    "Общая библиотека",
+)
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
-    return {row[1] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
-
-
-def ensure_storage() -> None:
+def connect() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as con:
-        con.execute("PRAGMA foreign_keys=ON")
-        con.execute(
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys=ON")
+    return con
+
+
+def init_db() -> None:
+    with connect() as con:
+        con.executescript(
             """
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        project_columns = _table_columns(con, "projects")
-        if "is_system" not in project_columns:
-            con.execute("ALTER TABLE projects ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS project_dataset_links (
-                project_id INTEGER NOT NULL,
-                dataset_id INTEGER NOT NULL,
-                note TEXT NOT NULL DEFAULT '',
-                added_at TEXT NOT NULL,
-                PRIMARY KEY(project_id, dataset_id),
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
-            )
-            """
-        )
-        con.execute("CREATE INDEX IF NOT EXISTS idx_project_dataset_links_dataset ON project_dataset_links(dataset_id)")
-        con.execute(
-            """
+                created_at TEXT NOT NULL,
+                is_system INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS datasets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL,
@@ -90,33 +59,25 @@ def ensure_storage() -> None:
                 csv_path TEXT NOT NULL,
                 row_count INTEGER NOT NULL,
                 imported_at TEXT NOT NULL,
-                FOREIGN KEY(project_id) REFERENCES projects(id)
-            )
-            """
-        )
-        existing = _table_columns(con, "datasets")
-        for col, ddl in DATASET_EXTRA_COLUMNS.items():
-            if col not in existing:
-                con.execute(f"ALTER TABLE datasets ADD COLUMN {col} {ddl}")
+                source_path TEXT NOT NULL DEFAULT '',
+                source_kind TEXT NOT NULL DEFAULT 'upload',
+                header_row INTEGER NOT NULL DEFAULT 1,
+                column_map_json TEXT NOT NULL DEFAULT '{}',
+                sync_enabled INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
 
-        link_columns = _table_columns(con, "project_dataset_links")
-        if "purpose" not in link_columns:
-            con.execute(
-                "ALTER TABLE project_dataset_links ADD COLUMN purpose TEXT NOT NULL DEFAULT 'working'"
-            )
-        # Existing project-owned datasets remain visible in their former project.
-        # From this migration forward this row is a membership, not ownership.
-        con.execute(
-            """
-            INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
-            SELECT project_id, id, 'Автоматически добавлено при переходе на общую базу', ?, 'working'
-            FROM datasets
-            """,
-            (_utcnow(),),
-        )
+            CREATE TABLE IF NOT EXISTS project_dataset_links (
+                project_id INTEGER NOT NULL,
+                dataset_id INTEGER NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                added_at TEXT NOT NULL,
+                purpose TEXT NOT NULL DEFAULT 'working',
+                PRIMARY KEY(project_id, dataset_id),
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
 
-        con.execute(
-            """
             CREATE TABLE IF NOT EXISTS analysis_rows (
                 analysis_id TEXT PRIMARY KEY,
                 dataset_id INTEGER NOT NULL,
@@ -124,129 +85,146 @@ def ensure_storage() -> None:
                 source_row INTEGER,
                 data_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
-                UNIQUE(dataset_id, row_index)
-            )
-            """
-        )
-        con.execute("CREATE INDEX IF NOT EXISTS idx_analysis_dataset ON analysis_rows(dataset_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_analysis_source_row ON analysis_rows(dataset_id, source_row)")
+                UNIQUE(dataset_id, row_index),
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
 
-        con.execute(
-            """
+            CREATE TABLE IF NOT EXISTS formula_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id TEXT NOT NULL,
+                dataset_id INTEGER NOT NULL,
+                mineral_key TEXT NOT NULL,
+                method_id TEXT NOT NULL,
+                method_title TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                derived_columns_json TEXT NOT NULL,
+                calculated_at TEXT NOT NULL,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_analysis_rows_dataset ON analysis_rows(dataset_id);
+            CREATE INDEX IF NOT EXISTS idx_formula_results_dataset ON formula_results(dataset_id);
+            CREATE INDEX IF NOT EXISTS idx_formula_results_analysis ON formula_results(analysis_id);
+            CREATE INDEX IF NOT EXISTS idx_project_dataset_links_dataset ON project_dataset_links(dataset_id);
+
             CREATE TABLE IF NOT EXISTS image_assets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL,
-                dataset_id INTEGER,
+                dataset_id INTEGER NOT NULL,
                 analysis_id TEXT,
-                scope_type TEXT NOT NULL DEFAULT 'dataset',
+                scope_type TEXT NOT NULL,
                 scope_column TEXT NOT NULL DEFAULT '',
                 scope_value TEXT NOT NULL DEFAULT '',
-                kind TEXT NOT NULL DEFAULT 'BSE/EDS/Фото',
+                kind TEXT NOT NULL,
                 title TEXT NOT NULL DEFAULT '',
                 original_filename TEXT NOT NULL,
                 stored_path TEXT NOT NULL,
-                added_at TEXT NOT NULL,
-                FOREIGN KEY(project_id) REFERENCES projects(id),
-                FOREIGN KEY(dataset_id) REFERENCES datasets(id),
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
                 FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE SET NULL
-            )
-            """
-        )
-        con.execute("CREATE INDEX IF NOT EXISTS idx_images_dataset ON image_assets(dataset_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_images_analysis ON image_assets(analysis_id)")
+            );
 
-        con.execute(
-            """
+            CREATE INDEX IF NOT EXISTS idx_image_assets_dataset ON image_assets(dataset_id);
+            CREATE INDEX IF NOT EXISTS idx_image_assets_analysis ON image_assets(analysis_id);
+            CREATE INDEX IF NOT EXISTS idx_image_assets_project ON image_assets(project_id);
+
             CREATE TABLE IF NOT EXISTS change_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
                 dataset_id INTEGER NOT NULL,
-                analysis_id TEXT,
+                analysis_id TEXT NOT NULL,
+                source_row INTEGER,
                 column_name TEXT NOT NULL,
                 old_value TEXT,
                 new_value TEXT,
-                synced_to_source INTEGER NOT NULL DEFAULT 0,
-                source_backup TEXT NOT NULL DEFAULT '',
                 changed_at TEXT NOT NULL,
-                FOREIGN KEY(dataset_id) REFERENCES datasets(id)
-            )
-            """
-        )
+                sync_status TEXT NOT NULL DEFAULT 'local',
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
+                FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE
+            );
 
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS plot_recipes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER,
-                name TEXT NOT NULL,
-                config_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(project_id, name),
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
+            CREATE INDEX IF NOT EXISTS idx_change_log_project ON change_log(project_id);
+            CREATE INDEX IF NOT EXISTS idx_change_log_dataset ON change_log(dataset_id);
             """
         )
+        project_columns = {row[1] for row in con.execute("PRAGMA table_info(projects)").fetchall()}
+        if "is_system" not in project_columns:
+            con.execute("ALTER TABLE projects ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+        columns = {row[1] for row in con.execute("PRAGMA table_info(datasets)").fetchall()}
+        migrations = {
+            "source_path": "TEXT NOT NULL DEFAULT ''",
+            "source_kind": "TEXT NOT NULL DEFAULT 'upload'",
+            "header_row": "INTEGER NOT NULL DEFAULT 1",
+            "column_map_json": "TEXT NOT NULL DEFAULT '{}'",
+            "sync_enabled": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, ddl in migrations.items():
+            if name not in columns:
+                con.execute(f"ALTER TABLE datasets ADD COLUMN {name} {ddl}")
+        image_columns = {row[1] for row in con.execute("PRAGMA table_info(image_assets)").fetchall()}
+        image_migrations = {
+            "scope_type": "TEXT NOT NULL DEFAULT 'Точки анализа'",
+            "scope_column": "TEXT NOT NULL DEFAULT ''",
+            "scope_value": "TEXT NOT NULL DEFAULT ''",
+        }
+        for name, ddl in image_migrations.items():
+            if name not in image_columns:
+                con.execute(f"ALTER TABLE image_assets ADD COLUMN {name} {ddl}")
+        # Existing installations predate the many-to-many project membership.
+        # Backfill one membership from the legacy datasets.project_id owner.
         con.execute(
             """
-            CREATE TABLE IF NOT EXISTS style_profiles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER,
-                name TEXT NOT NULL,
-                grouping_column TEXT NOT NULL DEFAULT '',
-                styles_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(project_id, name),
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
+            INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
+            SELECT project_id, id, 'Перенесено из прежней структуры', imported_at, 'working'
+            FROM datasets
             """
         )
-        con.execute("""CREATE TABLE IF NOT EXISTS composition_sets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, rock_id INTEGER,
-            name TEXT NOT NULL, kind TEXT NOT NULL, values_json TEXT NOT NULL,
-            units_json TEXT NOT NULL DEFAULT '{}', provenance_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)""")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_composition_sets_project ON composition_sets(project_id)")
-        con.execute("""CREATE TABLE IF NOT EXISTS assemblages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, name TEXT NOT NULL,
-            equilibrium_status TEXT NOT NULL DEFAULT 'unreviewed', note TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)""")
-        con.execute("""CREATE TABLE IF NOT EXISTS assemblage_members (
-            assemblage_id INTEGER NOT NULL, analysis_id TEXT NOT NULL, phase TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT '', generation TEXT NOT NULL DEFAULT '',
-            pair_group TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY(assemblage_id, analysis_id),
-            FOREIGN KEY(assemblage_id) REFERENCES assemblages(id) ON DELETE CASCADE,
-            FOREIGN KEY(analysis_id) REFERENCES analysis_rows(analysis_id) ON DELETE CASCADE)""")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_assemblage_members_analysis ON assemblage_members(analysis_id)")
-        con.execute("""CREATE TABLE IF NOT EXISTS partition_models (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, mineral TEXT NOT NULL,
-            counter_phase TEXT NOT NULL, model_kind TEXT NOT NULL, values_json TEXT NOT NULL,
-            source_json TEXT NOT NULL DEFAULT '{}', applicability_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL)""")
-        con.execute("""CREATE TABLE IF NOT EXISTS distribution_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, assemblage_id INTEGER,
-            model_id INTEGER, mode TEXT NOT NULL, input_json TEXT NOT NULL, assumptions_json TEXT NOT NULL DEFAULT '{}',
-            results_json TEXT NOT NULL, qc_json TEXT NOT NULL DEFAULT '[]', calculated_at TEXT NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY(assemblage_id) REFERENCES assemblages(id) ON DELETE SET NULL,
-            FOREIGN KEY(model_id) REFERENCES partition_models(id) ON DELETE SET NULL)""")
         con.commit()
 
 
-@contextmanager
-def connect():
-    ensure_storage()
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys=ON")
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write_bytes(path: str | Path, payload: bytes) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
     try:
-        yield con
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
     finally:
-        con.close()
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def atomic_write_csv(path: str | Path, dataframe: pd.DataFrame) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".csv", dir=str(target.parent))
+    os.close(fd)
+    try:
+        dataframe.to_csv(temp_path, index=False, quoting=csv.QUOTE_MINIMAL)
+        os.replace(temp_path, target)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def list_projects(*, include_system: bool = False) -> list[dict]:
@@ -317,32 +295,37 @@ def list_datasets(project_id: int | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def list_accessible_datasets(project_id: int) -> list[dict]:
-    """Return datasets included in a project's working context.
+def list_accessible_datasets(project_id: int, *, include_provenance: bool = False) -> list[dict]:
+    """Return datasets included in a project's normal working context.
 
-    The dataset row is global; ``project_dataset_links`` is the many-to-many
-    membership layer.  ``project_id`` on datasets remains provenance for older
-    installations and source attribution, not an exclusivity boundary.
+    ``project_dataset_links`` is the many-to-many membership layer. Fully
+    resolved mixed-source containers can remain linked with ``purpose='provenance'``
+    so their original snapshot stays recoverable without cluttering ordinary
+    selectors. Pass ``include_provenance=True`` only for provenance/audit views.
     """
     with connect() as con:
+        where = "WHERE l.project_id=?"
+        params: list[object] = [int(project_id), int(project_id)]
+        if not include_provenance:
+            where += " AND COALESCE(l.purpose, 'working') <> 'provenance'"
         rows = con.execute(
-            """
+            f"""
             SELECT d.*, p.name AS project_name,
                    CASE WHEN d.project_id=? THEN 0 ELSE 1 END AS linked_to_project,
                    l.purpose AS membership_purpose, l.note AS membership_note
             FROM project_dataset_links l
             JOIN datasets d ON d.id=l.dataset_id
             JOIN projects p ON p.id=d.project_id
-            WHERE l.project_id=?
+            {where}
             ORDER BY imported_at DESC
             """,
-            (int(project_id), int(project_id)),
+            params,
         ).fetchall()
     return [dict(row) for row in rows]
 
 
 def dataset_is_accessible(project_id: int, dataset_id: int) -> bool:
-    """Whether a dataset is part of this project's working context."""
+    """Whether a dataset is part of this project's context, including provenance-only links."""
     with connect() as con:
         row = con.execute(
             "SELECT 1 FROM project_dataset_links WHERE project_id=? AND dataset_id=?",
@@ -432,9 +415,6 @@ def add_dataset(
             ),
         )
         dataset_id = int(cur.lastrowid)
-        # A new global row always starts with one explicit membership.  This
-        # keeps direct API callers and imported datasets consistent with the
-        # many-to-many project context model.
         con.execute(
             """
             INSERT OR IGNORE INTO project_dataset_links(project_id, dataset_id, note, added_at, purpose)
@@ -619,250 +599,107 @@ def load_unified_analyses(project_id: int | None = None, dataset_ids: list[int] 
     frames = []
     for d in datasets:
         df = load_dataset_dataframe(int(d["id"]), include_meta=True)
-        if df.empty:
-            continue
-        df.insert(5 if len(df.columns) >= 5 else len(df.columns), "Проект", d["project_name"])
-        df.insert(6 if len(df.columns) >= 6 else len(df.columns), "Набор", d["name"])
-        df.insert(7 if len(df.columns) >= 7 else len(df.columns), "Минерал", d["mineral_key"])
-        df.insert(8 if len(df.columns) >= 8 else len(df.columns), "Источник", d["source_filename"])
-        df.insert(9 if len(df.columns) >= 9 else len(df.columns), "Лист", d["source_sheet"])
-        df.insert(10 if len(df.columns) >= 10 else len(df.columns), "Строка Excel", df["_source_row"])
-        frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True, sort=False)
+        if not df.empty:
+            df["Проект"] = d["project_name"]
+            df["Набор"] = d["name"]
+            df["Минерал"] = d["mineral_key"]
+            frames.append(df)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def get_analysis_record(analysis_id: str) -> dict:
+def hash_dataframe(df: pd.DataFrame) -> str:
+    payload = df.to_csv(index=False, na_rep="").encode("utf-8")
+    return _sha256_bytes(payload)
+
+
+def serialize_cell(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    if pd.isna(value):
+        return None
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def deserialize_cell(value: str | None):
+    if value is None:
+        return None
+    return json.loads(value)
+
+
+def log_change(
+    con: sqlite3.Connection,
+    project_id: int,
+    dataset_id: int,
+    analysis_id: str,
+    source_row: int | None,
+    column_name: str,
+    old_value,
+    new_value,
+    sync_status: str = "local",
+) -> None:
+    con.execute(
+        """
+        INSERT INTO change_log(project_id, dataset_id, analysis_id, source_row, column_name, old_value, new_value, changed_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            project_id,
+            dataset_id,
+            analysis_id,
+            source_row,
+            column_name,
+            serialize_cell(old_value),
+            serialize_cell(new_value),
+            _utcnow(),
+            sync_status,
+        ),
+    )
+
+
+def count_pending_sync(dataset_id: int) -> int:
     with connect() as con:
         row = con.execute(
-            """
-            SELECT a.*, d.name AS dataset_name, d.project_id, d.mineral_key, d.source_filename,
-                   d.source_sheet, p.name AS project_name
-            FROM analysis_rows a
-            JOIN datasets d ON d.id=a.dataset_id
-            JOIN projects p ON p.id=d.project_id
-            WHERE a.analysis_id=?
-            """,
-            (analysis_id,),
+            "SELECT COUNT(*) AS n FROM change_log WHERE dataset_id=? AND sync_status='local'",
+            (dataset_id,),
         ).fetchone()
-    if not row:
-        raise KeyError("Анализ не найден")
-    out = dict(row)
-    out["data"] = json.loads(out.pop("data_json"))
-    return out
+    return int(row["n"])
 
 
-def update_analysis_values(changes: list[dict], synced_to_source: bool = False, source_backup: str = "") -> None:
-    if not changes:
+def list_changes(project_id: int | None = None, limit: int = 500) -> list[dict]:
+    with connect() as con:
+        if project_id is None:
+            rows = con.execute(
+                """
+                SELECT c.*, d.name AS dataset_name, p.name AS project_name
+                FROM change_log c
+                JOIN datasets d ON d.id=c.dataset_id
+                JOIN projects p ON p.id=c.project_id
+                ORDER BY c.changed_at DESC, c.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT c.*, d.name AS dataset_name, p.name AS project_name
+                FROM change_log c
+                JOIN datasets d ON d.id=c.dataset_id
+                JOIN projects p ON p.id=c.project_id
+                WHERE c.project_id=? ORDER BY c.changed_at DESC, c.id DESC LIMIT ?
+                """,
+                (project_id, limit),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_sync_status(change_ids: list[int], status: str) -> None:
+    if not change_ids:
         return
-    now = _utcnow()
-    grouped: dict[str, list[dict]] = {}
-    for ch in changes:
-        grouped.setdefault(ch["analysis_id"], []).append(ch)
     with connect() as con:
-        for analysis_id, items in grouped.items():
-            row = con.execute("SELECT data_json FROM analysis_rows WHERE analysis_id=?", (analysis_id,)).fetchone()
-            if not row:
-                continue
-            data = json.loads(row["data_json"])
-            for ch in items:
-                data[ch["column_name"]] = ch["new_value"]
-                con.execute(
-                    """
-                    INSERT INTO change_log(dataset_id, analysis_id, column_name, old_value, new_value,
-                                           synced_to_source, source_backup, changed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        ch["dataset_id"], analysis_id, ch["column_name"],
-                        None if ch["old_value"] is None else str(ch["old_value"]),
-                        None if ch["new_value"] is None else str(ch["new_value"]),
-                        1 if synced_to_source else 0, source_backup, now,
-                    ),
-                )
-            con.execute(
-                "UPDATE analysis_rows SET data_json=?, updated_at=? WHERE analysis_id=?",
-                (json.dumps(_json_safe_record(data), ensure_ascii=False), now, analysis_id),
-            )
-        con.commit()
-
-
-def list_change_log(dataset_id: int | None = None, limit: int = 500) -> list[dict]:
-    with connect() as con:
-        if dataset_id is None:
-            rows = con.execute(
-                "SELECT * FROM change_log ORDER BY id DESC LIMIT ?", (int(limit),)
-            ).fetchall()
-        else:
-            rows = con.execute(
-                "SELECT * FROM change_log WHERE dataset_id=? ORDER BY id DESC LIMIT ?",
-                (dataset_id, int(limit)),
-            ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def add_image_asset(
-    project_id: int,
-    dataset_id: int | None,
-    analysis_id: str | None,
-    scope_type: str,
-    scope_column: str,
-    scope_value: str,
-    kind: str,
-    title: str,
-    original_filename: str,
-    stored_path: str,
-) -> int:
-    with connect() as con:
-        cur = con.execute(
-            """
-            INSERT INTO image_assets(project_id, dataset_id, analysis_id, scope_type, scope_column, scope_value,
-                                     kind, title, original_filename, stored_path, added_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_id, dataset_id, analysis_id, scope_type, scope_column, scope_value,
-                kind, title, original_filename, stored_path, _utcnow(),
-            ),
+        con.executemany(
+            "UPDATE change_log SET sync_status=? WHERE id=?",
+            [(status, int(cid)) for cid in change_ids],
         )
-        con.commit()
-        return int(cur.lastrowid)
-
-
-def list_image_assets(project_id: int | None = None, dataset_id: int | None = None, analysis_id: str | None = None) -> list[dict]:
-    clauses = []
-    params: list = []
-    if project_id is not None:
-        clauses.append("i.project_id=?")
-        params.append(project_id)
-    if dataset_id is not None:
-        clauses.append("i.dataset_id=?")
-        params.append(dataset_id)
-    if analysis_id is not None:
-        clauses.append("i.analysis_id=?")
-        params.append(analysis_id)
-    where = " WHERE " + " AND ".join(clauses) if clauses else ""
-    with connect() as con:
-        rows = con.execute(
-            f"""
-            SELECT i.*, d.name AS dataset_name, p.name AS project_name
-            FROM image_assets i
-            LEFT JOIN datasets d ON d.id=i.dataset_id
-            JOIN projects p ON p.id=i.project_id
-            {where}
-            ORDER BY i.added_at DESC
-            """,
-            params,
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def delete_image_asset(asset_id: int) -> None:
-    with connect() as con:
-        row = con.execute("SELECT stored_path FROM image_assets WHERE id=?", (asset_id,)).fetchone()
-        con.execute("DELETE FROM image_assets WHERE id=?", (asset_id,))
-        con.commit()
-    if row:
-        try:
-            Path(row["stored_path"]).unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-def save_plot_recipe(name: str, config: dict, project_id: int | None = None) -> int:
-    name = name.strip()
-    if not name:
-        raise ValueError("Название рецепта не может быть пустым")
-    now = _utcnow()
-    payload = json.dumps(config, ensure_ascii=False)
-    with connect() as con:
-        existing = con.execute(
-            "SELECT id FROM plot_recipes WHERE project_id IS ? AND name=?",
-            (project_id, name),
-        ).fetchone()
-        if existing:
-            con.execute(
-                "UPDATE plot_recipes SET config_json=?, updated_at=? WHERE id=?",
-                (payload, now, existing["id"]),
-            )
-            con.commit()
-            return int(existing["id"])
-        cur = con.execute(
-            "INSERT INTO plot_recipes(project_id, name, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (project_id, name, payload, now, now),
-        )
-        con.commit()
-        return int(cur.lastrowid)
-
-
-def list_plot_recipes(project_id: int | None = None) -> list[dict]:
-    with connect() as con:
-        if project_id is None:
-            rows = con.execute("SELECT * FROM plot_recipes ORDER BY updated_at DESC, name").fetchall()
-        else:
-            rows = con.execute(
-                "SELECT * FROM plot_recipes WHERE project_id IS NULL OR project_id=? ORDER BY updated_at DESC, name",
-                (project_id,),
-            ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["config"] = json.loads(d.pop("config_json"))
-        out.append(d)
-    return out
-
-
-def delete_plot_recipe(recipe_id: int) -> None:
-    with connect() as con:
-        con.execute("DELETE FROM plot_recipes WHERE id=?", (recipe_id,))
-        con.commit()
-
-
-def save_style_profile(name: str, grouping_column: str, styles: dict, project_id: int | None = None) -> int:
-    name = name.strip()
-    if not name:
-        raise ValueError("Название профиля стилей не может быть пустым")
-    now = _utcnow()
-    payload = json.dumps(styles, ensure_ascii=False)
-    with connect() as con:
-        existing = con.execute(
-            "SELECT id FROM style_profiles WHERE project_id IS ? AND name=?",
-            (project_id, name),
-        ).fetchone()
-        if existing:
-            con.execute(
-                "UPDATE style_profiles SET grouping_column=?, styles_json=?, updated_at=? WHERE id=?",
-                (grouping_column, payload, now, existing["id"]),
-            )
-            con.commit()
-            return int(existing["id"])
-        cur = con.execute(
-            "INSERT INTO style_profiles(project_id, name, grouping_column, styles_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (project_id, name, grouping_column, payload, now, now),
-        )
-        con.commit()
-        return int(cur.lastrowid)
-
-
-def list_style_profiles(project_id: int | None = None) -> list[dict]:
-    with connect() as con:
-        if project_id is None:
-            rows = con.execute("SELECT * FROM style_profiles ORDER BY updated_at DESC, name").fetchall()
-        else:
-            rows = con.execute(
-                "SELECT * FROM style_profiles WHERE project_id IS NULL OR project_id=? ORDER BY updated_at DESC, name",
-                (project_id,),
-            ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["styles"] = json.loads(d.pop("styles_json"))
-        out.append(d)
-    return out
-
-
-def delete_style_profile(profile_id: int) -> None:
-    with connect() as con:
-        con.execute("DELETE FROM style_profiles WHERE id=?", (profile_id,))
         con.commit()
