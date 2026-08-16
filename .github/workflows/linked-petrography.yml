@@ -13,6 +13,7 @@ on:
       - "petrolab/ui/smart_plot_start.py"
       - "petrolab/slides.py"
       - "tests_linked_petrography.py"
+      - "tests_linked_petrography_storage.py"
       - "docs/LINKED_PETROGRAPHY_SCENARIO.md"
       - ".github/workflows/linked-petrography.yml"
 
@@ -45,11 +46,15 @@ jobs:
 
       - name: Compile linked scientific path
         shell: cmd
-        run: python -m compileall -q petrolab/linked_petrography.py petrolab/ui/selection_components.py petrolab/ui/pages/thin_section_workspace.py tests_linked_petrography.py
+        run: python -m compileall -q petrolab/linked_petrography.py petrolab/ui/selection_components.py petrolab/ui/pages/thin_section_workspace.py tests_linked_petrography.py tests_linked_petrography_storage.py
 
       - name: Run graph to thin-section round-trip contract
         shell: cmd
         run: python tests_linked_petrography.py
+
+      - name: Run real storage round trip
+        shell: cmd
+        run: python tests_linked_petrography_storage.py
 
       - name: Preserve Smart Start exact scope
         shell: cmd
