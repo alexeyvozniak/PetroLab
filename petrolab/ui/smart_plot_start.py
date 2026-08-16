@@ -238,6 +238,41 @@ def seed_xy_state(
     return current_x, current_y
 
 
+def seed_plot_handoff(
+    state: MutableMapping[str, Any],
+    *,
+    dataset_ids: Iterable[Any],
+    analysis_ids: Iterable[Any] = (),
+    context: Mapping[str, Any] | None = None,
+    notice: str = "",
+) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    """Canonical external handoff into the normal XY workspace.
+
+    All callers use the same membership contract. A new scientific question also
+    exits any previously open deep-editor mode so an old recipe cannot override the
+    incoming scope before the user sees the new graph.
+    """
+    datasets = _unique_ints(dataset_ids)
+    analyses = _unique_strings(analysis_ids)
+    payload = dict(context or {})
+    payload["dataset_ids"] = list(datasets)
+    payload["analysis_ids"] = list(analyses)
+
+    state["workflow_plot_dataset_ids"] = list(datasets)
+    state["workflow_plot_analysis_ids"] = list(analyses)
+    state["workflow_plot_context"] = payload
+    if notice:
+        state["workflow_plot_notice"] = str(notice)
+    else:
+        state.pop("workflow_plot_notice", None)
+
+    # A new route means a new graph question. Do not let a stale deep editor or
+    # recipe intercept it before Smart Start has rendered the requested membership.
+    state.pop("_plots_show_advanced", None)
+    state.pop("loaded_recipe", None)
+    return datasets, analyses
+
+
 def seed_import_plot_handoff(
     state: MutableMapping[str, Any],
     dataset_ids: Iterable[Any],
@@ -247,16 +282,18 @@ def seed_import_plot_handoff(
     for key in list(state):
         if str(key).startswith("multi_panel_") or str(key).startswith("_multi_panel_"):
             state.pop(key, None)
-    state["workflow_plot_dataset_ids"] = list(datasets)
-    state["workflow_plot_analysis_ids"] = []
-    state["workflow_plot_context"] = {
-        "origin": "import",
-        "dataset_ids": list(datasets),
-        "label": "Только что импортированные данные",
-    }
-    state["workflow_plot_notice"] = (
-        "Открыты только что импортированные данные. PetroLab выбрал безопасный стартовый график; "
-        "оси можно сразу изменить."
+    seed_plot_handoff(
+        state,
+        dataset_ids=datasets,
+        analysis_ids=(),
+        context={
+            "origin": "import",
+            "label": "Только что импортированные данные",
+        },
+        notice=(
+            "Открыты только что импортированные данные. PetroLab выбрал безопасный стартовый график; "
+            "оси можно сразу изменить."
+        ),
     )
     return datasets
 
@@ -271,16 +308,16 @@ def seed_selection_plot_handoff(
     """Open exactly the selected analyses in the normal XY workspace."""
     datasets = _unique_ints(dataset_ids)
     analyses = _unique_strings(analysis_ids)
-    state["workflow_plot_dataset_ids"] = list(datasets)
-    state["workflow_plot_analysis_ids"] = list(analyses)
-    state["workflow_plot_context"] = {
-        "origin": str(origin or "Selection"),
-        "dataset_ids": list(datasets),
-        "analysis_ids": list(analyses),
-        "label": f"Selection · {len(analyses)} точек",
-    }
-    state["workflow_plot_notice"] = f"В график передан точный отбор: {len(analyses)} точек."
-    return datasets, analyses
+    return seed_plot_handoff(
+        state,
+        dataset_ids=datasets,
+        analysis_ids=analyses,
+        context={
+            "origin": str(origin or "Selection"),
+            "label": f"Selection · {len(analyses)} точек",
+        },
+        notice=f"В график передан точный отбор: {len(analyses)} точек.",
+    )
 
 
 def advanced_recipe_from_spec(
