@@ -1,9 +1,8 @@
 """Streamlit page renderers.
 
 v0.15.7 keeps compatibility wrappers only where their behaviour has not yet
-been moved into a canonical page/component. Home, Workspace, Add Data, XY and
-analytical multi-panel are direct renderers and must not be monkey-patched at
-render time.
+been moved into a canonical page/component. Home, Workspace, Add Data, editor,
+article tables, batch actions, XY and analytical multi-panel are direct renderers.
 """
 
 from .add_data import render_add_data_page
@@ -69,13 +68,9 @@ from .v0154_rock_workspace_wrappers import render_rocks_page
 from .rocks_staging_bridge_v0154 import render_rocks_page
 from .whole_rock_compare_linked_v0154 import render_whole_rock_compare_page
 
-# Cross-page audit wrappers remain only around pages whose exact-route or
-# destructive-action safety has not yet been absorbed. Home/Workspace/Add Data
-# are canonical because their former runtime wrappers conflict with shared state.
+# Remaining cross-page audit wrappers only own contracts not yet absorbed by
+# their canonical pages: destructive formula actions and exact object routing.
 from .v0156_audit_wrappers import (
-    render_analyses_page,
-    render_article_tables_page,
-    render_batch_edit_page,
     render_formulae_page,
     render_global_search_page,
     render_guided_workflow_page,
