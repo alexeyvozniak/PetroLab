@@ -85,9 +85,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
+          $verificationSha = $env:GITHUB_SHA
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request" -and $env:GITHUB_HEAD_REF -eq "release/v0157-publish") {
+              $verificationSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/$env:GITHUB_HEAD_REF" --jq '.object.sha'
+              if ($LASTEXITCODE -ne 0 -or -not $verificationSha) { throw "Could not resolve release PR head SHA." }
+              $verificationSha = $verificationSha.Trim()
+              Write-Host "Waiting for Windows verification of release PR head $verificationSha"
+          }
           $deadline = (Get-Date).AddMinutes(18)
           while ((Get-Date) -lt $deadline) {
-              $json = gh run list --workflow "Windows verification" --commit $env:GITHUB_SHA --limit 10 --json status,conclusion,databaseId
+              $json = gh run list --workflow "Windows verification" --commit $verificationSha --limit 10 --json status,conclusion,databaseId
               if ($LASTEXITCODE -ne 0) { throw "Could not query Windows verification status." }
               $runs = $json | ConvertFrom-Json
               $run = $runs | Select-Object -First 1
@@ -100,7 +107,7 @@ jobs:
               }
               Start-Sleep -Seconds 10
           }
-          throw "Timed out waiting for full Windows verification of $env:GITHUB_SHA."
+          throw "Timed out waiting for full Windows verification of $verificationSha."
 
       - name: Publish rolling Windows installer
         if: >-
