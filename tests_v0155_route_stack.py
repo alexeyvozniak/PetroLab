@@ -17,14 +17,23 @@ def main() -> None:
     ]:
         assert marker in app, marker
 
+    # User-facing research/publication tools stay in the visible task navigation.
     for marker in [
         '("publication_composer", "Собрать рисунок A/B/C")',
         '("multi_panel", "Сравнить на нескольких диаграммах")',
         '("grain_profile", "Профиль по зерну")',
-        '("rock_workspace", "Породы")',
-        '("rocks", "Редактор пород")',
     ]:
         assert marker in navigation, marker
+
+    # Low-level rock editors remain routable for old links and internal actions,
+    # but no longer compete for space in the normal sidebar.
+    for marker in [
+        '"rock_workspace": "Породы"',
+        '"rocks": "Редактор пород"',
+    ]:
+        assert marker in navigation, marker
+    assert '("rock_workspace", "Породы")' not in navigation
+    assert '("rocks", "Редактор пород")' not in navigation
 
     for marker in [
         "from .publication_composer import render_publication_composer_page",
