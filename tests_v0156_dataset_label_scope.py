@@ -16,6 +16,7 @@ def main() -> None:
             "source_filename": "same.xlsx",
             "source_sheet": "Data",
             "row_count": 10,
+            "imported_at": "2026-08-16T10:00:00+00:00",
         },
         {
             "id": 12,
@@ -26,6 +27,7 @@ def main() -> None:
             "source_filename": "same.xlsx",
             "source_sheet": "Data",
             "row_count": 10,
+            "imported_at": "2026-08-16T10:05:00+00:00",
         },
     ]
     distribution = _distribution_dataset_map(datasets)
@@ -34,8 +36,12 @@ def main() -> None:
     for mapping in (distribution, equilibrium, sessions):
         assert len(mapping) == 2, mapping
         assert set(int(row["id"]) for row in mapping.values()) == {11, 12} if mapping is not sessions else set(mapping.values()) == {11, 12}
-        assert all("ID" in label for label in mapping), mapping
-    print("duplicate-dataset UI selector regressions: OK")
+        labels = [str(label) for label in mapping]
+        assert len(set(labels)) == 2, labels
+        assert all("ID" not in label and "id" not in label.casefold() for label in labels), labels
+        assert all("same.xlsx / Data" in label for label in labels), labels
+        assert all("импорт" in label for label in labels), labels
+    print("duplicate-dataset human selector regressions: OK")
 
 
 if __name__ == "__main__":
