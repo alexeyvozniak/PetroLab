@@ -45,7 +45,7 @@ jobs:
 
       - name: Compile acceptance code
         shell: cmd
-        run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py tests_v0159_plot_universe.py
+        run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py tests_v0159_plot_universe.py tests_v0159_release_gate.py
 
       - name: Verify installed-client update visibility
         shell: cmd
@@ -54,6 +54,10 @@ jobs:
       - name: Guard PlotSpec DataUniverse semantics
         shell: cmd
         run: python tests_v0159_plot_universe.py
+
+      - name: Guard rolling installer acceptance gate
+        shell: cmd
+        run: python tests_v0159_release_gate.py
 
       - name: Run stable real-browser acceptance
         shell: cmd
