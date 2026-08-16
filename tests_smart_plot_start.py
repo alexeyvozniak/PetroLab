@@ -6,6 +6,7 @@ from petrolab.ui.smart_plot_start import (
     consume_plot_scope,
     resolve_plot_scope,
     seed_import_plot_handoff,
+    seed_plot_handoff,
     seed_selection_plot_handoff,
     seed_xy_state,
 )
@@ -112,6 +113,33 @@ def test_project_change_drops_persisted_plot_scope_instead_of_leaking_ids():
     assert second.context_label == "Project 2"
 
 
+def test_canonical_handoff_preserves_provenance_and_resets_stale_deep_editor():
+    state = {
+        "_plots_show_advanced": True,
+        "loaded_recipe": {"x": "old-x", "y": "old-y"},
+        "workflow_plot_notice": "old notice",
+        "unrelated": 1,
+    }
+    datasets, analyses = seed_plot_handoff(
+        state,
+        dataset_ids=[2, "3", 2],
+        analysis_ids=["a", "b", "a"],
+        context={"origin": "search", "query": "apatite", "label": "Поиск · apatite"},
+        notice="Новый точный поиск.",
+    )
+    assert datasets == (2, 3)
+    assert analyses == ("a", "b")
+    assert state["workflow_plot_dataset_ids"] == [2, 3]
+    assert state["workflow_plot_analysis_ids"] == ["a", "b"]
+    assert state["workflow_plot_context"]["query"] == "apatite"
+    assert state["workflow_plot_context"]["dataset_ids"] == [2, 3]
+    assert state["workflow_plot_context"]["analysis_ids"] == ["a", "b"]
+    assert state["workflow_plot_notice"] == "Новый точный поиск."
+    assert "_plots_show_advanced" not in state
+    assert "loaded_recipe" not in state
+    assert state["unrelated"] == 1
+
+
 def test_mica_smart_start_uses_first_available_scientific_pair():
     rec = choose_xy_recommendation(
         ["mica"],
@@ -168,6 +196,8 @@ def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
     state = {
         "multi_panel_layout": "2x2",
         "_multi_panel_incoming_visible_series": ["old"],
+        "_plots_show_advanced": True,
+        "loaded_recipe": {"x": "old"},
         "keep_me": 1,
     }
     datasets = seed_import_plot_handoff(state, [7, "8", 7, "bad"])
@@ -178,6 +208,8 @@ def test_post_import_handoff_targets_normal_plot_and_clears_deep_panel_state():
     assert "безопасный стартовый график" in state["workflow_plot_notice"]
     assert "multi_panel_layout" not in state
     assert "_multi_panel_incoming_visible_series" not in state
+    assert "_plots_show_advanced" not in state
+    assert "loaded_recipe" not in state
     assert state["keep_me"] == 1
 
 
