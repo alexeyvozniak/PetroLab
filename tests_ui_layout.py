@@ -65,17 +65,22 @@ for marker in [
 ]:
     assert marker in selection_components, marker
 
-# Airtable-like table controls are one canonical working surface. View controls
-# must remain separate from the scientific linked Selection.
+# Airtable/JMP-like table controls are one canonical working surface. View
+# controls stay separate from the scientific linked Selection. Normal table
+# selection is Excel-like rectangular mouse selection, not per-row checkboxes.
 analysis_table = (UI / "analysis_table.py").read_text(encoding="utf-8")
 field_presets = (UI / "field_presets.py").read_text(encoding="utf-8")
 for marker in [
-    "def render_analysis_table(", '"Выбрать"', "human_point_label", "set_selection", "Другой столбец…",
+    "def render_analysis_table(", "human_point_label", "set_selection", "Другой столбец…",
+    'selection_mode=["multi-row", "multi-cell"]', 'origin="Таблица · мышью"',
+    "_sync_grid_from_context", "Selection с графика/шлифа подсвечивается здесь теми же строками",
     'st.popover("Поля"', 'st.popover("Фильтр"', 'st.popover("Группа"', 'st.popover("Сортировка"',
     '"Все видимые"', '"Инвертировать"', "clear_selection", "Карточка точки", "render_record_detail",
     "list_table_views", "save_table_view",
 ]:
     assert marker in analysis_table, marker
+assert "CheckboxColumn" not in analysis_table, "canonical table returned to per-row checkbox selection"
+assert 'editor.insert(0, "Выбрать"' not in analysis_table, "checkbox selection column returned to canonical table"
 for marker in ['"Основное"', '"Микрозонд"', '"Trace"', '"APFU"', '"QC"', '"Все"', '"Свои"']:
     assert marker in field_presets, marker
 assert '"Химия": "Микрозонд"' in field_presets, "legacy chemistry views must migrate"
