@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.group_styles import display_group_series
+from petrolab.ui.selection_context import set_selection
 
 
 def _series_table(dataframe: pd.DataFrame, group_column: str) -> pd.DataFrame:
@@ -13,11 +14,27 @@ def _series_table(dataframe: pd.DataFrame, group_column: str) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "Показывать": [True] * len(order),
+            "В отбор": [False] * len(order),
             "Серия": order,
             "Точек": [int(counts.get(name, 0)) for name in order],
             "Порядок": list(range(1, len(order) + 1)),
         }
     )
+
+
+def _selected_series_ids(
+    dataframe: pd.DataFrame,
+    group_column: str,
+    edited: pd.DataFrame,
+) -> tuple[list[str], list[str]]:
+    if "_analysis_id" not in dataframe.columns or "В отбор" not in edited.columns:
+        return [], []
+    names = edited.loc[edited["В отбор"].fillna(False).astype(bool), "Серия"].astype(str).tolist()
+    if not names:
+        return [], []
+    labels = display_group_series(dataframe[group_column]).astype(str)
+    ids = dataframe.loc[labels.isin(set(names)), "_analysis_id"].astype(str).tolist()
+    return ids, names
 
 
 def render_series_manager(
@@ -27,10 +44,12 @@ def render_series_manager(
     key_prefix: str,
     expanded: bool = False,
 ) -> tuple[pd.DataFrame, tuple[str, ...]]:
-    """Origin-like series visibility/order manager for grouped plots.
+    """Origin-like series visibility/order manager with JMP-linked selection.
 
-    This is deliberately a presentation-layer operation. Hiding a series here does
-    not mutate SelectionContext, row Hide/Exclude state, Work Group or Generation.
+    Show/Hide here is presentation-only and does not mutate SelectionContext or
+    row Hide/Exclude state. The explicit `В отбор` column is a separate action:
+    selected series can replace/add/subtract their analysis IDs in the canonical
+    SelectionContext without changing Work Group or Generation.
     """
     if dataframe.empty or not group_column or group_column not in dataframe.columns:
         return dataframe, ()
@@ -41,8 +60,8 @@ def render_series_manager(
 
     with st.expander("Серии", expanded=expanded):
         st.caption(
-            "Как Object Manager в Origin: выключайте серии и меняйте порядок только для текущего графика. "
-            "Исходные анализы и общий Selection при этом не меняются."
+            "Как Object Manager в Origin: «Видно» и «Порядок» меняют только текущий график. "
+            "«В отбор» связывает серию с общим JMP-подобным Selection."
         )
         edited = st.data_editor(
             source,
@@ -51,6 +70,7 @@ def render_series_manager(
             disabled=["Серия", "Точек"],
             column_config={
                 "Показывать": st.column_config.CheckboxColumn("Видно", width="small"),
+                "В отбор": st.column_config.CheckboxColumn("В отбор", width="small"),
                 "Серия": st.column_config.TextColumn("Серия", width="large"),
                 "Точек": st.column_config.NumberColumn("Точек", width="small"),
                 "Порядок": st.column_config.NumberColumn(
@@ -59,6 +79,38 @@ def render_series_manager(
             },
             key=f"{key_prefix}_series_manager",
         )
+
+        selected_ids, selected_names = _selected_series_ids(dataframe, group_column, edited)
+        if selected_names:
+            st.caption(
+                f"Для отбора: {len(selected_names)} сер. · {len(selected_ids)} анализов"
+            )
+            s1, s2, s3 = st.columns(3)
+            label = ", ".join(selected_names[:3]) + ("…" if len(selected_names) > 3 else "")
+            if s1.button("Заменить отбор", width="stretch", key=f"{key_prefix}_series_select_replace"):
+                set_selection(
+                    selected_ids,
+                    origin=f"Серии · {group_column}",
+                    mode="replace",
+                    label=label,
+                )
+                st.rerun()
+            if s2.button("Добавить", width="stretch", key=f"{key_prefix}_series_select_add"):
+                set_selection(
+                    selected_ids,
+                    origin=f"Серии · {group_column}",
+                    mode="add",
+                    label=label,
+                )
+                st.rerun()
+            if s3.button("Вычесть", width="stretch", key=f"{key_prefix}_series_select_subtract"):
+                set_selection(
+                    selected_ids,
+                    origin=f"Серии · {group_column}",
+                    mode="subtract",
+                    label=label,
+                )
+                st.rerun()
 
     visible = edited.loc[edited["Показывать"].fillna(False).astype(bool)].copy()
     if visible.empty:
