@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from petrolab.dataframe_utils import human_point_label
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.measurement_registry import list_entities
@@ -11,16 +12,18 @@ from petrolab.sample_registry import list_samples
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.thermodynamics import list_thermodynamic_runs
 from petrolab.thermobarometry import list_runs as list_legacy_thermobarometry_runs
+from petrolab.ui.analysis_table import render_analysis_table
 from petrolab.ui.components import render_asset_gallery
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
+from petrolab.ui.selection_context import read_selection
 from petrolab.ui.work_context import set_work_context
 
 
 _ID_COLUMNS = (
-    "Sample", "Grain", "Point", "Generation", "Минерал", "Mineral", "Набор",
-    SOURCE_LABEL_COLUMN, "QC уровень", "QC решение", "Method", "Метод", "_analysis_id",
+    "Sample", "Grain", "Point", "Generation", "PetroLab Generation", "Рабочая группа",
+    "Минерал", "Mineral", "Набор", SOURCE_LABEL_COLUMN, "QC уровень", "QC решение", "Method", "Метод",
 )
 
 
@@ -100,38 +103,28 @@ def _flatten_thermodynamics(project_id: int, analysis_ids: set[str]) -> pd.DataF
     return pd.DataFrame(rows)
 
 
-def _route_selection(dataframe: pd.DataFrame, dataset_ids: list[int], scope_label: str) -> None:
-    if dataframe.empty or "_analysis_id" not in dataframe.columns:
+def _secondary_selection_actions(dataframe: pd.DataFrame, dataset_ids: list[int]) -> None:
+    context = read_selection()
+    if not context.analysis_ids:
         return
-    analysis_ids = dataframe["_analysis_id"].astype(str).tolist()
-    context = {
-        "dataset_ids": [int(value) for value in dataset_ids],
-        "analysis_ids": analysis_ids,
-        "scope": scope_label,
-    }
-    render_section_header("Действия", "Текущий отбор передаётся дальше без копирования данных")
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button("График", type="primary", width="stretch", key="workspace_to_plot"):
-        st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in dataset_ids]
-        st.session_state["workflow_plot_analysis_ids"] = analysis_ids
-        st.session_state["workflow_plot_context"] = context
-        st.session_state["workflow_plot_notice"] = f"В график передан отбор из {scope_label}."
-        navigate("plots")
-        st.rerun()
-    if c2.button("Редактировать", width="stretch", key="workspace_to_edit"):
+    available = set(dataframe.get("_analysis_id", pd.Series(dtype=str)).astype(str))
+    ids = [analysis_id for analysis_id in context.analysis_ids if analysis_id in available]
+    if not ids:
+        return
+    render_section_header("Ещё действия", "Для текущего общего отбора")
+    c1, c2, c3 = st.columns(3)
+    if c1.button("Редактировать значения", width="stretch", key="workspace_selection_edit"):
         st.session_state["workflow_edit_dataset_ids"] = [int(value) for value in dataset_ids]
-        st.session_state["workflow_edit_analysis_ids"] = analysis_ids
-        st.session_state["workflow_edit_context"] = context
+        st.session_state["workflow_edit_analysis_ids"] = ids
         navigate("analyses")
         st.rerun()
-    if c3.button("Таблица статьи", width="stretch", key="workspace_to_table"):
+    if c2.button("Таблица для статьи", width="stretch", key="workspace_selection_article"):
         st.session_state["workflow_table_dataset_ids"] = [int(value) for value in dataset_ids]
-        st.session_state["workflow_table_analysis_ids"] = analysis_ids
-        st.session_state["workflow_table_context"] = context
+        st.session_state["workflow_table_analysis_ids"] = ids
         navigate("article_tables")
         st.rerun()
-    if c4.button("Термодинамика", width="stretch", key="workspace_to_thermo"):
-        st.session_state["thermodynamics_workspace_analysis_ids"] = analysis_ids
+    if c3.button("Термодинамика", width="stretch", key="workspace_selection_thermo"):
+        st.session_state["thermodynamics_workspace_analysis_ids"] = ids
         st.session_state["thermodynamics_workspace_dataset_ids"] = [int(value) for value in dataset_ids]
         navigate("thermobarometry")
         st.rerun()
@@ -166,12 +159,12 @@ def _workspace_tabs(
     with search_col:
         local_query = st.text_input(
             "Найти здесь",
-            key=f"workspace_local_search_{context_kind}_{context_label}",
+            key=f"workspace_local_search_{context_kind}",
             placeholder=f"🔎 Найти в {context_label}…",
             label_visibility="collapsed",
         )
     with everywhere_col:
-        if st.button("Везде", key=f"workspace_search_all_{context_kind}_{context_label}", width="stretch", help="Искать тот же запрос по всему проекту"):
+        if st.button("Везде", key=f"workspace_search_all_{context_kind}", width="stretch", help="Искать тот же запрос по всему проекту"):
             st.session_state["global_search_query_pending"] = str(local_query or "").strip()
             st.session_state["global_search_scope_pending"] = "all"
             navigate("search")
@@ -195,12 +188,15 @@ def _workspace_tabs(
     if local_query:
         badges.insert(1, (f"найдено из {len(dataframe):,}".replace(",", " "), "neutral"))
     render_badges(badges)
-    _route_selection(working, dataset_ids, f"{context_label}{' · поиск' if local_query else ''}")
 
-    overview_tab, analyses_tab, images_tab, objects_tab, thermo_tab = st.tabs([
-        "Обзор", "Анализы", "Изображения", "Шлифы и объекты", "Термодинамика",
-    ])
-    with overview_tab:
+    section = st.segmented_control(
+        "Раздел рабочего стола",
+        ["Обзор", "Анализы", "Изображения", "Шлифы и объекты", "Термодинамика"],
+        default="Анализы",
+        key=f"workspace_section_{context_kind}",
+    ) or "Анализы"
+
+    if section == "Обзор":
         render_section_header(title, "Единый контекст объекта")
         if context_rows:
             st.dataframe(pd.DataFrame(context_rows, columns=["Поле", "Значение"]), width="stretch", hide_index=True)
@@ -216,19 +212,19 @@ def _workspace_tabs(
             else:
                 st.caption("Явные библиографические источники в текущем отборе не найдены.")
 
-    with analyses_tab:
-        if working.empty:
-            st.info("Внутри текущего объекта по этому запросу анализов не найдено.")
-        else:
-            columns = _analysis_columns(working)
-            st.dataframe(working[columns].head(2000), width="stretch", hide_index=True, height=600)
-            if len(working) > 2000:
-                st.caption(f"Показаны первые 2000 из {len(working)} строк.")
+    elif section == "Анализы":
+        render_analysis_table(
+            working,
+            project_id=project_id,
+            key_prefix=f"workspace_{context_kind}_analyses",
+            height=600,
+        )
+        _secondary_selection_actions(working, dataset_ids)
 
-    with images_tab:
+    elif section == "Изображения":
         render_asset_gallery(visible_images, max_items=40)
 
-    with objects_tab:
+    elif section == "Шлифы и объекты":
         if not visible_entities:
             st.info("Связанных шлифов, зерен, точек или других физических объектов в текущем отборе нет.")
         else:
@@ -239,21 +235,29 @@ def _workspace_tabs(
             navigate("thin_section")
             st.rerun()
 
-    with thermo_tab:
+    else:
         if thermo.empty:
-            st.info("Сохранённых термодинамических расчётов для текущего отбора пока нет.")
+            st.info("Сохранённых термодинамических расчётов для текущего контекста пока нет.")
             if st.button("Открыть термодинамику", type="primary", key="workspace_empty_thermo"):
-                st.session_state["thermodynamics_workspace_analysis_ids"] = list(analysis_ids)
+                current_ids = list(read_selection().analysis_ids) or list(analysis_ids)
+                st.session_state["thermodynamics_workspace_analysis_ids"] = current_ids
                 st.session_state["thermodynamics_workspace_dataset_ids"] = dataset_ids
                 navigate("thermobarometry")
                 st.rerun()
         else:
+            view = thermo.copy()
+            if "_analysis_id" in view.columns:
+                labels = {
+                    str(row.get("_analysis_id")): human_point_label(row)
+                    for _, row in dataframe.iterrows()
+                }
+                view.insert(0, "Точка", [labels.get(str(value), "") for value in view["_analysis_id"]])
             preferred = [column for column in (
-                "_analysis_id", "Метод", "Тип", "Thermodynamic status", "Thermobarometry status",
+                "Точка", "Метод", "Тип", "Thermodynamic status", "Thermobarometry status",
                 "T (°C)", "P (kbar)", "ΔFMQ", "Актуальность", "Рассчитано", "Run",
-            ) if column in thermo.columns]
-            other = [column for column in thermo.columns if column not in preferred]
-            st.dataframe(thermo[preferred + other], width="stretch", hide_index=True, height=600)
+            ) if column in view.columns]
+            other = [column for column in view.columns if column not in preferred and not str(column).startswith("_")]
+            st.dataframe(view[preferred + other], width="stretch", hide_index=True, height=600)
 
 
 def _sample_workspace(project_id: int, query: str, datasets: list[dict]) -> None:
@@ -264,9 +268,15 @@ def _sample_workspace(project_id: int, query: str, datasets: list[dict]) -> None
     if not matches:
         st.info("По этому запросу Sample не найден. Переключитесь на «Массив данных» или измените запрос.")
         return
-    labels = {f"{sample['name']} · {sample.get('locality') or 'местность не указана'} · id {int(sample['id'])}": sample for sample in matches}
-    selected_label = st.selectbox("Sample", list(labels), key="workspace_sample")
-    sample_row = labels[selected_label]
+    by_id = {int(sample["id"]): sample for sample in matches}
+    ids = list(by_id)
+    selected_id = st.selectbox(
+        "Sample",
+        ids,
+        format_func=lambda value: f"{by_id[int(value)]['name']} · {by_id[int(value)].get('locality') or 'местность не указана'}",
+        key="workspace_sample",
+    )
+    sample_row = by_id[int(selected_id)]
     sample_name = str(sample_row["name"])
 
     accessible_ids = [int(item["id"]) for item in datasets]
@@ -307,9 +317,15 @@ def _dataset_workspace(project_id: int, query: str, datasets: list[dict]) -> Non
     if not matches:
         st.info("По этому запросу массив данных не найден.")
         return
-    labels = {f"{item['name']} · {item.get('mineral_key') or 'mineral ?'} · {int(item.get('row_count') or 0)} строк · id {int(item['id'])}": item for item in matches}
-    selected_label = st.selectbox("Массив данных", list(labels), key="workspace_dataset")
-    dataset = labels[selected_label]
+    by_id = {int(item["id"]): item for item in matches}
+    ids = list(by_id)
+    selected_id = st.selectbox(
+        "Массив данных",
+        ids,
+        format_func=lambda value: f"{by_id[int(value)]['name']} · {by_id[int(value)].get('mineral_key') or 'mineral ?'} · {int(by_id[int(value)].get('row_count') or 0)} строк",
+        key="workspace_dataset",
+    )
+    dataset = by_id[int(selected_id)]
     dataset_id = int(dataset["id"])
     frame = attach_study_metadata(load_unified_with_derived(project_id, [dataset_id]))
     sample_names = sorted(frame["Sample"].dropna().astype(str).unique()) if "Sample" in frame.columns else []
@@ -322,7 +338,7 @@ def _dataset_workspace(project_id: int, query: str, datasets: list[dict]) -> Non
             sample_id = int(sample_row["id"])
             entities = list_entities(project_id, sample_id=sample_id)
     images = list_image_records(project_id=project_id, dataset_id=dataset_id)
-    dataset_name = str(dataset.get("name") or dataset_id)
+    dataset_name = str(dataset.get("name") or "Массив")
     context_rows = [
         ("Массив", dataset_name),
         ("Минерал / режим", str(dataset.get("mineral_key") or "—")),
@@ -342,7 +358,7 @@ def render_object_workspace_page() -> None:
     project = active_project()
     render_page_header(
         "Рабочий стол",
-        "Один Sample или один массив как единый научный объект. После выбора лупа ищет только внутри него; кнопка «Везде» снимает ограничение.",
+        "Один Sample или один массив как единый научный объект. Отбор анализов сохраняется между таблицей, графиками и статистикой.",
         eyebrow="Основное",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -362,7 +378,7 @@ def render_object_workspace_page() -> None:
         "Выбрать объект",
         key="workspace_query",
         placeholder="Начните вводить Sample или название массива…",
-        help="Это поле выбирает сам объект. После выбора внутри рабочего стола появится отдельная лупа «Найти здесь».",
+        help="Это поле выбирает сам объект. Внутри рабочего стола отдельный поиск фильтрует анализы и связанные материалы.",
     )
     if mode == "Sample":
         _sample_workspace(project_id, query, datasets)
