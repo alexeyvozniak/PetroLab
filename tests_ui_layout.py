@@ -40,14 +40,16 @@ for obsolete in [
     assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
 assert not list(UI.glob("*_page_policy.py")), "runtime page policy module returned"
 
-# Canonical v0.15.7 interaction architecture.
+# Canonical Airtable/JMP/Origin interaction architecture.
 for ui_file in [
     "selection_context.py", "selection_components.py", "analysis_table.py",
     "navigation_state.py", "plot_spec.py", "linked_panels.py", "xy_components.py",
     "plot_manager.py", "panel_manager.py", "intake_workflow.py",
+    "table_view_state.py", "field_presets.py", "record_detail.py",
 ]:
     assert (UI / ui_file).exists(), ui_file
 assert (ROOT / "petrolab" / "dataset_visibility.py").exists()
+assert (ROOT / "petrolab" / "table_views.py").exists()
 
 selection_context = (UI / "selection_context.py").read_text(encoding="utf-8")
 for marker in [
@@ -66,13 +68,18 @@ for marker in [
 # Airtable-like table controls are one canonical working surface. View controls
 # must remain separate from the scientific linked Selection.
 analysis_table = (UI / "analysis_table.py").read_text(encoding="utf-8")
+field_presets = (UI / "field_presets.py").read_text(encoding="utf-8")
 for marker in [
-    "def render_analysis_table(", '"Основное"', '"Химия"', '"Расчёты"', '"Все"', '"Свои"',
-    '"Выбрать"', "human_point_label", "set_selection", "Другой столбец…",
+    "def render_analysis_table(", '"Выбрать"', "human_point_label", "set_selection", "Другой столбец…",
     'st.popover("Поля"', 'st.popover("Фильтр"', 'st.popover("Группа"', 'st.popover("Сортировка"',
-    '"Все видимые"', '"Инвертировать"', "clear_selection", "Карточка точки",
+    '"Все видимые"', '"Инвертировать"', "clear_selection", "Карточка точки", "render_record_detail",
+    "list_table_views", "save_table_view",
 ]:
     assert marker in analysis_table, marker
+for marker in ['"Основное"', '"Микрозонд"', '"Trace"', '"APFU"', '"QC"', '"Все"', '"Свои"']:
+    assert marker in field_presets, marker
+assert '"Химия": "Микрозонд"' in field_presets, "legacy chemistry views must migrate"
+assert '"Расчёты": "APFU"' in field_presets, "legacy calculated views must migrate"
 assert "_analysis_id" in analysis_table, "immutable ID must exist internally"
 
 # JMP-like graph selection tools stay visible and write only through SelectionContext.
@@ -101,13 +108,17 @@ for marker in [
 assert "st.tabs(" not in plots, "quick and advanced XY must not both execute on every rerun"
 
 # Origin-like managers own series visibility/order and the multi-panel layer list.
+# Series rows can also explicitly feed the shared JMP SelectionContext.
 plot_manager = (UI / "plot_manager.py").read_text(encoding="utf-8")
-for marker in ["def render_series_manager(", '"Показывать"', '"Серия"', '"Порядок"']:
+for marker in [
+    "def render_series_manager(", '"Показывать"', '"В отбор"', '"Серия"', '"Порядок"',
+    '"Заменить отбор"', '"Добавить"', '"Вычесть"', "set_selection",
+]:
     assert marker in plot_manager, marker
 panel_manager = (UI / "panel_manager.py").read_text(encoding="utf-8")
 for marker in [
     "def render_panel_manager(", '"Панель"', '"X"', '"Y"', '"Название"', '"log X"', '"log Y"', '"Порядок"',
-    "_saved_source", "_inbox_token",
+    '"Убрать"', '"Дублировать"', "_saved_source", "_inbox_token", "_panel_rows_after_actions",
 ]:
     assert marker in panel_manager, marker
 
@@ -239,4 +250,4 @@ for path in sorted(PAGES.glob("*.py")):
         width = int(match.group(1))
         assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
 
-print("v0.15.7 Airtable/JMP/Origin UI structure tests: OK")
+print("v0.15.8 Airtable/JMP/Origin UI structure tests: OK")
