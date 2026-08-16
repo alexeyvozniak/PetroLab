@@ -69,6 +69,8 @@ jobs:
         run: python tests_v0158_field_presets.py
       - name: Run record detail tests
         run: python tests_v0158_record_detail.py
+      - name: Run additive Article selection workflow
+        run: python tests_v0158_article_additive_selection.py
       - name: Run linked series selection tests
         run: python tests_v0158_series_selection.py
       - name: Run panel structure tests
