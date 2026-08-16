@@ -117,56 +117,72 @@ def apply_column_filters(
 
 
 def dataset_label(dataset: Mapping[str, Any]) -> str:
-    """Build a stable human-readable dataset selector label.
+    """Build a human-readable dataset selector label without leaking database IDs."""
+    parts = [
+        str(dataset.get("project_name") or "").strip(),
+        str(dataset.get("name") or "").strip(),
+    ]
+    row_count = dataset.get("row_count")
+    if row_count is not None:
+        parts.append(f"{int(row_count)} строк")
+    source = str(dataset.get("source_filename") or "").strip()
+    if source:
+        parts.append(source)
+    return " · ".join(part for part in parts if part)
 
-    Dataset names, row counts, and source filenames are not unique. Including the
-    immutable database ID prevents two otherwise identical labels from collapsing
-    when UI code uses labels as dictionary keys.
-    """
-    suffix = f' · ID {int(dataset["id"])}' if dataset.get("id") is not None else ""
-    return (
-        f'{dataset["project_name"]} · {dataset["name"]} · '
-        f'{dataset["row_count"]} строк · {dataset["source_filename"]}{suffix}'
-    )
+
+def _first_value(row: pd.Series, names: tuple[str, ...]) -> str:
+    lower = {str(column).casefold(): column for column in row.index}
+    for name in names:
+        exact = lower.get(name.casefold())
+        if exact is not None:
+            value = _canonical_value(row.get(exact))
+            if value not in (None, ""):
+                return str(value)
+    for column in row.index:
+        text = str(column).casefold()
+        if str(column).startswith("_"):
+            continue
+        if any(name.casefold() in text for name in names):
+            value = _canonical_value(row.get(column))
+            if value not in (None, ""):
+                return str(value)
+    return ""
 
 
-def row_identity(row: pd.Series) -> str:
-    """Build a compact point identity from common sample/grain/point columns."""
-    preferred_fragments = (
-        "sample",
-        "образ",
-        "grain",
-        "зерн",
-        "point",
-        "точк",
-        "spot",
-        "analysis",
-        "name",
-        "group",
-        "тип",
-    )
-    pieces: list[str] = []
-    for fragment in preferred_fragments:
-        for column in row.index:
-            if str(column).startswith("_"):
-                continue
-            value = row[column]
-            if fragment in str(column).lower() and pd.notna(value):
-                text = f"{column}: {value}"
-                if text not in pieces:
-                    pieces.append(text)
-                if len(pieces) >= 4:
-                    break
-        if len(pieces) >= 4:
-            break
+def human_point_label(row: pd.Series, *, include_generation: bool = True) -> str:
+    """Return a compact scientific point label; never expose ``_analysis_id``."""
+    sample = _first_value(row, ("Sample", "Образец"))
+    grain = _first_value(row, ("Grain", "Зерно"))
+    point = _first_value(row, ("Point", "Spot", "Точка"))
+    generation = _first_value(row, ("PetroLab Generation", "Generation", "Поколение")) if include_generation else ""
 
-    if pieces:
-        return " · ".join(pieces)
+    parts: list[str] = []
+    if sample:
+        parts.append(sample)
+    if grain:
+        parts.append(f"зерно {grain}")
+    if point:
+        parts.append(f"точка {point}")
+    if generation:
+        parts.append(generation)
+    if parts:
+        return " · ".join(parts)
 
+    source = _first_value(row, ("Источник", "Source", "Набор", "Dataset"))
     source_row = row.get("_source_row")
+    if source and pd.notna(source_row):
+        return f"{source} · строка {int(source_row)}"
+    if source:
+        return source
     if pd.notna(source_row):
         return f"Строка {int(source_row)}"
     return f"Строка {row.name}"
+
+
+def row_identity(row: pd.Series) -> str:
+    """Backward-compatible alias for the canonical human point label."""
+    return human_point_label(row)
 
 
 def display_value(value: Any) -> str:
