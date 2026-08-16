@@ -15,6 +15,7 @@ from petrolab.ui.image_components import SCOPE_LABELS
 from petrolab.ui.layout import render_badges, render_hint, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.selection_context import clear_selection, clear_row_states
+from petrolab.ui.smart_plot_start import seed_import_plot_handoff
 
 
 _PROJECT_CONTEXT_KEY = "_petrolab_intake_project_id"
@@ -264,12 +265,9 @@ def _current_import_ids(project_id: int) -> list[int]:
 
 
 def _prepare_new_import_scope(dataset_ids: list[int]) -> None:
-    for key in list(st.session_state):
-        if str(key).startswith("multi_panel_") or str(key).startswith("_multi_panel_"):
-            st.session_state.pop(key, None)
     clear_selection()
     clear_row_states()
-    st.session_state["workflow_plot_dataset_ids"] = [int(value) for value in dataset_ids]
+    seed_import_plot_handoff(st.session_state, dataset_ids)
 
 
 def _render_post_import_steps(project_id: int) -> None:
@@ -282,12 +280,9 @@ def _render_post_import_steps(project_id: int) -> None:
         "Те же только что импортированные данные переходят дальше без повторного выбора",
     )
     c1, c2, c3 = st.columns(3)
-    if c1.button("Сравнить на диаграммах", type="primary", width="stretch", key="intake_continue_multi"):
+    if c1.button("Открыть первый график", type="primary", width="stretch", key="intake_continue_plot"):
         _prepare_new_import_scope(dataset_ids)
-        st.session_state["workflow_plot_notice"] = (
-            "Открыты только что импортированные наборы в нескольких химических проекциях."
-        )
-        navigate("multi_panel")
+        navigate("plots")
         st.rerun()
     if c2.button("Утвердить Generation", width="stretch", key="intake_continue_generation"):
         navigate("generations")
