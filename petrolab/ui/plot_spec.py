@@ -6,6 +6,7 @@ from typing import Any, MutableMapping
 
 CURRENT_PLOT_SPEC_KEY = "_petrolab_current_plot_spec"
 MULTI_PANEL_INBOX_KEY = "_petrolab_multi_panel_inbox"
+MULTI_PANEL_VISIBLE_SERIES_KEY = "_multi_panel_incoming_visible_series"
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,10 @@ def _seed_multi_panel_appearance(spec: PlotSpec, store: MutableMapping[str, Any]
     if spec.figure_preset:
         store["multi_panel_preset"] = spec.figure_preset
     store["multi_panel_grid"] = bool(spec.show_grid)
+    if spec.visible_series:
+        store[MULTI_PANEL_VISIBLE_SERIES_KEY] = list(spec.visible_series)
+    else:
+        store.pop(MULTI_PANEL_VISIBLE_SERIES_KEY, None)
 
 
 def set_current_plot_spec(spec: PlotSpec, state: MutableMapping[str, Any] | None = None) -> None:
