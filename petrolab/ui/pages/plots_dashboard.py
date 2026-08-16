@@ -53,6 +53,23 @@ _CURATED_GROUPS = (
 )
 
 
+def _analysis_universe_ids(dataframe: pd.DataFrame) -> tuple[str, ...]:
+    """Return immutable graph membership before reversible presentation filters.
+
+    Source/series visibility, log-axis sanitation and other display controls must not
+    silently redefine the scientific DataUniverse handed to another linked view.
+    """
+    if "_analysis_id" not in dataframe.columns:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            value
+            for value in dataframe["_analysis_id"].astype(str).tolist()
+            if (value := str(value).strip())
+        )
+    )
+
+
 def _apply_graph_choice(choice_axes: dict[str, tuple[str, str]]) -> None:
     choice = str(st.session_state.get("quick_graph_choice") or "")
     pair = choice_axes.get(choice)
@@ -268,6 +285,7 @@ def _quick_workspace(project_id: int) -> None:
             "Поиск", placeholder="Образец, поколение, статья, группа…", key="quick_plot_search"
         )
         dataframe = apply_quick_filter(dataframe, query)
+        universe_analysis_ids = _analysis_universe_ids(dataframe)
         dataframe, _source_excluded, visible_sources, hidden_sources = render_source_visibility_controls(
             dataframe,
             key="quick_plot",
@@ -410,7 +428,7 @@ def _quick_workspace(project_id: int) -> None:
 
     spec = PlotSpec(
         dataset_ids=tuple(selected_ids),
-        analysis_ids=tuple(plot_source["_analysis_id"].astype(str).tolist()) if "_analysis_id" in plot_source.columns else (),
+        analysis_ids=universe_analysis_ids,
         x=x,
         y=y,
         group_column=group_col or "",
