@@ -71,6 +71,8 @@ jobs:
         run: python tests_v0158_axis_ranges.py
       - name: Run exact Selection export tests
         run: python tests_v0158_selection_export.py
+      - name: Run JMP row display-state tests
+        run: python tests_v0158_row_display_states.py
       - name: Run linked-selection gate
         run: python tests_v0157_linked_selection.py
       - name: Run UI architecture contract
