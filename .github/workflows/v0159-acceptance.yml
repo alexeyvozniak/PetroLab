@@ -1,0 +1,66 @@
+name: v0.15.9 acceptance audit
+
+on:
+  push:
+    branches:
+      - "main"
+      - "fix/**"
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  stable-ui-acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install PetroLab and browser dependencies
+        shell: cmd
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
+
+      - name: Compile acceptance code
+        shell: cmd
+        run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py
+
+      - name: Verify installed-client update visibility
+        shell: python
+        run: |
+          from petrolab import __version__
+          from petrolab.update_checker import is_newer
+          assert __version__ == "0.15.9", __version__
+          assert is_newer(__version__, "0.15.8")
+          print("0.15.8 clients can detect 0.15.9")
+
+      - name: Run stable real-browser acceptance
+        shell: cmd
+        run: python tests_ui_acceptance_v0159.py
+
+      - name: Upload stable acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-v0159-stable-ui
+          path: v0159_acceptance_artifacts
+          if-no-files-found: warn
+          retention-days: 30
