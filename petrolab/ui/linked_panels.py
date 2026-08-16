@@ -103,11 +103,7 @@ def _available_ids(dataframe: pd.DataFrame, id_column: str) -> set[str]:
     return {_clean_id(value) for value in dataframe[id_column].tolist() if _clean_id(value)}
 
 
-def _plotly_axis_range(
-    limits: tuple[float, float] | list[float] | None,
-    *,
-    log: bool,
-) -> list[float] | None:
+def _plotly_axis_range(limits: tuple[float, float] | list[float] | None, *, log: bool) -> list[float] | None:
     if limits is None or len(limits) != 2:
         return None
     lower, upper = float(limits[0]), float(limits[1])
@@ -132,6 +128,7 @@ def build_linked_panel_figure(
     dragmode: str | bool = "lasso",
     axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
     labelled_ids: Iterable[str] = (),
+    excluded_ids: Iterable[str] = (),
     display_color: Mapping[str, str] | None = None,
     display_marker: Mapping[str, str] | None = None,
 ) -> go.Figure:
@@ -187,6 +184,7 @@ def build_linked_panel_figure(
         add_row_display_overlay(
             figure, work, x, y,
             labelled_ids=labelled_ids,
+            excluded_ids=excluded_ids,
             display_color=display_color,
             display_marker=display_marker,
             row=row,
@@ -242,7 +240,7 @@ def render_linked_panel_selection(
     figure = build_linked_panel_figure(
         visible, panels, id_column=id_column, selected_ids=context.analysis_ids,
         group_column=group_column, columns=columns, dragmode=dragmode,
-        axis_limits=axis_limits, labelled_ids=row_states.labelled,
+        axis_limits=axis_limits, labelled_ids=row_states.labelled, excluded_ids=row_states.excluded,
         display_color=row_states.display_color, display_marker=row_states.display_marker,
     )
     event = st.plotly_chart(
