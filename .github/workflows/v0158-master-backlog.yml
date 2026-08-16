@@ -77,6 +77,8 @@ jobs:
         run: python tests_v0158_panel_manager.py
       - name: Run shared and selection-fit axis tests
         run: python tests_v0158_axis_ranges.py
+      - name: Run complete PlotSpec handoff tests
+        run: python tests_v0158_plot_spec_handoff.py
       - name: Run exact Selection export tests
         run: python tests_v0158_selection_export.py
       - name: Run JMP row display-state tests
