@@ -10,6 +10,7 @@ from petrolab.db import connect
 
 
 _CONTEXT_KEY = "_petrolab_work_context"
+WORK_CONTEXT_REVISION_KEY = "_petrolab_work_context_revision"
 _RECENT_LIMIT = 8
 
 
@@ -54,6 +55,17 @@ def _record_recent(project_id: int, kind: str, label: str, selector: dict[str, A
         con.commit()
 
 
+def _bump_context_revision_if_changed(context: dict[str, Any] | None) -> None:
+    previous = st.session_state.get(_CONTEXT_KEY)
+    if previous == context:
+        return
+    try:
+        revision = int(st.session_state.get(WORK_CONTEXT_REVISION_KEY, 0)) + 1
+    except (TypeError, ValueError):
+        revision = 1
+    st.session_state[WORK_CONTEXT_REVISION_KEY] = revision
+
+
 def set_work_context(
     *,
     project_id: int,
@@ -75,6 +87,7 @@ def set_work_context(
         "sample_id": int(sample_id) if sample_id is not None else None,
         "thin_section_id": int(thin_section_id) if thin_section_id is not None else None,
     }
+    _bump_context_revision_if_changed(context)
     st.session_state[_CONTEXT_KEY] = context
     selector: dict[str, Any] = {}
     if sample:
@@ -99,6 +112,8 @@ def get_work_context(project_id: int | None = None) -> dict[str, Any] | None:
 
 
 def clear_work_context() -> None:
+    if _CONTEXT_KEY in st.session_state:
+        _bump_context_revision_if_changed(None)
     st.session_state.pop(_CONTEXT_KEY, None)
 
 
