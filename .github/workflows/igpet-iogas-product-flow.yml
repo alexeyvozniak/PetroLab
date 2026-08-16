@@ -8,6 +8,7 @@ on:
       - 'petrolab/ui/plot_spec.py'
       - 'petrolab/ui/work_context.py'
       - 'petrolab/ui/selection_components.py'
+      - 'petrolab/ui/plot_manager.py'
       - 'petrolab/ui/pages/plots_dashboard.py'
       - 'petrolab/ui/pages/plots_advanced.py'
       - 'petrolab/ui/pages/statistics.py'
@@ -47,6 +48,7 @@ jobs:
           petrolab/ui/plot_spec.py
           petrolab/ui/work_context.py
           petrolab/ui/selection_components.py
+          petrolab/ui/plot_manager.py
           petrolab/ui/intake_workflow.py
           petrolab/ui/pages/global_search.py
           petrolab/ui/pages/statistics.py
