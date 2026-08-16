@@ -51,9 +51,28 @@ def test_series_selection_is_separate_from_visibility_and_row_state() -> None:
     assert dataframe["_analysis_id"].tolist() == ["a1", "a2", "b1"]
 
 
+def test_series_table_can_restore_plot_spec_visibility_without_dropping_rows() -> None:
+    from petrolab.ui.plot_manager import _series_table
+
+    dataframe = pd.DataFrame(
+        {
+            "_analysis_id": ["a1", "a2", "b1", "c1"],
+            "Generation": ["core", "core", "rim", "xenocryst"],
+        }
+    )
+    table = _series_table(dataframe, "Generation", visible_series=("core", "xenocryst"))
+    visible = table.loc[table["Показывать"], "Серия"].tolist()
+    hidden = table.loc[~table["Показывать"], "Серия"].tolist()
+    assert visible == ["core", "xenocryst"]
+    assert hidden == ["rim"]
+    assert table["Точек"].sum() == len(dataframe)
+    assert dataframe["_analysis_id"].tolist() == ["a1", "a2", "b1", "c1"]
+
+
 def main() -> None:
     test_series_selection_maps_human_series_to_analysis_ids()
     test_series_selection_is_separate_from_visibility_and_row_state()
+    test_series_table_can_restore_plot_spec_visibility_without_dropping_rows()
     print("v0.15.8 linked series selection: OK")
 
 
