@@ -13,6 +13,7 @@ from petrolab.ui.record_detail import render_record_detail
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
+from petrolab.ui.view_presets import builtin_table_view_presets
 
 
 _IDENTITY_COLUMNS = (
@@ -89,12 +90,7 @@ def _filter_control(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame
     if current not in options:
         current = "Без фильтра"
     with st.popover("Фильтр", width="stretch"):
-        column = st.selectbox(
-            "Поле",
-            options,
-            index=options.index(current),
-            key=filter_key,
-        )
+        column = st.selectbox("Поле", options, index=options.index(current), key=filter_key)
         if column == "Без фильтра" or column not in dataframe.columns:
             st.caption("Фильтр меняет только текущий вид. Selection, Hide и Exclude остаются прежними.")
             return dataframe
@@ -107,16 +103,8 @@ def _filter_control(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame
             lower = float(numeric.min())
             upper = float(numeric.max())
             c1, c2 = st.columns(2)
-            minimum = c1.number_input(
-                "От",
-                value=lower,
-                key=f"{key_prefix}_filter_min_{column}",
-            )
-            maximum = c2.number_input(
-                "До",
-                value=upper,
-                key=f"{key_prefix}_filter_max_{column}",
-            )
+            minimum = c1.number_input("От", value=lower, key=f"{key_prefix}_filter_min_{column}")
+            maximum = c2.number_input("До", value=upper, key=f"{key_prefix}_filter_max_{column}")
             if float(minimum) > float(maximum):
                 st.warning("Нижняя граница больше верхней.")
                 return dataframe.iloc[0:0].copy()
@@ -157,18 +145,12 @@ def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.Data
     if current not in options:
         current = "Не группировать"
     with st.popover("Группа", width="stretch"):
-        group_col = st.selectbox(
-            "Группировать по",
-            options,
-            index=options.index(current),
-            key=group_key,
-        )
+        group_col = st.selectbox("Группировать по", options, index=options.index(current), key=group_key)
         if group_col == "Другой столбец…":
-            group_col = st.selectbox(
-                "Другой столбец",
-                advanced,
-                key=f"{key_prefix}_advanced_group_col",
-            ) if advanced else "Не группировать"
+            group_col = (
+                st.selectbox("Другой столбец", advanced, key=f"{key_prefix}_advanced_group_col")
+                if advanced else "Не группировать"
+            )
         if group_col == "Не группировать" or group_col not in dataframe.columns:
             st.caption("Группировка меняет порядок текущего вида, но не создаёт Work Group или Generation.")
             return dataframe, None
@@ -195,12 +177,7 @@ def _sort_control(
     if current not in options:
         current = "Без сортировки"
     with st.popover("Сортировка", width="stretch"):
-        column = st.selectbox(
-            "Сортировать по",
-            options,
-            index=options.index(current),
-            key=sort_key,
-        )
+        column = st.selectbox("Сортировать по", options, index=options.index(current), key=sort_key)
         direction = st.radio(
             "Направление",
             ["По возрастанию", "По убыванию"],
@@ -214,7 +191,11 @@ def _sort_control(
     ascending = direction == "По возрастанию"
     if group_col and group_col in dataframe.columns and group_col != column:
         group_helper = dataframe[group_col].astype("string").fillna("")
-        sort_helper = dataframe[column] if pd.api.types.is_numeric_dtype(dataframe[column]) else dataframe[column].astype("string").fillna("")
+        sort_helper = (
+            dataframe[column]
+            if pd.api.types.is_numeric_dtype(dataframe[column])
+            else dataframe[column].astype("string").fillna("")
+        )
         result = dataframe.assign(_petrolab_group_sort=group_helper, _petrolab_sort=sort_helper).sort_values(
             by=["_petrolab_group_sort", "_petrolab_sort"],
             ascending=[True, ascending],
@@ -263,15 +244,46 @@ def _sanitize_saved_view(state: TableViewState, dataframe: pd.DataFrame) -> Tabl
 
 def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix: str) -> None:
     active_key = f"{key_prefix}_active_saved_view"
+    preset_key = f"{key_prefix}_active_view_preset"
     active_name = str(st.session_state.get(active_key, "") or "")
-    label = f"Вид · {active_name}" if active_name else "Вид"
+    active_preset = str(st.session_state.get(preset_key, "") or "")
+    current_label = active_name or active_preset
+    label = f"Вид · {current_label}" if current_label else "Вид"
+
     with st.popover(label, width="stretch"):
-        st.caption("Вид хранит поля, поиск, фильтр, группировку и сортировку. Selection, Hide и Exclude не сохраняются.")
+        st.caption(
+            "Вид хранит поля, поиск, фильтр, группировку и сортировку. "
+            "Selection, Hide и Exclude не сохраняются."
+        )
+
+        presets = builtin_table_view_presets(dataframe)
+        if presets:
+            st.markdown("**Быстрые виды**")
+            for start in range(0, len(presets), 2):
+                columns = st.columns(2)
+                for slot, preset in zip(columns, presets[start:start + 2]):
+                    if slot.button(
+                        preset.name,
+                        width="stretch",
+                        type="primary" if preset.name == active_preset and not active_name else "secondary",
+                        key=f"{key_prefix}_preset_{start}_{preset.name}",
+                        help=preset.description,
+                    ):
+                        state = _sanitize_saved_view(
+                            TableViewState.from_dict(preset.state.to_dict()),
+                            dataframe,
+                        )
+                        apply_table_view(st.session_state, key_prefix, state)
+                        st.session_state[active_key] = ""
+                        st.session_state[preset_key] = preset.name
+                        st.rerun()
+
         if project_id is None:
-            st.info("Сохранённые виды доступны внутри проекта.")
+            st.info("Сохранённые виды доступны внутри проекта. Быстрые виды выше работают и без сохранения.")
             if st.button("Сбросить текущий вид", width="stretch", key=f"{key_prefix}_view_reset_no_project"):
                 clear_table_view(st.session_state, key_prefix)
                 st.session_state[active_key] = ""
+                st.session_state[preset_key] = ""
                 st.rerun()
             return
 
@@ -291,6 +303,7 @@ def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix
                     state = _sanitize_saved_view(TableViewState.from_dict(item.get("config")), dataframe)
                     apply_table_view(st.session_state, key_prefix, state)
                     st.session_state[active_key] = name
+                    st.session_state[preset_key] = ""
                     st.rerun()
                 if c2.button("×", key=f"{key_prefix}_view_delete_{item['id']}", help=f"Удалить вид «{name}»"):
                     delete_table_view(int(project_id), scope_key, name)
@@ -307,7 +320,11 @@ def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix
             placeholder="Например: Для статьи",
         )
         current_state = capture_table_view(st.session_state, key_prefix)
-        save_label = "Обновить вид" if active_name and (not new_name.strip() or new_name.strip() == active_name) else "Сохранить текущий вид"
+        save_label = (
+            "Обновить вид"
+            if active_name and (not new_name.strip() or new_name.strip() == active_name)
+            else "Сохранить текущий вид"
+        )
         if st.button(save_label, type="primary", width="stretch", key=f"{key_prefix}_view_save"):
             target_name = new_name.strip() or active_name
             if not target_name:
@@ -315,11 +332,13 @@ def _view_control(dataframe: pd.DataFrame, *, project_id: int | None, key_prefix
             else:
                 save_table_view(int(project_id), scope_key, target_name, current_state.to_dict())
                 st.session_state[active_key] = target_name
+                st.session_state[preset_key] = ""
                 st.rerun()
 
         if st.button("Сбросить настройки вида", width="stretch", key=f"{key_prefix}_view_reset"):
             clear_table_view(st.session_state, key_prefix)
             st.session_state[active_key] = ""
+            st.session_state[preset_key] = ""
             st.rerun()
 
 
@@ -337,31 +356,6 @@ def _render_expanded_record(dataframe: pd.DataFrame, *, project_id: int | None) 
         render_record_detail(row, dataframe, project_id=project_id)
 
 
-def _render_view_selection_actions(working: pd.DataFrame, *, key_prefix: str) -> None:
-    visible_ids = working["_analysis_id"].astype(str).tolist()
-    current = set(read_selection().analysis_ids)
-    c1, c2, c3, c4, note = st.columns([1.2, 1, 1.05, .8, 2.6], gap="small")
-    if c1.button(
-        f"Применить · {sum(value in current for value in visible_ids)}",
-        type="primary",
-        width="stretch",
-        key=f"{key_prefix}_apply_selection",
-        help="Применить чекбоксы таблицы как новый общий Selection.",
-    ):
-        return
-    if c2.button("Все видимые", width="stretch", key=f"{key_prefix}_select_visible"):
-        set_selection(visible_ids, origin="Таблица · видимые", mode="replace", label="Видимые строки")
-        st.rerun()
-    if c3.button("Инвертировать", width="stretch", key=f"{key_prefix}_invert_visible"):
-        inverted = [analysis_id for analysis_id in visible_ids if analysis_id not in current]
-        set_selection(inverted, origin="Таблица · инверсия", mode="replace", label="Инверсия видимых")
-        st.rerun()
-    if c4.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
-        clear_selection()
-        st.rerun()
-    note.caption("Операции относятся к текущему виду; фильтр и сортировка сами по себе Selection не меняют.")
-
-
 def render_analysis_table(
     dataframe: pd.DataFrame,
     *,
@@ -375,8 +369,8 @@ def render_analysis_table(
         return dataframe.iloc[0:0].copy()
 
     toolbar = st.columns([3.8, 1.05, 1.05, 1.05, 1.05, 1.15], gap="small")
-    # Render View first in execution order so applying a saved view can safely
-    # update widget state before the other toolbar widgets are instantiated.
+    # View executes first so a saved/preset state can update widget keys before
+    # the other toolbar widgets are instantiated on this rerun.
     with toolbar[5]:
         _view_control(dataframe, project_id=project_id, key_prefix=key_prefix)
     with toolbar[0]:
@@ -409,10 +403,12 @@ def render_analysis_table(
     visible = ["Выбрать", "Точка", *visible_columns]
     visible = list(dict.fromkeys(column for column in visible if column in editor.columns))
 
-    active_view = []
+    active_view: list[str] = []
     saved_view_name = str(st.session_state.get(f"{key_prefix}_active_saved_view", "") or "")
-    if saved_view_name:
-        active_view.append(f"вид: {saved_view_name}")
+    preset_name = str(st.session_state.get(f"{key_prefix}_active_view_preset", "") or "")
+    view_name = saved_view_name or preset_name
+    if view_name:
+        active_view.append(f"вид: {view_name}")
     filter_name = str(st.session_state.get(f"{key_prefix}_filter_column", "Без фильтра"))
     if filter_name != "Без фильтра":
         active_view.append(f"фильтр: {filter_name}")
@@ -435,14 +431,21 @@ def render_analysis_table(
         hide_index=True,
         disabled=[column for column in visible if column != "Выбрать"],
         column_config={
-            "Выбрать": st.column_config.CheckboxColumn("✓", help="Добавить строку в общий научный отбор", width="small"),
+            "Выбрать": st.column_config.CheckboxColumn(
+                "✓",
+                help="Добавить строку в общий научный отбор",
+                width="small",
+            ),
             "Точка": st.column_config.TextColumn("Точка", width="large"),
         },
         key=f"{key_prefix}_editor",
     )
 
     checked_indices = edited.index[edited["Выбрать"].fillna(False).astype(bool)].tolist()
-    checked_ids = working.loc[working.index.isin(checked_indices), "_analysis_id"].astype(str).tolist()
+    checked_ids = working.loc[
+        working.index.isin(checked_indices),
+        "_analysis_id",
+    ].astype(str).tolist()
     c1, c2, c3, c4, note = st.columns([1.2, 1, 1.05, .8, 2.6], gap="small")
     if c1.button(
         f"Применить · {len(checked_ids)}",
