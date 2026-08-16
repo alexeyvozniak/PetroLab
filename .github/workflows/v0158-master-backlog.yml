@@ -5,6 +5,7 @@ on:
     paths:
       - 'petrolab/table_views.py'
       - 'petrolab/ui/table_view_state.py'
+      - 'petrolab/ui/field_presets.py'
       - 'petrolab/ui/analysis_table.py'
       - 'petrolab/ui/selection_context.py'
       - 'petrolab/ui/plot_spec.py'
@@ -38,6 +39,7 @@ jobs:
           python -m py_compile
           petrolab/table_views.py
           petrolab/ui/table_view_state.py
+          petrolab/ui/field_presets.py
           petrolab/ui/analysis_table.py
           petrolab/ui/selection_context.py
           petrolab/ui/plot_spec.py
@@ -45,6 +47,8 @@ jobs:
           petrolab/ui/panel_manager.py
       - name: Run saved-view state and persistence tests
         run: python tests_v0158_table_views.py
+      - name: Run scientific field preset tests
+        run: python tests_v0158_field_presets.py
       - name: Run linked series selection tests
         run: python tests_v0158_series_selection.py
       - name: Run panel structure tests
