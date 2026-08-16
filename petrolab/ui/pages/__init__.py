@@ -1,9 +1,9 @@
 """Streamlit page renderers.
 
 v0.15.7 keeps compatibility wrappers only where their behaviour has not yet
-been moved into a canonical page/component.  XY and analytical multi-panel are
-direct renderers: linked selection, PlotSpec and action semantics now live in
-shared base modules and must not be monkey-patched at render time.
+been moved into a canonical page/component.  Canonical Home, Workspace, XY and
+analytical multi-panel are direct renderers and must not be monkey-patched at
+render time.
 """
 
 from .add_data import render_add_data_page
@@ -80,9 +80,9 @@ from petrolab.ui.workflow_cluster_bridge_v0154 import (
     render_add_data_page_v0154_bridge as render_add_data_page,
 )
 
-# Cross-page audit wrappers stay only around routes whose safety behaviour has
-# not yet been absorbed by the canonical implementation.  In particular,
-# multi-panel is no longer wrapped/monkey-patched.
+# Cross-page audit wrappers remain only around pages whose exact-route or
+# destructive-action safety has not yet been absorbed.  Home/Workspace are now
+# canonical because their old wrapper widget types conflict with the new pages.
 from .v0156_audit_wrappers import (
     render_analyses_page,
     render_article_tables_page,
@@ -90,10 +90,8 @@ from .v0156_audit_wrappers import (
     render_formulae_page,
     render_global_search_page,
     render_guided_workflow_page,
-    render_home_page,
     render_images_page,
     render_mixed_minerals_page,
-    render_object_workspace_page,
     render_slides_page,
     render_thin_section_workspace_page,
 )
