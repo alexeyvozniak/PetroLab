@@ -6,6 +6,7 @@ import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
+from petrolab.dataset_visibility import visible_working_datasets
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import load_unified_with_derived
 from petrolab.io_utils import numeric_candidates
@@ -64,7 +65,7 @@ def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources:
 
 
 def _quick_workspace(project_id: int) -> None:
-    datasets = list_accessible_datasets(project_id)
+    datasets = visible_working_datasets(list_accessible_datasets(project_id))
     if not datasets:
         st.info("В активном проекте нет данных для графика.")
         return
