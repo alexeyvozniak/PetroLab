@@ -37,6 +37,12 @@ def _open_recent(item: dict) -> None:
     _go("workspace")
 
 
+def _open_dataset(dataset: dict) -> None:
+    st.session_state["workspace_mode"] = "Массив данных"
+    st.session_state["workspace_query_pending"] = str(dataset.get("name") or "")
+    _go("workspace")
+
+
 def _scenario_card(title: str, note: str, route: str, *, primary: bool = False) -> None:
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -116,13 +122,30 @@ def render_home_dashboard_page() -> None:
     if health["required_count"] and st.button("Разобрать", key="home_attention_now"):
         _go("attention")
 
-    render_section_header("Недавние данные", "Наборы активного проекта")
+    render_section_header("Недавние данные", "Щёлкните строку, чтобы открыть набор на рабочем столе")
     if not datasets:
         st.info("В проекте пока нет аналитических наборов.")
         if st.button("Добавить первые данные", type="primary", key="home_first_data"):
             _go("add_data")
         return
-    view = pd.DataFrame(datasets)[["name", "mineral_key", "row_count", "source_filename", "source_sheet", "source_kind"]].copy()
+    recent_datasets = list(datasets[:12])
+    view = pd.DataFrame(recent_datasets)[["name", "mineral_key", "row_count", "source_filename", "source_sheet", "source_kind"]].copy()
     view["mineral_key"] = view["mineral_key"].map(mineral_labels()).fillna(view["mineral_key"])
     view.columns = ["Набор", "Минерал", "Строк", "Источник", "Лист", "Связь"]
-    st.dataframe(view.head(12), width="stretch", hide_index=True, height=390)
+    event = st.dataframe(
+        view,
+        width="stretch",
+        hide_index=True,
+        height=390,
+        key="home_recent_datasets_table",
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+    try:
+        rows = list(event.selection.rows)
+    except (AttributeError, TypeError):
+        rows = []
+    if rows:
+        index = int(rows[0])
+        if 0 <= index < len(recent_datasets):
+            _open_dataset(recent_datasets[index])
