@@ -50,14 +50,29 @@ def _wait_for_page_content(driver: webdriver.Chrome, expected: tuple[str, ...], 
         raise AssertionError(f"Product page {slug} did not render expected content {expected}. Main text: {main_text!r}")
 
 
-def _assert_primary_navigation(driver: webdriver.Chrome, output: Path) -> None:
-    sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
-    visible = [button.text.strip() for button in sidebar.find_elements(By.TAG_NAME, "button") if button.is_displayed()]
-    missing = [label for label in PRIMARY_NAV if label not in visible]
-    if missing:
+def _wait_for_primary_navigation(driver: webdriver.Chrome, output: Path) -> list[str]:
+    wait = WebDriverWait(driver, 35)
+    try:
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
+
+        def ready(browser):
+            sidebar = browser.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
+            visible = [
+                button.text.strip()
+                for button in sidebar.find_elements(By.TAG_NAME, "button")
+                if button.is_displayed()
+            ]
+            return visible if all(label in visible for label in PRIMARY_NAV) else False
+
+        return list(wait.until(ready))
+    except Exception:
         output.mkdir(parents=True, exist_ok=True)
         driver.save_screenshot(str(output / "primary_navigation_failure.png"))
-        raise AssertionError(f"Primary navigation is incomplete: {missing}; visible={visible}")
+        raise
+
+
+def _assert_primary_navigation(driver: webdriver.Chrome, output: Path) -> None:
+    visible = _wait_for_primary_navigation(driver, output)
     for implementation_label in ["Минералогические модули", "Быстрый импорт", "Новые анализы", "Редактор пород"]:
         assert implementation_label not in visible, f"Implementation route leaked into primary navigation: {implementation_label}"
 
@@ -68,7 +83,12 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     _select_page(driver, "Графики", output, "back_plots")
     _wait_for_page_content(driver, ("XY-диаграммы",), "back_plots", output)
     wait = WebDriverWait(driver, 20)
-    wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
+    try:
+        wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
+    except Exception:
+        output.mkdir(parents=True, exist_ok=True)
+        driver.save_screenshot(str(output / "back_button_missing.png"))
+        raise
     back = _visible_sidebar_buttons(driver, "← Назад")[0]
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", back)
     back.click()
