@@ -73,7 +73,12 @@ def test_explicit_plot_spec_appearance_wins_over_runtime_defaults() -> None:
 
 
 def test_send_to_multi_panel_seeds_appearance_without_changing_science() -> None:
-    from petrolab.ui.plot_spec import MULTI_PANEL_INBOX_KEY, peek_multi_panel_inbox, send_to_multi_panel
+    from petrolab.ui.plot_spec import (
+        MULTI_PANEL_INBOX_KEY,
+        MULTI_PANEL_VISIBLE_SERIES_KEY,
+        peek_multi_panel_inbox,
+        send_to_multi_panel,
+    )
 
     state: dict[str, object] = {}
     spec = _base_spec(
@@ -92,6 +97,7 @@ def test_send_to_multi_panel_seeds_appearance_without_changing_science() -> None
     assert state["multi_panel_marker"] == 62
     assert state["multi_panel_preset"] == "Lithos"
     assert state["multi_panel_grid"] is True
+    assert state[MULTI_PANEL_VISIBLE_SERIES_KEY] == ["core"]
     assert isinstance(state[MULTI_PANEL_INBOX_KEY], dict)
 
 
