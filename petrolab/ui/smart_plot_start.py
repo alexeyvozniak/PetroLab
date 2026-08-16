@@ -143,6 +143,32 @@ def seed_import_plot_handoff(
     return datasets
 
 
+def seed_selection_plot_handoff(
+    state: MutableMapping[str, Any],
+    *,
+    dataset_ids: Iterable[Any],
+    analysis_ids: Iterable[Any],
+    origin: str = "Selection",
+) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    """Open exactly the selected analyses in the normal XY workspace.
+
+    A Selection is not equivalent to a dataset scope. Passing only dataset ids would
+    silently broaden the user's scientific question, so both identities travel in
+    the handoff together.
+    """
+    datasets = _unique_ints(dataset_ids)
+    analyses = _unique_strings(analysis_ids)
+    state["workflow_plot_dataset_ids"] = list(datasets)
+    state["workflow_plot_analysis_ids"] = list(analyses)
+    state["workflow_plot_context"] = {
+        "origin": str(origin or "Selection"),
+        "dataset_ids": list(datasets),
+        "analysis_ids": list(analyses),
+    }
+    state["workflow_plot_notice"] = f"В график передан точный отбор: {len(analyses)} точек."
+    return datasets, analyses
+
+
 def advanced_recipe_from_spec(
     spec: PlotSpec,
     *,
