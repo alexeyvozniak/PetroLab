@@ -43,17 +43,58 @@ def _open_dataset(dataset: dict) -> None:
     _go("workspace")
 
 
-def _scenario_card(title: str, note: str, route: str, *, primary: bool = False) -> None:
-    with st.container(border=True):
-        st.markdown(f"**{title}**")
-        st.caption(note)
-        if st.button(
-            "Открыть",
+def _quick_actions() -> None:
+    render_section_header("Быстрые действия", "Основные задачи без перехода через технические разделы")
+    actions = [
+        ("Данные", "workspace", True),
+        ("Добавить", "add_data", False),
+        ("Графики", "plots", False),
+        ("Шлифы", "thin_section", False),
+        ("Расчёты", "calculate", False),
+        ("Публикация", "publish", False),
+        ("Поиск", "search", False),
+    ]
+    cols = st.columns(len(actions))
+    for col, (label, route, primary) in zip(cols, actions):
+        if col.button(
+            label,
             key=f"home_{route}",
             type="primary" if primary else "secondary",
             width="stretch",
         ):
             _go(route)
+
+
+def _recent_work(project_id: int) -> None:
+    recent = list_recent_work_contexts(project_id, limit=8)
+    if not recent:
+        return
+    render_section_header("Продолжить", "Последние объекты работы сохраняются между запусками")
+    kind_labels = {"sample": "Sample", "dataset": "Массив", "thin_section": "Шлиф"}
+    view = pd.DataFrame([
+        {
+            "Тип": kind_labels.get(str(item.get("kind")), "Объект"),
+            "Объект": str(item.get("label") or ""),
+        }
+        for item in recent
+    ])
+    event = st.dataframe(
+        view,
+        width="stretch",
+        hide_index=True,
+        height=min(330, 42 + 35 * len(view)),
+        key="home_recent_work_table",
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+    try:
+        rows = list(event.selection.rows)
+    except (AttributeError, TypeError):
+        rows = []
+    if rows:
+        index = int(rows[0])
+        if 0 <= index < len(recent):
+            _open_recent(recent[index])
 
 
 def render_home_dashboard_page() -> None:
@@ -70,47 +111,16 @@ def render_home_dashboard_page() -> None:
     analyses = sum(int(item.get("row_count") or 0) for item in datasets)
     stale = sum(int(formula_status(int(item["id"])).stale_rows) for item in datasets)
     health = project_health(project_id)
-    context = f"{project['name']} · {len(datasets)} наборов · {analyses:,} анализов".replace(",", " ")
+    context = f"{len(datasets)} наборов · {analyses:,} анализов".replace(",", " ")
     render_page_header(
-        "Что вы хотите сделать сегодня?",
-        "Выберите задачу — PetroLab откроет короткий путь, но все инструменты останутся доступны напрямую.",
+        str(project["name"]),
+        "Данные, связанные представления и научные расчёты в одном рабочем контексте.",
         eyebrow="ПетроЛаб",
         context=context,
     )
 
-    first_row = st.columns(4)
-    scenarios = [
-        ("Исследовать объект", "Один Sample или массив: анализы, изображения, шлифы, расчёты и источники.", "workspace"),
-        ("Добавить данные", "Excel/CSV, изображения, статьи или полевые объекты без лишних шагов.", "add_data"),
-        ("Работать со шлифом", "PPL/XPL/BSE, точки анализов, области и контуры зерен прямо на изображении.", "thin_section"),
-        ("Сравнить данные", "Собрать два или больше массивов и включать/выключать их как отдельные серии.", "compare"),
-    ]
-    for index, (col, (title, note, route)) in enumerate(zip(first_row, scenarios)):
-        with col:
-            _scenario_card(title, note, route, primary=index == 0)
-
-    second_row = st.columns(3)
-    more = [
-        ("Посчитать", "Формулы/APFU, мономинеральная и минерал–расплав термодинамика, классификации.", "calculate"),
-        ("Подготовить рисунок или таблицу", "XY, треугольные диаграммы, публикационные таблицы и экспорт.", "publish"),
-        ("Найти", "Одна лупа для Sample, точки, зерна, минерала, массива, изображения и источника.", "search"),
-    ]
-    for col, (title, note, route) in zip(second_row, more):
-        with col:
-            _scenario_card(title, note, route)
-
-    recent = list_recent_work_contexts(project_id, limit=4)
-    if recent:
-        render_section_header("Продолжить", "Последние объекты работы сохраняются между запусками")
-        cols = st.columns(len(recent))
-        kind_labels = {"sample": "Sample", "dataset": "Массив", "thin_section": "Шлиф"}
-        for index, (col, item) in enumerate(zip(cols, recent)):
-            with col:
-                with st.container(border=True):
-                    st.caption(kind_labels.get(str(item.get("kind")), "Объект"))
-                    st.markdown(f"**{item.get('label', '')}**")
-                    if st.button("Продолжить", key=f"home_recent_{index}", width="stretch"):
-                        _open_recent(item)
+    _recent_work(project_id)
+    _quick_actions()
 
     render_section_header("Проект")
     render_badges([
