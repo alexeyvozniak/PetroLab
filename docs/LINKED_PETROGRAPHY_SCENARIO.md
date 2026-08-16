@@ -12,7 +12,7 @@ A second core loop is:
 
 **Thin section + PPL/XPL/BSE → physical point / grain / region → EPMA + LA-ICP-MS + other measurements → plots → click a chemical point → highlight its physical position → click a physical point → highlight it in every linked plot/table.**
 
-This scenario starts from the current `main` after PR #89. It extends the existing WorkContext, SelectionContext, PlotSpec, image links, physical-point model, thin-section workspace, Textural zone, Work Group and Generation. It must not create parallel copies of those concepts.
+This scenario extends the existing WorkContext, SelectionContext, PlotSpec, image links, physical-point model, thin-section workspace, Textural zone, Work Group and Generation. It must not create parallel copies of those concepts.
 
 ## Scientific semantics
 
