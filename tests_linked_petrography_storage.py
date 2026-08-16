@@ -80,7 +80,10 @@ def main() -> None:
         links = related_thin_section_markers(project_id, (analysis_ids[0],))
         assert len(links) == 1
         assert links[0].marker_id == marker_id
-        assert links[0].analysis_ids == (analysis_ids[0], analysis_ids[1])
+        # Storage deliberately orders links by immutable analysis_id; scientific identity
+        # is the exact membership, not insertion order.
+        assert len(links[0].analysis_ids) == 2
+        assert set(links[0].analysis_ids) == {analysis_ids[0], analysis_ids[1]}
         assert links[0].thin_section_id == section_id
         assert links[0].slide_image_id == image.id
         assert dataset_ids_for_analysis_ids(project_id, (analysis_ids[0], analysis_ids[1])) == (dataset_id,)
