@@ -7,6 +7,7 @@ PAGES = UI / "pages"
 
 def main() -> None:
     smart = (UI / "smart_plot_start.py").read_text(encoding="utf-8")
+    work_context = (UI / "work_context.py").read_text(encoding="utf-8")
     plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
     plot_manager = (UI / "plot_manager.py").read_text(encoding="utf-8")
     intake = (UI / "intake_workflow.py").read_text(encoding="utf-8")
@@ -18,17 +19,27 @@ def main() -> None:
     for marker in [
         "def consume_plot_scope(",
         "def clear_exact_plot_scope(",
+        "def reset_quick_plot_presentation(",
         "def seed_plot_handoff(",
         "def xy_recommendations(",
         "def sync_xy_recommendation_state(",
         "def restore_quick_plot_state(",
         "_petrolab_plot_scope_analysis_ids",
         "_petrolab_plot_scope_dataset_ids",
+        "_petrolab_plot_scope_work_context_revision",
+        "WORK_CONTEXT_REVISION_KEY",
         'state.pop("_plots_show_advanced", None)',
         'state.pop("loaded_recipe", None)',
         "CURRENT_PLOT_SPEC_KEY",
     ]:
         assert marker in smart, marker
+    for marker in [
+        'WORK_CONTEXT_REVISION_KEY = "_petrolab_work_context_revision"',
+        "def _bump_context_revision_if_changed(",
+        "_bump_context_revision_if_changed(context)",
+        "_bump_context_revision_if_changed(None)",
+    ]:
+        assert marker in work_context, marker
     assert 'pop("workflow_plot_analysis_ids"' not in plots
     assert "consume_plot_scope(" in plots
     assert '"Весь набор"' in plots
@@ -77,7 +88,7 @@ def main() -> None:
     for marker in ["initial_visible_series", "widget_token", "editor_key"]:
         assert marker in plot_manager, marker
 
-    print("IgPet/ioGAS exact scientific handoff + compact/advanced round-trip contract: OK")
+    print("IgPet/ioGAS exact scientific handoff + WorkContext + compact/advanced round-trip contract: OK")
 
 
 if __name__ == "__main__":
