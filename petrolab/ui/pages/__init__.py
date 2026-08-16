@@ -1,7 +1,7 @@
 """Streamlit page renderers.
 
 v0.15.7 keeps compatibility wrappers only where their behaviour has not yet
-been moved into a canonical page/component.  Canonical Home, Workspace, XY and
+been moved into a canonical page/component. Home, Workspace, Add Data, XY and
 analytical multi-panel are direct renderers and must not be monkey-patched at
 render time.
 """
@@ -52,17 +52,13 @@ from .updates import render_updates_page
 from .whole_rock_compare import render_whole_rock_compare_page
 
 # Compatibility wrappers still needed for exact global-search/thin-section and
-# physical-point workflows.  XY and multi-panel intentionally do NOT come from
-# this release layer anymore.
+# physical-point workflows. Canonical Add Data, XY and multi-panel intentionally
+# do NOT come from this release layer anymore.
 from .v0151_wrappers import (
     render_composite_points_page,
     render_global_search_page,
     render_thin_section_workspace_page,
 )
-
-# Intake staging/provenance remains temporarily wrapped until its behaviour is
-# moved into the canonical Add Data page.  No new v0.15.7 wrapper is introduced.
-from .v0151_intake_wrappers import render_add_data_page, render_quick_import_page
 
 # Grain-profile entry from global search is still a compatibility extension.
 from .v0153_grain_profile_wrappers import render_global_search_page
@@ -71,18 +67,11 @@ from .v0153_grain_profile_wrappers import render_global_search_page
 # consolidated separately.
 from .v0154_rock_workspace_wrappers import render_rocks_page
 from .rocks_staging_bridge_v0154 import render_rocks_page
-
 from .whole_rock_compare_linked_v0154 import render_whole_rock_compare_page
 
-# The old chemical cluster bridge is retained ONLY for Add Data while staging
-# is still wrapper-backed.  Plots/multi-panel now use direct canonical pages.
-from petrolab.ui.workflow_cluster_bridge_v0154 import (
-    render_add_data_page_v0154_bridge as render_add_data_page,
-)
-
 # Cross-page audit wrappers remain only around pages whose exact-route or
-# destructive-action safety has not yet been absorbed.  Home/Workspace are now
-# canonical because their old wrapper widget types conflict with the new pages.
+# destructive-action safety has not yet been absorbed. Home/Workspace/Add Data
+# are canonical because their former runtime wrappers conflict with shared state.
 from .v0156_audit_wrappers import (
     render_analyses_page,
     render_article_tables_page,
