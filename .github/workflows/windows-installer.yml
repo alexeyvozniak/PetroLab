@@ -63,29 +63,40 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Wait for full Windows verification
+      - name: Wait for full Windows verification and UI acceptance
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          $deadline = (Get-Date).AddMinutes(18)
+          $requiredWorkflows = @("Windows verification", "v0.15.9 acceptance audit")
+          $deadline = (Get-Date).AddMinutes(25)
+          $passed = @{}
           while ((Get-Date) -lt $deadline) {
-              $json = gh run list --workflow "Windows verification" --commit $env:GITHUB_SHA --limit 10 --json status,conclusion,databaseId
-              if ($LASTEXITCODE -ne 0) { throw "Could not query Windows verification status." }
-              $runs = $json | ConvertFrom-Json
-              $run = $runs | Select-Object -First 1
-              if ($run -and $run.status -eq "completed") {
-                  if ($run.conclusion -ne "success") {
-                      throw "Full Windows verification did not pass: $($run.conclusion)."
+              foreach ($workflowName in $requiredWorkflows) {
+                  if ($passed[$workflowName]) { continue }
+                  $json = gh run list --workflow $workflowName --commit $env:GITHUB_SHA --limit 10 --json status,conclusion,databaseId
+                  if ($LASTEXITCODE -ne 0) { throw "Could not query $workflowName status." }
+                  $runs = $json | ConvertFrom-Json
+                  $run = $runs | Select-Object -First 1
+                  if (-not $run) { continue }
+                  if ($run.status -eq "completed") {
+                      if ($run.conclusion -ne "success") {
+                          throw "$workflowName did not pass: $($run.conclusion)."
+                      }
+                      Write-Host "$workflowName passed (run $($run.databaseId))."
+                      $passed[$workflowName] = $true
                   }
-                  Write-Host "Full Windows verification passed (run $($run.databaseId))."
+              }
+              if (($requiredWorkflows | Where-Object { -not $passed[$_] }).Count -eq 0) {
+                  Write-Host "All release verification gates passed for $env:GITHUB_SHA."
                   exit 0
               }
               Start-Sleep -Seconds 10
           }
-          throw "Timed out waiting for full Windows verification of $env:GITHUB_SHA."
+          $missing = $requiredWorkflows | Where-Object { -not $passed[$_] }
+          throw "Timed out waiting for release verification of $env:GITHUB_SHA: $($missing -join ', ')."
 
       - name: Publish rolling Windows installer
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

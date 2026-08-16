@@ -1,4 +1,4 @@
-"""Small, privacy-preserving check for a newer PetroLab program version."""
+"""Small, privacy-preserving check for a newer verified PetroLab version."""
 from __future__ import annotations
 
 import re
@@ -6,8 +6,11 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 
+# The updater itself resolves the verified ``windows-latest`` tag. The notification
+# must use the same channel: reading ``main`` could advertise an update before its
+# Windows + UI acceptance gates have passed and before the verified tag moves.
 VERSION_SOURCE_URL = (
-    "https://raw.githubusercontent.com/alexeyvozniak/PetroLab/main/petrolab/__init__.py"
+    "https://raw.githubusercontent.com/alexeyvozniak/PetroLab/windows-latest/petrolab/__init__.py"
 )
 _VERSION_RE = re.compile(r'^__version__\s*=\s*["\'](\d+(?:\.\d+){1,3})["\']', re.MULTILINE)
 
@@ -29,7 +32,7 @@ def is_newer(remote_version: str, installed_version: str) -> bool:
 
 
 def fetch_remote_version(*, timeout: float = 1.2, opener=urlopen) -> str | None:
-    """Fetch only the public version declaration; never send project or user data."""
+    """Fetch only the public verified version declaration; never send project or user data."""
     request = Request(VERSION_SOURCE_URL, headers={"User-Agent": "PetroLab-update-check"})
     try:
         with opener(request, timeout=float(timeout)) as response:
