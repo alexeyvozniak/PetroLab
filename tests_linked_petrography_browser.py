@@ -28,33 +28,57 @@ from petrolab.slides import create_slide_marker, register_managed_slide_image
 from petrolab.storage import ensure_storage
 
 
-def _seed() -> tuple[int, tuple[str, str]]:
-    ensure_storage()
-    project_id = create_project("Linked browser project", "Golden graph-thin-section CI path")
-    frame = pd.DataFrame(
-        {
-            "Sample": ["KIV-2", "KIV-2", "KIV-2"],
-            "Point": ["P-1-EPMA", "P-1-LA", "P-2"],
-            "SiO2": [40.1, 40.2, 39.8],
-            "Al2O3": [13.5, 13.7, 14.1],
-            "TiO2": [2.1, 2.2, 1.7],
-        }
-    )
-    csv_path = ROOT / "linked_browser.csv"
+def _dataset(project_id: int, *, name: str, source: str, frame: pd.DataFrame) -> tuple[int, list[str]]:
+    csv_path = ROOT / f"{source}.csv"
     frame.to_csv(csv_path, index=False)
     dataset_id = add_dataset(
         project_id,
-        "KIV browser mica",
+        name,
         "mica",
-        "linked_browser.xlsx",
+        f"{source}.xlsx",
         "Sheet1",
-        "linked-browser-sha",
+        f"{source}-sha",
         str(csv_path),
         len(frame),
     )
-    replace_dataset_rows(dataset_id, frame, source_rows=[2, 3, 4])
+    replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, len(frame) + 2)))
     loaded = load_dataset_dataframe(dataset_id, include_meta=True)
-    ids = tuple(loaded["_analysis_id"].astype(str).tolist())
+    return dataset_id, loaded["_analysis_id"].astype(str).tolist()
+
+
+def _seed() -> tuple[int, tuple[str, str]]:
+    ensure_storage()
+    project_id = create_project("Linked browser project", "Golden graph-thin-section CI path")
+    _, epma_ids = _dataset(
+        project_id,
+        name="KIV EPMA",
+        source="browser_epma",
+        frame=pd.DataFrame(
+            {
+                "Sample": ["KIV-2", "KIV-2"],
+                "Point": ["P-1-EPMA", "P-2-EPMA"],
+                "SiO2": [40.1, 39.8],
+                "Al2O3": [13.5, 14.1],
+                "TiO2": [2.1, 1.7],
+            }
+        ),
+    )
+    _, la_ids = _dataset(
+        project_id,
+        name="KIV LA-ICP-MS",
+        source="browser_la",
+        frame=pd.DataFrame(
+            {
+                "Sample": ["KIV-2"],
+                "Point": ["P-1-LA"],
+                "SiO2": [40.2],
+                "Al2O3": [13.7],
+                "TiO2": [2.2],
+                "Rb [µg/g]": [520.0],
+            }
+        ),
+    )
+    p1_ids = (epma_ids[0], la_ids[0])
 
     section_id = create_entity(project_id, kind="thin_section", name="KIV-2-1")
     buffer = BytesIO()
@@ -73,7 +97,7 @@ def _seed() -> tuple[int, tuple[str, str]]:
         x_norm=0.42,
         y_norm=0.57,
         label="P-1",
-        analysis_ids=(ids[0], ids[1]),
+        analysis_ids=p1_ids,
     )
     create_slide_marker(
         project_id,
@@ -81,9 +105,9 @@ def _seed() -> tuple[int, tuple[str, str]]:
         x_norm=0.75,
         y_norm=0.30,
         label="P-2",
-        analysis_ids=(ids[2],),
+        analysis_ids=(epma_ids[1],),
     )
-    return project_id, (ids[0], ids[1])
+    return project_id, p1_ids
 
 
 def _wait_for_server(url: str, timeout: float = 35.0) -> None:
@@ -191,6 +215,14 @@ def _save(driver: webdriver.Chrome, name: str) -> None:
     driver.save_screenshot(str(output / name))
 
 
+def _assert_no_exception(driver: webdriver.Chrome) -> None:
+    exceptions = [
+        element.text for element in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stException"]')
+        if element.is_displayed()
+    ]
+    assert not exceptions, exceptions
+
+
 def main() -> None:
     _seed()
     process: subprocess.Popen | None = None
@@ -231,9 +263,15 @@ def main() -> None:
         _wait_for_idle(driver)
 
         _navigate_sidebar(driver, "Шлифы и изображения")
+        _save(driver, "00_thin_initial.png")
         text = _main_text(driver)
-        assert "Работать со шлифом" in text
-        assert "KIV-2-1" in text and "KIV-2-1 BSE" in text
+        assert "Работать со шлифом" in text, text[:2000]
+        # Selected values live inside Streamlit select inputs and are not guaranteed to
+        # appear in main.innerText. These visible badges prove the seeded physical
+        # section/image/markers are the active workspace instead of a blank project.
+        for expected in ("снимков · 1", "точек · 2", "связанных анализов · 3"):
+            assert expected in text, f"Missing {expected!r}: {text[:2500]}"
+        _assert_no_exception(driver)
 
         _click_button(driver, "Связи")
         text = _main_text(driver)
@@ -244,29 +282,25 @@ def main() -> None:
         _click_button(driver, "Открыть в графиках")
         text = _main_text(driver)
         assert "XY-диаграммы" in text
-        assert "Выбрано: 2" in text, text[:2000]
+        assert "Выбрано: 2" in text, text[:2500]
         assert "На шлифе" in text
         charts = [
             chart for chart in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"], .js-plotly-plot')
             if chart.is_displayed()
         ]
         assert charts, "Smart Start did not render a real Plotly chart"
+        _assert_no_exception(driver)
         _save(driver, "02_graph_selection_2.png")
 
         _click_button(driver, "На шлифе")
         text = _main_text(driver)
         assert "Работать со шлифом" in text
-        assert "KIV-2-1 BSE" in text
-        assert "Selection · 2" in text
+        assert "Selection · 2" in text, text[:2500]
         assert "на этом снимке · 1 точ." in text
         assert "Selection здесь · 1" in text
+        _assert_no_exception(driver)
         _save(driver, "03_back_on_exact_bse.png")
 
-        exceptions = [
-            element.text for element in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stException"]')
-            if element.is_displayed()
-        ]
-        assert not exceptions, exceptions
         print("PetroLab browser golden path graph ↔ BSE: OK")
     finally:
         if driver is not None:
