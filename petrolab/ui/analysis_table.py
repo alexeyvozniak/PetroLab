@@ -446,7 +446,7 @@ def render_analysis_table(
         working.index.isin(checked_indices),
         "_analysis_id",
     ].astype(str).tolist()
-    c1, c2, c3, c4, note = st.columns([1.2, 1, 1.05, .8, 2.6], gap="small")
+    c1, c2, c3, c4, c5, note = st.columns([1.2, 1, 1, 1.05, .8, 2.3], gap="small")
     if c1.button(
         f"Применить · {len(checked_ids)}",
         type="primary",
@@ -459,16 +459,24 @@ def render_analysis_table(
     if c2.button("Все видимые", width="stretch", key=f"{key_prefix}_select_visible"):
         set_selection(visible_ids, origin="Таблица · видимые", mode="replace", label="Видимые строки")
         st.rerun()
-    if c3.button("Инвертировать", width="stretch", key=f"{key_prefix}_invert_visible"):
+    if c3.button(
+        "+ Видимые",
+        width="stretch",
+        key=f"{key_prefix}_add_visible",
+        help="Добавить все строки текущего фильтра к уже существующему Selection.",
+    ):
+        set_selection(visible_ids, origin="Таблица · добавить видимые", mode="add")
+        st.rerun()
+    if c4.button("Инвертировать", width="stretch", key=f"{key_prefix}_invert_visible"):
         inverted = [analysis_id for analysis_id in visible_ids if analysis_id not in current]
         set_selection(inverted, origin="Таблица · инверсия", mode="replace", label="Инверсия видимых")
         st.rerun()
-    if c4.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
+    if c5.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
         clear_selection()
         st.rerun()
     note.caption(
-        "Чекбоксы, «все видимые» и инверсия меняют общий Selection. "
-        "Фильтр, группировка, сортировка, скрытие полей и сохранённые виды — только текущий вид."
+        "«Все видимые» заменяет Selection; «+ Видимые» добавляет текущий фильтр к нему. "
+        "Фильтр, группировка, сортировка, скрытие полей и сохранённые виды сами Selection не меняют."
     )
 
     _render_expanded_record(dataframe, project_id=project_id)
