@@ -52,8 +52,9 @@ def test_external_selection_resolves_back_to_visible_table_rows() -> None:
             "SiO2": [39.9, 41.2, 40.5, 42.0],
         }
     ).sort_values("SiO2", ascending=False, kind="stable")
-    assert _analysis_row_positions(frame, ("a-7", "a-1")) == [0, 1]
-    assert _analysis_row_positions(frame, ("not-visible", "a-2")) == [2]
+    assert frame["_analysis_id"].tolist() == ["a-1", "a-2", "a-7", "a-9"]
+    assert _analysis_row_positions(frame, ("a-7", "a-1")) == [0, 2]
+    assert _analysis_row_positions(frame, ("not-visible", "a-2")) == [1]
 
 
 def test_ui_contract_uses_multi_cell_not_checkbox_column() -> None:
