@@ -22,6 +22,10 @@ jobs:
       MKL_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
+      PYTHONPATH: ${{ github.workspace }}
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,13 +48,8 @@ jobs:
         run: python -m compileall -q app.py petrolab tests_ui_viewports.py tests_ui_acceptance_v0159.py
 
       - name: Verify installed-client update visibility
-        shell: python
-        run: |
-          from petrolab import __version__
-          from petrolab.update_checker import is_newer
-          assert __version__ == "0.15.9", __version__
-          assert is_newer(__version__, "0.15.8")
-          print("0.15.8 clients can detect 0.15.9")
+        shell: cmd
+        run: python -c "from petrolab import __version__; from petrolab.update_checker import is_newer; assert __version__ == '0.15.9', __version__; assert is_newer(__version__, '0.15.8'); print('0.15.8 clients can detect 0.15.9')"
 
       - name: Run stable real-browser acceptance
         shell: cmd
