@@ -150,18 +150,14 @@ def add_row_display_overlay(
         return
     work[x] = pd.to_numeric(work[x], errors="coerce")
     work[y] = pd.to_numeric(work[y], errors="coerce")
-    work = work.dropna(subset=[x, y])
+    work = work.dropna(subset=[x, y]).reset_index(drop=True)
     if work.empty:
         return
 
     groups: dict[tuple[str, str, bool], list[int]] = {}
-    for index, (_, item) in enumerate(work.iterrows()):
+    for index, item in work.iterrows():
         analysis_id = str(item["_analysis_id"])
-        color = colors.get(analysis_id, "")
-        marker = markers.get(analysis_id, "")
-        labelled = analysis_id in labels
-        groups.setdefault((color, marker, labelled), []).append(index)
-    work = work.reset_index(drop=True)
+        groups.setdefault((colors.get(analysis_id, ""), markers.get(analysis_id, ""), analysis_id in labels), []).append(index)
 
     for (color, marker, labelled), indices in groups.items():
         part = work.iloc[indices]
@@ -170,26 +166,26 @@ def add_row_display_overlay(
         symbol = PLOTLY_SYMBOLS.get(marker, "circle")
         text = [human_point_label(item) for _, item in part.iterrows()] if labelled else [""] * len(part)
         trace = go.Scatter(
-            x=part[x], y=part[y],
-            mode="markers+text" if labelled else "markers",
-            text=text,
-            textposition="top center",
-            textfont={"size": 11, "color": "#111827"},
+            x=part[x], y=part[y], mode="markers+text" if labelled else "markers",
+            text=text, textposition="top center", textfont={"size": 11, "color": "#111827"},
             customdata=[[analysis_id] for analysis_id in ids],
-            marker={
-                "size": 14 if labelled else 12,
-                "symbol": symbol,
-                "color": fill,
-                "line": {"width": 1.8, "color": color or "#111827"},
-            },
+            marker={"size": 14 if labelled else 12, "symbol": symbol, "color": fill,
+                    "line": {"width": 1.8, "color": color or "#111827"}},
             hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>" if labelled else "X: %{x}<br>Y: %{y}<extra></extra>",
-            showlegend=False,
-            name="Временная маркировка",
+            showlegend=False, name="Временная маркировка",
         )
         if row is not None and col is not None:
             figure.add_trace(trace, row=row, col=col)
         else:
             figure.add_trace(trace)
+
+
+def _canonical_row_display():
+    try:
+        from petrolab.ui.selection_context import read_row_states
+        return read_row_states()
+    except Exception:
+        return None
 
 
 def build_interactive_scatter(
@@ -205,7 +201,7 @@ def build_interactive_scatter(
     log_y: bool = False,
     style_map: Mapping[str, Mapping[str, Any]] | None = None,
     selected_ids: list[str] | tuple[str, ...] | set[str] = (),
-    labelled_ids: list[str] | tuple[str, ...] | set[str] = (),
+    labelled_ids: list[str] | tuple[str, ...] | set[str] | None = None,
     display_color: Mapping[str, str] | None = None,
     display_marker: Mapping[str, str] | None = None,
     dragmode: str | bool = "lasso",
@@ -214,6 +210,16 @@ def build_interactive_scatter(
         raise ValueError("Для интерактивного выбора требуется _analysis_id")
     if x not in dataframe.columns or y not in dataframe.columns:
         raise ValueError("Выбранные оси отсутствуют в таблице")
+    if labelled_ids is None and display_color is None and display_marker is None:
+        states = _canonical_row_display()
+        if states is not None:
+            labelled_ids = states.labelled
+            display_color = states.display_color
+            display_marker = states.display_marker
+    labelled_ids = labelled_ids or ()
+    display_color = display_color or {}
+    display_marker = display_marker or {}
+
     work = dataframe.copy()
     work[x] = pd.to_numeric(work[x], errors="coerce").replace([np.inf, -np.inf], np.nan)
     work[y] = pd.to_numeric(work[y], errors="coerce").replace([np.inf, -np.inf], np.nan)
@@ -222,11 +228,7 @@ def build_interactive_scatter(
         work = work[work[x] > 0]
     if log_y:
         work = work[work[y] > 0]
-    hover_columns = [
-        column
-        for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN]
-        if column in work.columns
-    ]
+    hover_columns = [column for column in ["Sample", "Grain", "Point", "Generation", SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN] if column in work.columns]
     if group_col and group_col in work.columns:
         labels = display_group_series(work[group_col])
         groups = [(name, work[labels == name]) for name in labels.unique().tolist()]
@@ -259,12 +261,7 @@ def build_interactive_scatter(
         if selected_set:
             trace.selectedpoints = selectedpoints
         figure.add_trace(trace)
-    add_row_display_overlay(
-        figure, work, x, y,
-        labelled_ids=labelled_ids,
-        display_color=display_color,
-        display_marker=display_marker,
-    )
+    add_row_display_overlay(figure, work, x, y, labelled_ids=labelled_ids, display_color=display_color, display_marker=display_marker)
     figure.update_layout(title=title or None, xaxis_title=x_label or x, yaxis_title=y_label or y, dragmode=dragmode, clickmode="event+select", selectdirection="any", margin={"l": 55, "r": 20, "t": 50 if title else 20, "b": 55}, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}, height=610)
     if log_x:
         figure.update_xaxes(type="log")
