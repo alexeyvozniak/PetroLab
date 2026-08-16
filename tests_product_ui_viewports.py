@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
+from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -28,6 +30,7 @@ PRIMARY_NAV = (
     "Расчёты", "Публикация", "Поиск", "Настройки",
 )
 VIEWPORTS = ((1440, 900), (390, 844))
+_SELECTION_RE = re.compile(r"Выбрано:\s*(\d+)")
 
 
 def _wait_for_page_content(driver: webdriver.Chrome, expected: tuple[str, ...], slug: str, output: Path) -> None:
@@ -125,6 +128,75 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     raise AssertionError("Browser Back action did not restore the previous Data workspace route")
 
 
+def _main_buttons(driver: webdriver.Chrome, label: str):
+    main = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]')
+    return [
+        button for button in main.find_elements(By.TAG_NAME, "button")
+        if button.is_displayed() and button.text.strip() == label
+    ]
+
+
+def _selection_count(driver: webdriver.Chrome) -> int:
+    text = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
+    match = _SELECTION_RE.search(text)
+    return int(match.group(1)) if match else 0
+
+
+def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path) -> None:
+    """Physically box-select Plotly points and verify the same Selection in multi-panel."""
+    _click_primary_without_refresh(driver, "Графики", output, "linked_box_xy")
+    _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_xy", output)
+    wait = WebDriverWait(driver, 30)
+    try:
+        wait.until(lambda d: bool(_main_buttons(d, "Прямоугольник")))
+        box_button = _main_buttons(driver, "Прямоугольник")[0]
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", box_button)
+        box_button.click()
+
+        drag_surface = wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-testid="stPlotlyChart"] .nsewdrag')
+            )
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", drag_surface)
+        time.sleep(0.5)
+        size = drag_surface.size
+        width = max(80, int(size.get("width", 0)))
+        height = max(80, int(size.get("height", 0)))
+        # Select almost the complete plotting rectangle. This stays a real mouse drag,
+        # but avoids coupling the test to one journal preset or one exact point pixel.
+        x0, y0 = max(4, int(width * 0.05)), max(4, int(height * 0.05))
+        dx, dy = max(30, int(width * 0.88)), max(30, int(height * 0.88))
+        ActionChains(driver).move_to_element_with_offset(drag_surface, x0, y0).click_and_hold().move_by_offset(
+            dx, dy, duration=0.8
+        ).release().perform()
+
+        selected = int(wait.until(lambda d: _selection_count(d) or False))
+        assert selected > 0, "Physical Plotly box drag did not create a linked Selection"
+
+        wait.until(lambda d: bool(_main_buttons(d, "Несколько")))
+        multi_button = _main_buttons(driver, "Несколько")[0]
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", multi_button)
+        multi_button.click()
+        wait.until(
+            lambda d: "Сравнить на нескольких диаграммах"
+            in d.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
+        )
+        wait.until(lambda d: _selection_count(d) == selected)
+    except Exception:
+        output.mkdir(parents=True, exist_ok=True)
+        driver.save_screenshot(str(output / "plotly_box_selection_failure.png"))
+        main_text = ""
+        try:
+            main_text = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
+        except Exception:
+            pass
+        raise AssertionError(
+            "Real Plotly box-selection did not survive the XY → multi-panel handoff. "
+            f"Main text: {main_text!r}"
+        )
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="petrolab_product_ui_", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
@@ -154,6 +226,7 @@ def main() -> None:
             WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
             _assert_primary_navigation(driver, output)
             _assert_back_flow(driver, output)
+            _assert_plotly_box_selection_handoff(driver, output)
             for slug, label, expected in PAGES:
                 _select_page(driver, label, output, slug)
                 _wait_for_page_content(driver, expected, slug, output)
@@ -172,7 +245,7 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-    print("product guidance real-browser navigation/viewport tests: OK")
+    print("product guidance real-browser navigation/linked-selection/viewport tests: OK")
 
 
 if __name__ == "__main__":
