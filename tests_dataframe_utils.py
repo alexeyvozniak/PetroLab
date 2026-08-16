@@ -52,7 +52,7 @@ assert apply_quick_filter(literal, "[")["Sample"].tolist() == ["A[1]"]
 filtered = apply_column_filters(original, {"Sample": ["K1"]})
 assert list(filtered["Sample"]) == ["K1"]
 
-assert row_identity(original.iloc[0]).startswith("Sample: K1")
+assert row_identity(original.iloc[0]) == "K1"
 assert display_value(pd.NA) == ""
 assert display_value(12) == "12"
 assert values_equal(float("inf"), float("inf"))
