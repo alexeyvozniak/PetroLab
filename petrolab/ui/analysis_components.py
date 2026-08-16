@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_groups import WORK_GROUP_COLUMN
-from petrolab.dataframe_utils import display_value, row_identity
+from petrolab.dataframe_utils import display_value, human_point_label
 from petrolab.db import META_COLUMNS, connect
 from petrolab.mineral_assignments import assign_mineral, assignment_history
 from petrolab.minerals.registry import MINERALS
@@ -99,17 +99,35 @@ def render_thermodynamic_panel(
             _open_thermodynamics(str(analysis_id), dataset_ids)
 
 
+def _human_point_map(dataframe: pd.DataFrame) -> dict[str, str]:
+    """Build unique user-facing labels without leaking immutable database ids."""
+    result: dict[str, str] = {}
+    occurrences: dict[str, int] = {}
+    for _, row in dataframe.head(3000).iterrows():
+        base = human_point_label(row)
+        source = str(row.get("Источник") or row.get("Набор") or "").strip()
+        source_row = row.get("_source_row")
+        parts = [base]
+        if source:
+            parts.append(source)
+        if pd.notna(source_row):
+            try:
+                parts.append(f"строка {int(source_row)}")
+            except (TypeError, ValueError):
+                parts.append(f"строка {source_row}")
+        label = " · ".join(part for part in parts if part)
+        occurrences[label] = occurrences.get(label, 0) + 1
+        if occurrences[label] > 1:
+            label = f"{label} · вариант {occurrences[label]}"
+        result[label] = str(row["_analysis_id"])
+    return result
+
+
 def render_point_card(dataframe: pd.DataFrame, project_id: int | None) -> None:
     if dataframe.empty:
         return
 
-    point_map = {
-        (
-            f"{row_identity(row)} · {row.get('Источник', '')} · "
-            f"строка {row.get('_source_row', '—')} · {str(row['_analysis_id'])[:8]}"
-        ): str(row["_analysis_id"])
-        for _, row in dataframe.head(3000).iterrows()
-    }
+    point_map = _human_point_map(dataframe)
     if not point_map:
         return
     selected_label = st.selectbox("Точка", list(point_map), key="db_point_card")
