@@ -6,10 +6,9 @@ import streamlit as st
 _CSS = r"""
 <style>
 /*
-Acceptance hardening for the widths where a persistent sidebar leaves a narrow
-scientific work area. The rules are deliberately structural rather than tied to
-arbitrary page text: Chrome/Edge/Firefox/Safari all support :has() in current
-versions. Mobile keeps the existing Streamlit stack behavior.
+Acceptance hardening for widths where the shell or native Streamlit stacking can
+leave too little room for scientific content. Rules are structural and keep data
+semantics untouched; current Chromium/Firefox/Safari support :has().
 */
 
 /* Home: do not squeeze seven quick actions into unreadable buttons on laptops. */
@@ -47,6 +46,16 @@ versions. Mobile keeps the existing Streamlit stack behavior.
     width: 100% !important;
     min-width: 0 !important;
   }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stPlotlyChart"]) > [data-testid="stColumn"]:has([data-testid="stPlotlyChart"]) {
+    order: 1 !important;
+  }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stPlotlyChart"]) > [data-testid="stColumn"]:not(:has([data-testid="stPlotlyChart"])) {
+    order: 2 !important;
+  }
+}
+
+/* Streamlit already stacks mobile columns; make sure it stacks graph-first, not controls-first. */
+@media (max-width: 767px) {
   [data-testid="stHorizontalBlock"]:has([data-testid="stPlotlyChart"]) > [data-testid="stColumn"]:has([data-testid="stPlotlyChart"]) {
     order: 1 !important;
   }
