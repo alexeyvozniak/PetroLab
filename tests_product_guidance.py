@@ -91,6 +91,8 @@ class ProductGuidanceTests(unittest.TestCase):
     def test_primary_navigation_and_intake_are_consolidated(self):
         navigation = Path("petrolab/ui/navigation.py").read_text(encoding="utf-8")
         add_data = Path("petrolab/ui/pages/add_data.py").read_text(encoding="utf-8")
+        intake = Path("petrolab/ui/intake_workflow.py").read_text(encoding="utf-8")
+        pages_init = Path("petrolab/ui/pages/__init__.py").read_text(encoding="utf-8")
         for marker in [
             '"Главная"',
             '"Данные"',
@@ -111,9 +113,14 @@ class ProductGuidanceTests(unittest.TestCase):
             "Перетащите файл один раз",
             "файл → листы/колонки → разнести строки по Sample",
             "Статья или данные коллеги отличаются только provenance",
-            "Do not reintroduce competing cards/routes here",
+            "render_intake_workflow(int(project[\"id\"]))",
         ]:
             self.assertIn(marker, add_data)
+        self.assertIn('st.file_uploader(\n        "Файлы"', intake)
+        self.assertIn("render_table_import_with_provenance(", intake)
+        self.assertIn("render_image_wizard_multi_dataset(", intake)
+        self.assertIn("from .add_data import render_add_data_page", pages_init)
+        self.assertNotIn("from .v0151_intake_wrappers import render_add_data_page", pages_init)
         for obsolete in ["### Мои анализы", "### Статья / коллега", "### Полевые Sample", "pending_study_id"]:
             self.assertNotIn(obsolete, add_data)
 
