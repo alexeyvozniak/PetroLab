@@ -60,6 +60,13 @@ def _summary_columns(dataframe: pd.DataFrame) -> list[str]:
     return [*identity, *chemistry[:14]]
 
 
+def _selected_dataset_ids(selected: pd.DataFrame) -> list[int]:
+    if selected.empty or "_dataset_id" not in selected.columns:
+        return []
+    numeric = pd.to_numeric(selected["_dataset_id"], errors="coerce").dropna()
+    return list(dict.fromkeys(int(value) for value in numeric.tolist()))
+
+
 def render_selection_panel(
     dataframe: pd.DataFrame,
     *,
@@ -73,6 +80,7 @@ def render_selection_panel(
         return
 
     selected = selected_dataframe(dataframe)
+    dataset_ids = _selected_dataset_ids(selected)
     title = f"Выбрано: {context.count}"
     if context.label:
         title += f" · {context.label}"
@@ -96,18 +104,29 @@ def render_selection_panel(
         st.caption("Один и тот же отбор используется между таблицей, XY, multi-panel и статистикой. Сохранение как группа/Generation — отдельное действие.")
         a1, a2, a3, a4, a5 = st.columns(5)
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
+            if dataset_ids:
+                st.session_state["workflow_plot_dataset_ids"] = dataset_ids
+            st.session_state["workflow_plot_analysis_ids"] = list(context.analysis_ids)
             navigate("plots")
             st.rerun()
         if a2.button("Несколько", key=f"{key_prefix}_to_multi", width="stretch"):
+            if dataset_ids:
+                st.session_state["workflow_plot_dataset_ids"] = dataset_ids
             navigate("multi_panel")
             st.rerun()
         if a3.button("Статистика", key=f"{key_prefix}_to_stats", width="stretch"):
+            st.session_state["statistics_dataset_ids_pending"] = dataset_ids
             navigate("statistics")
             st.rerun()
         if a4.button("Профиль", key=f"{key_prefix}_to_profile", width="stretch"):
+            st.session_state["grain_profile_dataset_ids"] = dataset_ids
+            st.session_state["grain_profile_analysis_ids"] = list(context.analysis_ids)
+            st.session_state["grain_profile_context"] = {"project_id": project_id} if project_id is not None else {}
             navigate("grain_profile")
             st.rerun()
         if a5.button("Формула / APFU", key=f"{key_prefix}_to_formula", width="stretch"):
+            st.session_state["formulae_dataset_ids_pending"] = dataset_ids
+            st.session_state["formulae_analysis_ids_pending"] = list(context.analysis_ids)
             navigate("formulae")
             st.rerun()
 
