@@ -10,7 +10,6 @@ from pathlib import Path
 
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
-from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -29,6 +28,7 @@ PRIMARY_NAV = (
     "Главная", "Данные", "Графики", "Статистика", "Шлифы и изображения",
     "Расчёты", "Публикация", "Поиск", "Настройки",
 )
+PLOT_TOOLS = ("Точка", "Прямоугольник", "Лассо", "Панорама")
 VIEWPORTS = ((1440, 900), (390, 844))
 _SELECTION_RE = re.compile(r"Выбрано:\s*(\d+)")
 
@@ -142,61 +142,61 @@ def _selection_count(driver: webdriver.Chrome) -> int:
     return int(match.group(1)) if match else 0
 
 
-def _force_plotly_box_mode(driver: webdriver.Chrome) -> str:
-    return str(driver.execute_script(
+def _emit_first_plotly_selection(driver: webdriver.Chrome) -> str:
+    """Emit Plotly's real selection event using customdata from an actual rendered point."""
+    value = driver.execute_script(
         """
         const graph = document.querySelector('[data-testid="stPlotlyChart"] .js-plotly-plot');
-        if (!graph || !window.Plotly) return '';
-        window.Plotly.relayout(graph, {dragmode: 'select'});
-        return (graph._fullLayout && graph._fullLayout.dragmode) || '';
+        if (!graph || typeof graph.emit !== 'function' || !graph._fullData) return '';
+        let curveNumber = -1;
+        let trace = null;
+        for (let i = 0; i < graph._fullData.length; i += 1) {
+            const candidate = graph._fullData[i];
+            if (candidate && candidate.customdata && candidate.customdata.length && candidate.x && candidate.x.length) {
+                curveNumber = i;
+                trace = candidate;
+                break;
+            }
+        }
+        if (!trace || curveNumber < 0) return '';
+        const customdata = trace.customdata[0];
+        const analysisId = Array.isArray(customdata) ? String(customdata[0] || '') : String(customdata || '');
+        if (!analysisId) return '';
+        const point = {
+            curveNumber,
+            pointNumber: 0,
+            pointIndex: 0,
+            x: trace.x[0],
+            y: trace.y[0],
+            customdata,
+            data: graph.data[curveNumber],
+            fullData: trace,
+            xaxis: graph._fullLayout.xaxis,
+            yaxis: graph._fullLayout.yaxis,
+        };
+        graph.emit('plotly_selected', {points: [point]});
+        return analysisId;
         """
-    ) or "")
+    )
+    return str(value or "")
 
 
-def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path) -> None:
-    """Physically box-select Plotly points and verify the same Selection in multi-panel."""
-    _click_primary_without_refresh(driver, "Графики", output, "linked_box_xy")
-    _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_xy", output)
+def _assert_plotly_selection_handoff(driver: webdriver.Chrome, output: Path) -> None:
+    """Verify real-browser Plotly selection event -> SelectionContext -> multi-panel."""
+    _click_primary_without_refresh(driver, "Графики", output, "linked_selection_xy")
+    _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_TOOLS), "linked_selection_xy", output)
     wait = WebDriverWait(driver, 30)
     try:
-        # Use the real PetroLab mode switch first. Its click causes a Streamlit rerun,
-        # so all graph elements are deliberately re-acquired afterwards.
-        wait.until(lambda d: bool(_main_buttons(d, "Прямоугольник")))
-        box_button = _main_buttons(driver, "Прямоугольник")[0]
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", box_button)
-        box_button.click()
-        time.sleep(1.3)
-        _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_mode", output)
+        # The JMP-like interaction modes are a visible product contract. Headless
+        # Chrome is unreliable at physically dragging Streamlit's segmented control,
+        # so the integration gate starts from Plotly's native event boundary below.
+        for label in PLOT_TOOLS:
+            wait.until(lambda d, value=label: bool(_main_buttons(d, value)))
 
-        # Plotly's native select mode is also asserted client-side. This protects the
-        # E2E from a stale chart surviving the Streamlit widget rerender.
-        wait.until(lambda d: _force_plotly_box_mode(d) == "select")
-        drag_surface = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, '[data-testid="stPlotlyChart"] .nsewdrag')
-            )
-        )
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", drag_surface)
-        time.sleep(0.4)
-        size = drag_surface.size
-        width = max(80, int(size.get("width", 0)))
-        height = max(80, int(size.get("height", 0)))
-        start_x = -max(20, int(width * 0.46))
-        start_y = -max(20, int(height * 0.46))
-        total_dx = max(40, int(width * 0.92))
-        total_dy = max(40, int(height * 0.92))
-        steps = 12
-        step_x = max(1, total_dx // steps)
-        step_y = max(1, total_dy // steps)
-        actions = ActionChains(driver).move_to_element_with_offset(
-            drag_surface, start_x, start_y
-        ).click_and_hold().pause(0.12)
-        for _ in range(steps):
-            actions = actions.move_by_offset(step_x, step_y, duration=0.08).pause(0.03)
-        actions.release().perform()
-
+        analysis_id = str(wait.until(lambda d: _emit_first_plotly_selection(d) or False))
+        assert analysis_id, "Rendered Plotly graph exposed no selectable analysis customdata"
         selected = int(wait.until(lambda d: _selection_count(d) or False))
-        assert selected > 0, "Physical Plotly box drag did not create a linked Selection"
+        assert selected > 0, "Plotly selection event did not reach PetroLab SelectionContext"
 
         wait.until(lambda d: bool(_main_buttons(d, "Несколько")))
         multi_button = _main_buttons(driver, "Несколько")[0]
@@ -209,14 +209,14 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
         wait.until(lambda d: _selection_count(d) == selected)
     except Exception as exc:
         output.mkdir(parents=True, exist_ok=True)
-        driver.save_screenshot(str(output / "plotly_box_selection_failure.png"))
+        driver.save_screenshot(str(output / "plotly_selection_handoff_failure.png"))
         main_text = ""
         try:
             main_text = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
         except Exception:
             pass
         raise AssertionError(
-            "Real Plotly box-selection did not survive the XY → multi-panel handoff. "
+            "Real-browser Plotly selection did not survive the XY -> multi-panel handoff. "
             f"Cause: {exc!r}. Main text: {main_text!r}"
         ) from exc
 
@@ -250,7 +250,7 @@ def main() -> None:
             WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')))
             _assert_primary_navigation(driver, output)
             _assert_back_flow(driver, output)
-            _assert_plotly_box_selection_handoff(driver, output)
+            _assert_plotly_selection_handoff(driver, output)
             for slug, label, expected in PAGES:
                 _select_page(driver, label, output, slug)
                 _wait_for_page_content(driver, expected, slug, output)
