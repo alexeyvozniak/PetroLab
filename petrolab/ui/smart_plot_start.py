@@ -188,18 +188,41 @@ def clear_exact_plot_scope(state: MutableMapping[str, Any]) -> None:
     state.pop("workflow_plot_analysis_ids", None)
 
 
+def xy_recommendations(
+    mineral_keys: Sequence[str],
+    columns: Iterable[str],
+    numeric_columns: Iterable[str],
+    *,
+    limit: int = 4,
+) -> tuple[PlotRecommendation, ...]:
+    """Return ranked, currently possible XY starting views only.
+
+    Recommendations never manufacture columns or mix mineral-specific rules across a
+    multi-mineral universe. Mixed scopes deliberately fall back to the generic,
+    data-present neutral recommendation from ``smart_start.recommendations``.
+    """
+    numeric = {str(value) for value in numeric_columns}
+    key = str(mineral_keys[0]) if len(mineral_keys) == 1 else "generic"
+    result: list[PlotRecommendation] = []
+    for item in recommendations(key, columns, limit=max(1, int(limit) + 2)):
+        if item.route != "plots":
+            continue
+        if item.x not in numeric or item.y not in numeric or item.x == item.y:
+            continue
+        result.append(item)
+        if len(result) >= max(1, int(limit)):
+            break
+    return tuple(result)
+
+
 def choose_xy_recommendation(
     mineral_keys: Sequence[str],
     columns: Iterable[str],
     numeric_columns: Iterable[str],
 ) -> PlotRecommendation | None:
-    """Return one safe deterministic starting XY, never a scientific conclusion."""
-    numeric = {str(value) for value in numeric_columns}
-    key = str(mineral_keys[0]) if len(mineral_keys) == 1 else "generic"
-    for item in recommendations(key, columns, limit=6):
-        if item.route == "plots" and item.x in numeric and item.y in numeric and item.x != item.y:
-            return item
-    return None
+    """Return the top safe deterministic starting XY, never a scientific conclusion."""
+    ranked = xy_recommendations(mineral_keys, columns, numeric_columns, limit=1)
+    return ranked[0] if ranked else None
 
 
 def seed_xy_state(
