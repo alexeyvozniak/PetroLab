@@ -16,8 +16,10 @@ import streamlit as st
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.services.image_service import (
     ImageAssignment,
+    ImagePayload,
     create_assigned_image_batch,
     delete_image_asset,
+    image_preview_bytes,
     SCOPE_ANALYSIS,
     SCOPE_DATASET,
     SCOPE_FIELD,
@@ -237,7 +239,8 @@ def render_image_wizard_multi_dataset(
     left, right = st.columns([1.3, 1])
     with left:
         try:
-            st.image(raw, caption=name, width="stretch")
+            preview = image_preview_bytes(ImagePayload(name, raw))
+            st.image(preview, caption=name, width="stretch")
         except Exception:
             st.info("Предпросмотр недоступен, но файл можно проверить и сохранить.")
     with right:
