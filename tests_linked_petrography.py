@@ -25,6 +25,13 @@ def test_nearest_marker_uses_spatial_distance_not_label() -> None:
     assert bridge.nearest_marker_id(markers, x_norm=0.50, y_norm=0.50, aspect_ratio=0.75) is None
 
 
+def test_large_selection_is_batched() -> None:
+    values = tuple(f"analysis-{index}" for index in range(1001))
+    batches = bridge._analysis_batches(values)
+    assert [len(batch) for batch in batches] == [400, 400, 201]
+    assert tuple(value for batch in batches for value in batch) == values
+
+
 def test_related_lookup_is_explicit_and_indexed() -> None:
     source = inspect.getsource(bridge.related_thin_section_markers)
     assert "slide_marker_analysis_links selected_link" in source
@@ -32,6 +39,7 @@ def test_related_lookup_is_explicit_and_indexed() -> None:
     assert "slide_marker_analysis_links all_links" in source
     assert "JOIN physical_entities section" in source
     assert "list_slide_markers" not in source
+    assert "_analysis_batches(wanted)" in source
     # False label identity is tested behaviorally in the real storage round trip.
 
 
@@ -56,6 +64,7 @@ def main() -> None:
     tests = (
         test_marker_selection_is_exact_and_multi_method,
         test_nearest_marker_uses_spatial_distance_not_label,
+        test_large_selection_is_batched,
         test_related_lookup_is_explicit_and_indexed,
         test_ui_contract_keeps_one_selection_context,
     )
