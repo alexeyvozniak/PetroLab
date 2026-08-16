@@ -10,72 +10,79 @@ from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-DAILY_NAV = [
+# Nine task-oriented entries are the normal navigation.  Implementation pages
+# remain addressable for old recipes/internal links, but they are not menu items.
+PRIMARY_NAV = [
     ("home", "Главная"),
-    ("workspace", "Рабочий стол"),
-    ("thin_section", "Работать со шлифом"),
-    ("add_data", "Добавить данные"),
-    ("database", "Вся база"),
-    ("plots", "XY-диаграммы"),
-    ("article_tables", "Таблицы для статьи"),
-    ("attention", "Требует внимания"),
+    ("workspace", "Данные"),
+    ("plots", "Графики"),
+    ("statistics", "Статистика"),
+    ("thin_section", "Шлифы и изображения"),
+    ("calculate", "Расчёты"),
+    ("publish", "Публикация"),
+    ("search", "Поиск"),
+    ("settings", "Настройки"),
 ]
+# Compatibility for tests/extensions that still import the old constant name.
+DAILY_NAV = PRIMARY_NAV
 
 TOOL_SECTIONS = {
-    "Сценарии": [
-        ("compare", "Сравнить данные"),
-        ("calculate", "Посчитать"),
-        ("publish", "Подготовить рисунок / таблицу"),
-    ],
     "Данные": [
-        ("search", "Глобальный поиск"),
-        ("quick_import", "Быстрый импорт"),
-        ("workflow", "Рабочий процесс"),
-        ("analyses", "База анализов"),
-        ("sources", "Новые анализы"),
+        ("add_data", "Добавить данные"),
+        ("database", "Вся база"),
         ("sessions", "Аналитические сессии"),
-        ("intake", "Источники и литература"),
-    ],
-    "Материалы": [
-        ("images", "Изображения"),
-        ("slides", "Шлифы и поля"),
-        ("composite_points", "Совместить EDS / EPMA / LA"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
         ("batch_edit", "Массовые действия"),
-        ("formulae", "Расчёты"),
         ("generations", "Поколения"),
-        ("minerals", "Минералогические модули"),
-        ("rock_workspace", "Породы"),
-        ("rocks", "Редактор пород"),
     ],
     "Исследование": [
-        ("multi_panel", "Несколько графиков сразу"),
+        ("multi_panel", "Сравнить на нескольких диаграммах"),
         ("grain_profile", "Профиль по зерну"),
         ("whole_rock_compare", "Породы + литература"),
         ("thermobarometry", "Термодинамика"),
-        ("ternary", "Треугольные"),
+        ("ternary", "Треугольные диаграммы"),
         ("science_plots", "Научные диаграммы"),
-        ("statistics", "Статистика"),
         ("equilibrium", "Равновесные пары"),
         ("distribution", "Распределение элементов"),
+        ("composite_points", "Совместить EDS / EPMA / LA"),
     ],
     "Публикация": [
-        ("publication_composer", "Редактор мультипанели"),
+        ("article_tables", "Таблицы для статьи"),
+        ("publication_composer", "Собрать рисунок A/B/C"),
         ("export", "Экспорт"),
     ],
     "Система": [
         ("projects", "Проекты"),
         ("collaboration", "Совместная работа"),
         ("change_log", "История правок данных"),
-        ("settings", "Настройки"),
+        ("attention", "Требует внимания"),
         ("help", "Справка"),
         ("updates", "Что нового"),
     ],
 }
 
-_ALL_ENTRIES = DAILY_NAV + [item for entries in TOOL_SECTIONS.values() for item in entries]
-ROUTE_LABELS = {route: label for route, label in _ALL_ENTRIES}
+# These routes are retained only for compatibility with existing links/recipes.
+# They deliberately do not appear in the normal sidebar because their functions
+# are now reached through the canonical Data/Calculation workflows.
+_HIDDEN_ROUTE_LABELS = {
+    "compare": "Сравнить данные",
+    "quick_import": "Быстрый импорт",
+    "workflow": "Рабочий процесс",
+    "analyses": "База анализов",
+    "sources": "Новые анализы",
+    "intake": "Источники и литература",
+    "images": "Изображения",
+    "slides": "Шлифы и поля",
+    "formulae": "Формулы / APFU",
+    "minerals": "Минералогические модули",
+    "rock_workspace": "Породы",
+    "rocks": "Редактор пород",
+}
+
+_ALL_VISIBLE_ENTRIES = PRIMARY_NAV + [item for entries in TOOL_SECTIONS.values() for item in entries]
+ROUTE_LABELS = {route: label for route, label in _ALL_VISIBLE_ENTRIES}
+ROUTE_LABELS.update(_HIDDEN_ROUTE_LABELS)
 
 
 def navigate(route: str, *, record_history: bool = True) -> None:
@@ -175,7 +182,6 @@ def render_sidebar(version: str) -> str:
                     clear_work_context()
                     st.rerun()
 
-        st.markdown('<div class="petrolab-nav-section">Поиск</div>', unsafe_allow_html=True)
         search = st.text_input(
             "Найти везде",
             key="sidebar_object_search",
@@ -195,11 +201,12 @@ def render_sidebar(version: str) -> str:
 
     current = str(st.session_state.get("nav_route", "home"))
     st.markdown('<div class="petrolab-nav-section">Основное</div>', unsafe_allow_html=True)
-    for route, label in DAILY_NAV:
-        _nav_button(route, label, current, prefix="daily_nav")
+    for route, label in PRIMARY_NAV:
+        _nav_button(route, label, current, prefix="primary_nav")
 
-    daily_routes = {route for route, _ in DAILY_NAV}
-    with st.expander("Все инструменты", expanded=current not in daily_routes):
+    primary_routes = {route for route, _ in PRIMARY_NAV}
+    visible_advanced_routes = {route for entries in TOOL_SECTIONS.values() for route, _ in entries}
+    with st.expander("Дополнительно", expanded=current in visible_advanced_routes and current not in primary_routes):
         for section, entries in TOOL_SECTIONS.items():
             st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
             for route, label in entries:
