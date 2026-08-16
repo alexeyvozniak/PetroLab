@@ -17,29 +17,32 @@ def main() -> None:
     for marker in [
         "def consume_plot_scope(",
         "def clear_exact_plot_scope(",
+        "def seed_plot_handoff(",
         "_petrolab_plot_scope_analysis_ids",
         "_petrolab_plot_scope_dataset_ids",
+        'state.pop("_plots_show_advanced", None)',
+        'state.pop("loaded_recipe", None)',
     ]:
         assert marker in smart, marker
     assert 'pop("workflow_plot_analysis_ids"' not in plots
     assert "consume_plot_scope(" in plots
     assert '"Весь набор"' in plots
 
-    # Every action that claims to open an exact scientific subset on XY must seed
-    # both dataset and immutable analysis membership rather than only navigate.
+    # Every action that claims to open a scientific subset on XY must use the
+    # canonical membership handoff rather than merely navigating to the page.
     assert "seed_import_plot_handoff" in intake
     assert "seed_selection_plot_handoff" in selection
     assert "seed_selection_plot_handoff" in statistics
     assert 'origin="Кластеры"' in statistics
     assert "cluster_dataset_ids" in statistics and "cluster_ids" in statistics
+    assert "seed_plot_handoff" in search
+    assert 'notice="В график переданы точные результаты поиска."' in search
+    assert '"query": str(st.session_state.get("global_search_query")' in search
 
-    # Search already carries exact IDs; keep this until it is moved to the same helper.
-    for marker in [
-        'st.session_state["workflow_plot_dataset_ids"] = dataset_ids',
-        'st.session_state["workflow_plot_analysis_ids"] = analysis_ids',
-        'st.session_state["workflow_plot_context"] = context',
-    ]:
-        assert marker in search, marker
+    # Direct route-state writes outside the canonical helper would reintroduce
+    # subtly different scientific membership semantics between screens.
+    for source in (intake, selection, statistics, search):
+        assert 'st.session_state["workflow_plot_analysis_ids"]' not in source
 
     # Progressive XY is mandatory: no front-door mode split before seeing a graph.
     for obsolete in ["Быстрое построение", "Расширенный редактор", "Режим XY"]:
