@@ -23,10 +23,10 @@ from petrolab.ui.plot_spec import PlotSpec, send_to_multi_panel, set_current_plo
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.smart_plot_start import (
     advanced_recipe_from_spec,
-    choose_xy_recommendation,
     clear_exact_plot_scope,
     consume_plot_scope,
     seed_xy_state,
+    xy_recommendations,
 )
 from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.work_context import filter_dataframe_to_context, get_work_context
@@ -43,6 +43,30 @@ _CURATED_GROUPS = (
     "PetroLab Generation", "Generation", WORK_GROUP_COLUMN, "Sample", "Grain", "Textural zone",
     SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал",
 )
+_CUSTOM_GRAPH_CHOICE = "__custom_axes__"
+
+
+def _apply_graph_choice(choice_axes: dict[str, tuple[str, str]]) -> None:
+    choice = str(st.session_state.get("quick_graph_choice") or "")
+    pair = choice_axes.get(choice)
+    if pair is None:
+        return
+    st.session_state["quick_x"] = pair[0]
+    st.session_state["quick_y"] = pair[1]
+
+
+def _mark_custom_axes() -> None:
+    st.session_state["quick_graph_choice"] = _CUSTOM_GRAPH_CHOICE
+
+
+def _swap_quick_axes() -> None:
+    x = str(st.session_state.get("quick_x") or "")
+    y = str(st.session_state.get("quick_y") or "")
+    if not x or not y or x == y:
+        return
+    st.session_state["quick_x"] = y
+    st.session_state["quick_y"] = x
+    st.session_state["quick_graph_choice"] = _CUSTOM_GRAPH_CHOICE
 
 
 def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources: list[str]) -> str | None:
@@ -101,8 +125,8 @@ def _quick_workspace(project_id: int) -> None:
         st.session_state["_quick_plot_scope_signature"] = scope_signature
         st.session_state["quick_plot_datasets"] = default_labels
         for key in (
-            "quick_plot_minerals", "quick_x", "quick_y", "quick_group", "quick_group_advanced",
-            "quick_plot_search",
+            "quick_plot_minerals", "quick_graph_choice", "quick_x", "quick_y",
+            "quick_group", "quick_group_advanced", "quick_plot_search",
         ):
             st.session_state.pop(key, None)
 
@@ -200,15 +224,50 @@ def _quick_workspace(project_id: int) -> None:
             st.info("После фильтрации недостаточно числовых колонок.")
             return
 
-        recommendation = choose_xy_recommendation(selected_minerals, dataframe.columns, numeric)
+        ranked = xy_recommendations(selected_minerals, dataframe.columns, numeric, limit=4)
+        recommendation = ranked[0] if ranked else None
         seed_xy_state(
             st.session_state,
             numeric_columns=numeric,
             recommendation=recommendation,
         )
-        if recommendation is not None:
-            st.caption(f"Smart Start · **{recommendation.title}** — {recommendation.note}")
-        x = st.selectbox("X", numeric, key="quick_x")
+
+        choice_axes = {f"rec:{index}": (item.x, item.y) for index, item in enumerate(ranked)}
+        choice_labels = {
+            f"rec:{index}": (
+                f"Рекомендовано · {item.title}" if index == 0 else f"Другой график · {item.title}"
+            )
+            for index, item in enumerate(ranked)
+        }
+        choice_labels[_CUSTOM_GRAPH_CHOICE] = "Свои оси"
+        choice_options = [*choice_axes, _CUSTOM_GRAPH_CHOICE]
+        if st.session_state.get("quick_graph_choice") not in choice_options:
+            st.session_state["quick_graph_choice"] = choice_options[0] if ranked else _CUSTOM_GRAPH_CHOICE
+        selected_choice = st.selectbox(
+            "График",
+            choice_options,
+            key="quick_graph_choice",
+            format_func=lambda value: choice_labels.get(str(value), str(value)),
+            on_change=_apply_graph_choice,
+            args=(choice_axes,),
+            help="Рекомендации только выбирают доступный стартовый вид. Они не меняют данные и не являются научной классификацией.",
+        )
+        selected_recommendation = None
+        if str(selected_choice).startswith("rec:"):
+            try:
+                selected_recommendation = ranked[int(str(selected_choice).split(":", 1)[1])]
+            except (ValueError, IndexError):
+                selected_recommendation = recommendation
+        if selected_recommendation is not None:
+            st.caption(f"Smart Start · {selected_recommendation.note}")
+
+        ax_x, ax_swap, ax_y = st.columns([1, 0.34, 1], gap="small")
+        x = ax_x.selectbox(
+            "X",
+            numeric,
+            key="quick_x",
+            on_change=_mark_custom_axes,
+        )
         y_options = [column for column in numeric if column != x]
         if st.session_state.get("quick_y") not in y_options:
             st.session_state["quick_y"] = (
@@ -216,7 +275,19 @@ def _quick_workspace(project_id: int) -> None:
                 if recommendation is not None and recommendation.y in y_options
                 else y_options[0]
             )
-        y = st.selectbox("Y", y_options, key="quick_y")
+        ax_swap.button(
+            "⇄",
+            width="stretch",
+            key="quick_swap_axes",
+            help="Поменять X и Y местами.",
+            on_click=_swap_quick_axes,
+        )
+        y = ax_y.selectbox(
+            "Y",
+            y_options,
+            key="quick_y",
+            on_change=_mark_custom_axes,
+        )
         group_col = _group_control(dataframe, numeric, visible_sources)
         with st.expander("Оси и вид", expanded=False):
             log_x = st.checkbox("Логарифмическая X", key="quick_log_x")
@@ -320,71 +391,70 @@ def _quick_workspace(project_id: int) -> None:
             st.session_state["_plots_show_advanced"] = True
             st.rerun()
 
-    st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
-    st.markdown("### Публикационный экспорт")
-    figure = build_scatter(
-        plot_source,
-        x,
-        y,
-        group_col,
-        x_label=x,
-        y_label=y,
-        title=title,
-        marker_size=marker_size,
-        log_x=log_x,
-        log_y=log_y,
-        style_map=styles,
-        show_grid=preset.grid,
-        monochrome=preset.monochrome,
-        figure_size=(preset.width_in, preset.height_in),
-        font_family=preset.font_family,
-        font_size=preset.font_size,
-        tick_size=preset.tick_size,
-        spine_width=preset.spine_width,
-    )
-    manifest = build_selection_manifest(
-        kind="xy_figure",
-        dataframe=plot_source,
-        dataset_ids=selected_ids,
-        filters={
-            "database_selection": scope.context,
-            "minerals": selected_minerals,
-            "search": query,
-            "visible_sources": visible_sources,
-            "hidden_sources": hidden_sources,
-            "visible_series": list(managed_series),
-            "qc_policy": "manual exclude and automatic QC exclusions omitted",
-        },
-        recipe={
-            "x": x, "y": y, "group_column": group_col or "", "log_x": log_x,
-            "log_y": log_y, "title": title, "marker_size": marker_size,
-            "figure_preset": preset_name, "style_map": styles,
-            "source_visibility_column": SOURCE_LABEL_COLUMN,
-        },
-    )
-    xlsx = workbook_with_manifest({"Точки графика": plot_source}, manifest)
-    e1, e2, e3, e4 = st.columns(4)
-    e1.download_button(
-        "SVG", figure_svg_bytes(figure), file_name="petrolab_xy.svg",
-        mime="image/svg+xml", width="stretch"
-    )
-    e2.download_button(
-        "PNG", figure_png_bytes(figure, preset.dpi), file_name="petrolab_xy.png",
-        mime="image/png", width="stretch"
-    )
-    e3.download_button(
-        "XLSX + manifest", xlsx, file_name="petrolab_xy_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
-    )
-    e4.download_button(
-        "JSON manifest", manifest_json_bytes(manifest), file_name="petrolab_xy_manifest.json",
-        mime="application/json", width="stretch",
-    )
-    st.caption(
-        f"{preset.title} · {preset.font_family} · {preset.dpi} dpi · "
-        f"{preset.width_in:g} × {preset.height_in:g} in"
-    )
-    plt.close(figure)
+    with st.expander("Экспорт и публикация", expanded=False):
+        figure = build_scatter(
+            plot_source,
+            x,
+            y,
+            group_col,
+            x_label=x,
+            y_label=y,
+            title=title,
+            marker_size=marker_size,
+            log_x=log_x,
+            log_y=log_y,
+            style_map=styles,
+            show_grid=preset.grid,
+            monochrome=preset.monochrome,
+            figure_size=(preset.width_in, preset.height_in),
+            font_family=preset.font_family,
+            font_size=preset.font_size,
+            tick_size=preset.tick_size,
+            spine_width=preset.spine_width,
+        )
+        manifest = build_selection_manifest(
+            kind="xy_figure",
+            dataframe=plot_source,
+            dataset_ids=selected_ids,
+            filters={
+                "database_selection": scope.context,
+                "minerals": selected_minerals,
+                "search": query,
+                "visible_sources": visible_sources,
+                "hidden_sources": hidden_sources,
+                "visible_series": list(managed_series),
+                "qc_policy": "manual exclude and automatic QC exclusions omitted",
+            },
+            recipe={
+                "x": x, "y": y, "group_column": group_col or "", "log_x": log_x,
+                "log_y": log_y, "title": title, "marker_size": marker_size,
+                "figure_preset": preset_name, "style_map": styles,
+                "source_visibility_column": SOURCE_LABEL_COLUMN,
+            },
+        )
+        xlsx = workbook_with_manifest({"Точки графика": plot_source}, manifest)
+        e1, e2, e3, e4 = st.columns(4)
+        e1.download_button(
+            "SVG", figure_svg_bytes(figure), file_name="petrolab_xy.svg",
+            mime="image/svg+xml", width="stretch"
+        )
+        e2.download_button(
+            "PNG", figure_png_bytes(figure, preset.dpi), file_name="petrolab_xy.png",
+            mime="image/png", width="stretch"
+        )
+        e3.download_button(
+            "XLSX + manifest", xlsx, file_name="petrolab_xy_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+        )
+        e4.download_button(
+            "JSON manifest", manifest_json_bytes(manifest), file_name="petrolab_xy_manifest.json",
+            mime="application/json", width="stretch",
+        )
+        st.caption(
+            f"{preset.title} · {preset.font_family} · {preset.dpi} dpi · "
+            f"{preset.width_in:g} × {preset.height_in:g} in"
+        )
+        plt.close(figure)
 
 
 def render_plots_dashboard_page() -> None:
