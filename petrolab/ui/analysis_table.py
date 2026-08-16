@@ -8,6 +8,7 @@ from petrolab.dataframe_utils import apply_quick_filter, display_value, human_po
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.table_views import delete_table_view, list_table_views, save_table_view
+from petrolab.ui.field_presets import FIELD_MODES, columns_for_mode, normalize_field_mode
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
@@ -18,49 +19,15 @@ _IDENTITY_COLUMNS = (
     "Generation", WORK_GROUP_COLUMN, "Textural zone", "Минерал", "Mineral", SOURCE_LABEL_COLUMN,
     "Набор", "Источник", "Method", "Метод", "QC уровень", "QC решение",
 )
-_CHEMISTRY_PRIORITY = (
-    "SiO2", "TiO2", "Al2O3", "Cr2O3", "FeOt", "FeO", "Fe2O3t", "MnO", "MgO",
-    "CaO", "Na2O", "K2O", "P2O5", "F", "Cl", "Mg#", "Ni", "Cr", "Co", "Sc", "V",
-    "Rb", "Sr", "Ba", "Nb", "Ta", "Zr", "Hf", "La", "Ce", "Nd", "Sm", "Eu", "Y", "Yb",
-)
 _GROUPING_COLUMNS = (
     PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN, "Generation", WORK_GROUP_COLUMN,
     "Sample", "Grain", "Textural zone", SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал", "Mineral",
 )
-_FIELD_MODES = ("Основное", "Химия", "Расчёты", "Все", "Свои")
-
-
-def _chemical_columns(dataframe: pd.DataFrame) -> list[str]:
-    preferred = [column for column in _CHEMISTRY_PRIORITY if column in dataframe.columns]
-    numeric = [
-        column for column in dataframe.columns
-        if column not in preferred
-        and not str(column).startswith("_")
-        and pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    return [*preferred, *numeric]
-
-
-def _calculated_columns(dataframe: pd.DataFrame) -> list[str]:
-    tokens = ("apfu", "mg#", "fe#", "cation", "site", "formula", "calc", "ratio", "/")
-    return [
-        column for column in dataframe.columns
-        if not str(column).startswith("_")
-        and any(token in str(column).casefold() for token in tokens)
-    ]
+_FIELD_MODES = FIELD_MODES
 
 
 def _columns_for_mode(dataframe: pd.DataFrame, mode: str) -> list[str]:
-    identity = [column for column in _IDENTITY_COLUMNS if column in dataframe.columns]
-    if mode == "Химия":
-        body = _chemical_columns(dataframe)[:28]
-    elif mode == "Расчёты":
-        body = _calculated_columns(dataframe)
-    elif mode == "Все":
-        body = [column for column in dataframe.columns if not str(column).startswith("_")]
-    else:
-        body = _chemical_columns(dataframe)[:8]
-    return list(dict.fromkeys([*identity, *body]))
+    return columns_for_mode(dataframe, mode, identity_columns=_IDENTITY_COLUMNS)
 
 
 def _field_candidates(dataframe: pd.DataFrame) -> list[str]:
@@ -69,9 +36,10 @@ def _field_candidates(dataframe: pd.DataFrame) -> list[str]:
 
 def _field_control(dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
     mode_key = f"{key_prefix}_column_mode"
-    current_mode = str(st.session_state.get(mode_key, "Основное"))
-    if current_mode not in _FIELD_MODES:
-        current_mode = "Основное"
+    raw_mode = str(st.session_state.get(mode_key, "Основное"))
+    current_mode = normalize_field_mode(raw_mode)
+    if raw_mode != current_mode:
+        st.session_state[mode_key] = current_mode
     with st.popover("Поля", width="stretch"):
         mode = st.radio(
             "Набор полей",
@@ -79,6 +47,7 @@ def _field_control(dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
             index=_FIELD_MODES.index(current_mode),
             key=mode_key,
             horizontal=False,
+            help="Микрозонд = оксиды/wt.%; Trace = элементы ppm/µg/g; APFU = структурная формула; QC = контроль качества.",
         )
         if mode == "Свои":
             available = _field_candidates(dataframe)
@@ -287,8 +256,7 @@ def _sanitize_saved_view(state: TableViewState, dataframe: pd.DataFrame) -> Tabl
         state.advanced_group_column = ""
     if state.sort_column not in available:
         state.sort_column = "Без сортировки"
-    if state.column_mode not in _FIELD_MODES:
-        state.column_mode = "Основное"
+    state.column_mode = normalize_field_mode(state.column_mode)
     return state
 
 
