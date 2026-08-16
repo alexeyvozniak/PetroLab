@@ -12,6 +12,7 @@ from petrolab.ui.field_presets import FIELD_MODES, columns_for_mode, normalize_f
 from petrolab.ui.record_detail import render_record_detail
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
+from petrolab.ui.table_filters import FILTER_MODES, apply_categorical_filter, normalize_filter_mode
 from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
 from petrolab.ui.view_presets import builtin_table_view_presets
 
@@ -115,15 +116,24 @@ def _filter_control(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame
             {str(value) for value in series.dropna().tolist() if str(value).strip()},
             key=str.casefold,
         )
+        mode_key = f"{key_prefix}_filter_mode_{column}"
+        current_mode = normalize_filter_mode(st.session_state.get(mode_key, "Оставить"))
+        filter_mode = st.segmented_control(
+            "Что сделать с выбранными значениями",
+            list(FILTER_MODES),
+            default=current_mode,
+            key=mode_key,
+            help="«Оставить» показывает только выбранные значения; «Скрыть» временно убирает их из текущего вида. Данные и Selection не меняются.",
+        ) or current_mode
         chosen = st.multiselect(
-            "Оставить значения",
+            "Значения",
             values,
             key=f"{key_prefix}_filter_values_{column}",
             placeholder="Все значения",
         )
         if not chosen:
             return dataframe
-        return dataframe.loc[dataframe[column].astype(str).isin(chosen)].copy()
+        return apply_categorical_filter(dataframe, column, chosen, mode=str(filter_mode))
 
 
 def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.DataFrame, str | None]:
@@ -232,6 +242,7 @@ def _sanitize_saved_view(state: TableViewState, dataframe: pd.DataFrame) -> Tabl
         state.filter_values = []
         state.filter_min = None
         state.filter_max = None
+    state.filter_mode = normalize_filter_mode(state.filter_mode)
     if state.group_column not in {*available, "Не группировать", "Другой столбец…"}:
         state.group_column = "Не группировать"
     if state.advanced_group_column not in available:
@@ -369,8 +380,6 @@ def render_analysis_table(
         return dataframe.iloc[0:0].copy()
 
     toolbar = st.columns([3.8, 1.05, 1.05, 1.05, 1.05, 1.15], gap="small")
-    # View executes first so a saved/preset state can update widget keys before
-    # the other toolbar widgets are instantiated on this rerun.
     with toolbar[5]:
         _view_control(dataframe, project_id=project_id, key_prefix=key_prefix)
     with toolbar[0]:
@@ -411,7 +420,8 @@ def render_analysis_table(
         active_view.append(f"вид: {view_name}")
     filter_name = str(st.session_state.get(f"{key_prefix}_filter_column", "Без фильтра"))
     if filter_name != "Без фильтра":
-        active_view.append(f"фильтр: {filter_name}")
+        filter_mode = normalize_filter_mode(st.session_state.get(f"{key_prefix}_filter_mode_{filter_name}", "Оставить"))
+        active_view.append(f"{'скрыть' if filter_mode == 'Скрыть' else 'фильтр'}: {filter_name}")
     if group_col:
         active_view.append(f"группа: {group_col}")
     if sort_col:
@@ -442,10 +452,7 @@ def render_analysis_table(
     )
 
     checked_indices = edited.index[edited["Выбрать"].fillna(False).astype(bool)].tolist()
-    checked_ids = working.loc[
-        working.index.isin(checked_indices),
-        "_analysis_id",
-    ].astype(str).tolist()
+    checked_ids = working.loc[working.index.isin(checked_indices), "_analysis_id"].astype(str).tolist()
     c1, c2, c3, c4, c5, note = st.columns([1.2, 1, 1, 1.05, .8, 2.3], gap="small")
     if c1.button(
         f"Применить · {len(checked_ids)}",
@@ -476,7 +483,7 @@ def render_analysis_table(
         st.rerun()
     note.caption(
         "«Все видимые» заменяет Selection; «+ Видимые» добавляет текущий фильтр к нему. "
-        "Фильтр, группировка, сортировка, скрытие полей и сохранённые виды сами Selection не меняют."
+        "Фильтр, скрытие значений, группировка, сортировка и сохранённые виды сами Selection не меняют."
     )
 
     _render_expanded_record(dataframe, project_id=project_id)
