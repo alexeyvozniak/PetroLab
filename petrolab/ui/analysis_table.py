@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pandas as pd
 import streamlit as st
 
@@ -368,6 +370,56 @@ def _render_expanded_record(dataframe: pd.DataFrame, *, project_id: int | None) 
         render_record_detail(row, dataframe, project_id=project_id)
 
 
+def selected_positions_from_table_event(event: object, *, row_count: int) -> list[int]:
+    """Return unique rows touched by a row or rectangular cell selection."""
+    selection = getattr(event, "selection", None)
+    if selection is None and isinstance(event, Mapping):
+        selection = event.get("selection", {})
+
+    def values(name: str) -> list:
+        if hasattr(selection, name):
+            return list(getattr(selection, name) or [])
+        if isinstance(selection, Mapping):
+            return list(selection.get(name, []) or [])
+        return []
+
+    result: set[int] = set()
+    for raw in values("rows"):
+        try:
+            position = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= position < int(row_count):
+            result.add(position)
+    for cell in values("cells"):
+        try:
+            position = int(cell[0])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0 <= position < int(row_count):
+            result.add(position)
+    return sorted(result)
+
+
+def _sync_mouse_selection(event: object, dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
+    positions = selected_positions_from_table_event(event, row_count=len(dataframe))
+    selected_ids = (
+        dataframe.iloc[positions]["_analysis_id"].astype(str).tolist()
+        if positions else []
+    )
+    state_key = f"{key_prefix}_mouse_selection_ids"
+    current_token = tuple(selected_ids)
+    previous = st.session_state.get(state_key)
+    previous_token = tuple(previous) if isinstance(previous, (list, tuple)) else None
+    if previous_token != current_token:
+        st.session_state[state_key] = current_token
+        if selected_ids:
+            set_selection(selected_ids, origin="Таблица · мышью", mode="replace", label="Диапазон таблицы")
+        elif previous_token is not None:
+            clear_selection()
+    return selected_ids
+
+
 def render_analysis_table(
     dataframe: pd.DataFrame,
     *,
@@ -405,13 +457,11 @@ def render_analysis_table(
         return working
 
     selection_context = read_selection()
-    current = set(selection_context.analysis_ids)
     editor = working.copy()
-    editor.insert(0, "Выбрать", editor["_analysis_id"].astype(str).isin(current))
-    editor.insert(1, "Точка", [human_point_label(row) for _, row in editor.iterrows()])
+    editor.insert(0, "Точка", [human_point_label(row) for _, row in editor.iterrows()])
     if group_col and group_col in editor.columns:
         visible_columns = [group_col, *[column for column in visible_columns if column != group_col]]
-    visible = ["Выбрать", "Точка", *visible_columns]
+    visible = ["Точка", *visible_columns]
     visible = list(dict.fromkeys(column for column in visible if column in editor.columns))
 
     active_view: list[str] = []
@@ -434,38 +484,34 @@ def render_analysis_table(
     st.caption(
         table_scope_caption(scope_counts)
         + (" · " + " · ".join(active_view) if active_view else "")
-        + " · настройки меняют только вид"
+        + " · потяните мышью по ячейкам, чтобы выбрать строки"
     )
 
-    edited = st.data_editor(
+    selected_now = set(selection_context.analysis_ids)
+    default_rows = [
+        position
+        for position, analysis_id in enumerate(working["_analysis_id"].astype(str).tolist())
+        if analysis_id in selected_now
+    ]
+    grid_key = f"{key_prefix}_grid"
+    selection_default = {"selection": {"rows": default_rows}} if default_rows else None
+    event = st.dataframe(
         editor[visible],
         width="stretch",
         height=height,
         hide_index=True,
-        disabled=[column for column in visible if column != "Выбрать"],
-        column_config={
-            "Выбрать": st.column_config.CheckboxColumn(
-                "✓",
-                help="Добавить строку в общий научный отбор",
-                width="small",
-            ),
-            "Точка": st.column_config.TextColumn("Точка", width="large"),
-        },
-        key=f"{key_prefix}_editor",
+        column_config={"Точка": st.column_config.TextColumn("Точка", width="large")},
+        key=grid_key,
+        on_select="rerun",
+        selection_mode=["multi-row", "multi-cell"],
+        selection_default=selection_default,
     )
+    mouse_ids = _sync_mouse_selection(event, working, key_prefix=key_prefix)
 
-    checked_indices = edited.index[edited["Выбрать"].fillna(False).astype(bool)].tolist()
-    checked_ids = working.loc[working.index.isin(checked_indices), "_analysis_id"].astype(str).tolist()
-    c1, c2, c3, c4, c5, note = st.columns([1.2, 1, 1, 1.05, .8, 2.3], gap="small")
-    if c1.button(
-        f"Применить · {len(checked_ids)}",
-        type="primary",
-        width="stretch",
-        key=f"{key_prefix}_apply_selection",
-    ):
-        set_selection(checked_ids, origin="Таблица", mode="replace")
-        st.rerun()
     visible_ids = working["_analysis_id"].astype(str).tolist()
+    current = set(read_selection().analysis_ids)
+    c1, c2, c3, c4, c5, note = st.columns([1.05, 1, 1, 1.05, .8, 2.5], gap="small")
+    c1.caption(f"Мышью · {len(mouse_ids)}")
     if c2.button("Все видимые", width="stretch", key=f"{key_prefix}_select_visible"):
         set_selection(visible_ids, origin="Таблица · видимые", mode="replace", label="Видимые строки")
         st.rerun()
@@ -483,10 +529,11 @@ def render_analysis_table(
         st.rerun()
     if c5.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
         clear_selection()
+        st.session_state[f"{key_prefix}_mouse_selection_ids"] = ()
         st.rerun()
     note.caption(
-        "«Все видимые» заменяет Selection; «+ Видимые» добавляет текущий фильтр к нему. "
-        "Фильтр, скрытие значений, группировка, сортировка и сохранённые виды сами Selection не меняют."
+        "Протяните прямоугольник по любым ячейкам: все затронутые строки сразу становятся Selection. "
+        "«Все видимые» и «+ Видимые» работают с текущим фильтром; Hide/Filter/Sort сами Selection не меняют."
     )
 
     _render_expanded_record(dataframe, project_id=project_id)
