@@ -9,11 +9,7 @@ from petrolab.ui.plot_spec import PlotSpec
 
 
 def _context_token(numeric: list[str]) -> str:
-    """Token for the available scientific columns, independent of panel count.
-
-    Panel count is deliberately excluded so add/remove/duplicate operations can
-    preserve the remaining panel specifications instead of rebuilding defaults.
-    """
+    """Token for the available scientific columns, independent of panel count."""
     return hashlib.sha1("\x1f".join(numeric).encode("utf-8")).hexdigest()[:10]
 
 
@@ -74,6 +70,48 @@ def _normalize_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def _panel_rows_after_actions(
+    edited: pd.DataFrame,
+    *,
+    minimum: int = 1,
+    maximum: int = 10,
+) -> tuple[pd.DataFrame | None, bool]:
+    """Return the new panel specification after remove/duplicate requests.
+
+    The returned bool reports whether rows were truncated at ``maximum``.
+    ``None`` means the request would remove too many panels.
+    """
+    remove_mask = edited.get("Убрать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
+    duplicate_mask = edited.get("Дублировать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
+    kept = edited.loc[~remove_mask].copy()
+    if len(kept) < minimum:
+        return None, False
+
+    rows: list[dict] = []
+    truncated = False
+    for index, row in kept.iterrows():
+        payload = row.to_dict()
+        payload["Убрать"] = False
+        payload["Дублировать"] = False
+        if len(rows) < maximum:
+            rows.append(payload)
+        else:
+            truncated = True
+            break
+        if bool(duplicate_mask.get(index, False)):
+            if len(rows) >= maximum:
+                truncated = True
+                continue
+            clone = dict(payload)
+            title = str(clone.get("Название") or "").strip()
+            clone["Название"] = f"{title} · копия" if title else "Копия панели"
+            rows.append(clone)
+
+    if not rows:
+        return None, truncated
+    return _normalize_rows(pd.DataFrame(rows)), truncated
+
+
 def _saved_source(
     numeric: list[str],
     defaults: list[tuple[str, str]],
@@ -118,39 +156,19 @@ def _apply_panel_structure_actions(
     minimum: int = 1,
     maximum: int = 10,
 ) -> bool:
-    """Apply remove/duplicate operations and schedule a rerun.
-
-    Returns True when state was rewritten and caller should stop rendering the
-    current pass. The page slider uses `<key_prefix>_count`, so updating that key
-    makes the manager and visible panel count converge on the next rerun.
-    """
+    """Persist remove/duplicate operations and schedule a rerun."""
     remove_mask = edited.get("Убрать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
     duplicate_mask = edited.get("Дублировать", pd.Series(False, index=edited.index)).fillna(False).astype(bool)
     if not remove_mask.any() and not duplicate_mask.any():
         return False
 
-    kept = edited.loc[~remove_mask].copy()
-    if len(kept) < minimum:
+    normalized, truncated = _panel_rows_after_actions(edited, minimum=minimum, maximum=maximum)
+    if normalized is None:
         st.warning("Нужно оставить хотя бы одну панель.")
         return False
-
-    rows: list[dict] = []
-    for index, row in kept.iterrows():
-        payload = row.to_dict()
-        payload["Убрать"] = False
-        payload["Дублировать"] = False
-        rows.append(payload)
-        if bool(duplicate_mask.get(index, False)) and len(rows) < maximum:
-            clone = dict(payload)
-            title = str(clone.get("Название") or "").strip()
-            clone["Название"] = f"{title} · копия" if title else "Копия панели"
-            rows.append(clone)
-
-    if len(rows) > maximum:
-        rows = rows[:maximum]
+    if truncated:
         st.info(f"Максимум {maximum} панелей; лишние копии не добавлены.")
 
-    normalized = _normalize_rows(pd.DataFrame(rows))
     st.session_state[f"_{key_prefix}_panel_seed"] = normalized.to_dict("records")
     st.session_state[f"{key_prefix}_count"] = int(len(normalized))
     st.session_state.pop(f"{key_prefix}_panel_manager", None)
