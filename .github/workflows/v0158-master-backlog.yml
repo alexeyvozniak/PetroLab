@@ -7,6 +7,7 @@ on:
       - 'petrolab/table_views.py'
       - 'petrolab/multi_panel_plotting.py'
       - 'petrolab/ui/table_view_state.py'
+      - 'petrolab/ui/view_presets.py'
       - 'petrolab/ui/field_presets.py'
       - 'petrolab/ui/record_detail.py'
       - 'petrolab/ui/analysis_table.py'
@@ -47,6 +48,7 @@ jobs:
           petrolab/table_views.py
           petrolab/multi_panel_plotting.py
           petrolab/ui/table_view_state.py
+          petrolab/ui/view_presets.py
           petrolab/ui/field_presets.py
           petrolab/ui/record_detail.py
           petrolab/ui/analysis_table.py
@@ -61,6 +63,8 @@ jobs:
           petrolab/ui/pages/multi_panel.py
       - name: Run saved-view state and persistence tests
         run: python tests_v0158_table_views.py
+      - name: Run semantic quick view tests
+        run: python tests_v0158_view_presets.py
       - name: Run scientific field preset tests
         run: python tests_v0158_field_presets.py
       - name: Run record detail tests
