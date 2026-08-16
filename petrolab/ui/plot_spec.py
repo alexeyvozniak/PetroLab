@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, MutableMapping
 
 
@@ -68,8 +68,75 @@ def _state(state: MutableMapping[str, Any] | None = None) -> MutableMapping[str,
     return st.session_state
 
 
+def _appearance_defaults() -> tuple[str, bool]:
+    try:
+        from petrolab.settings_service import load_settings
+        from petrolab.visualization_presets import FIGURE_PRESETS
+
+        preset_name = str(load_settings().get("default_figure_preset", "Lithos"))
+        preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS.get("Lithos"))
+        return preset_name, bool(getattr(preset, "grid", False))
+    except Exception:
+        return "", False
+
+
+def normalize_plot_spec(
+    spec: PlotSpec,
+    state: MutableMapping[str, Any] | None = None,
+    *,
+    default_preset: str | None = None,
+    default_grid: bool | None = None,
+) -> PlotSpec:
+    """Complete a PlotSpec at the canonical XY → multi-panel boundary.
+
+    Older callers do not know the newer appearance fields. They remain valid:
+    the current quick-plot widget state and configured figure preset fill only
+    fields that are absent. Explicit values in ``spec`` always win.
+    """
+    store = _state(state)
+    visible_series = spec.visible_series
+    if not visible_series and spec.group_column and spec.style_map:
+        visible_series = tuple(str(value) for value in spec.style_map if str(value))
+
+    marker_size = float(spec.marker_size or 0.0)
+    if marker_size <= 0:
+        try:
+            marker_size = float(store.get("quick_marker_size") or 0.0)
+        except (TypeError, ValueError):
+            marker_size = 0.0
+
+    preset_name = str(spec.figure_preset or "")
+    grid = bool(spec.show_grid)
+    if not preset_name:
+        if default_preset is None or default_grid is None:
+            resolved_preset, resolved_grid = _appearance_defaults()
+        else:
+            resolved_preset, resolved_grid = str(default_preset), bool(default_grid)
+        preset_name = str(default_preset if default_preset is not None else resolved_preset)
+        grid = bool(default_grid if default_grid is not None else resolved_grid)
+
+    return replace(
+        spec,
+        visible_series=tuple(visible_series),
+        marker_size=max(0.0, marker_size),
+        figure_preset=preset_name,
+        show_grid=grid,
+    )
+
+
+def _seed_multi_panel_appearance(spec: PlotSpec, store: MutableMapping[str, Any]) -> None:
+    """Seed only multi-panel widget defaults; scientific panel specs stay separate."""
+    if spec.marker_size > 0:
+        store["multi_panel_marker"] = int(round(spec.marker_size))
+    if spec.figure_preset:
+        store["multi_panel_preset"] = spec.figure_preset
+    store["multi_panel_grid"] = bool(spec.show_grid)
+
+
 def set_current_plot_spec(spec: PlotSpec, state: MutableMapping[str, Any] | None = None) -> None:
-    _state(state)[CURRENT_PLOT_SPEC_KEY] = spec.to_dict()
+    store = _state(state)
+    normalized = normalize_plot_spec(spec, store)
+    store[CURRENT_PLOT_SPEC_KEY] = normalized.to_dict()
 
 
 def read_current_plot_spec(state: MutableMapping[str, Any] | None = None) -> PlotSpec | None:
@@ -78,7 +145,10 @@ def read_current_plot_spec(state: MutableMapping[str, Any] | None = None) -> Plo
 
 
 def send_to_multi_panel(spec: PlotSpec, state: MutableMapping[str, Any] | None = None) -> None:
-    _state(state)[MULTI_PANEL_INBOX_KEY] = spec.to_dict()
+    store = _state(state)
+    normalized = normalize_plot_spec(spec, store)
+    store[MULTI_PANEL_INBOX_KEY] = normalized.to_dict()
+    _seed_multi_panel_appearance(normalized, store)
 
 
 def peek_multi_panel_inbox(state: MutableMapping[str, Any] | None = None) -> PlotSpec | None:
