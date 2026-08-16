@@ -13,11 +13,13 @@ def main() -> None:
         '"publication_composer": render_publication_composer_page',
         '"grain_profile": render_grain_profile_page',
         '"rock_workspace": render_rock_workspace_page',
+        '"multi_panel": render_multi_panel_page',
     ]:
         assert marker in app, marker
 
     for marker in [
-        '("publication_composer", "Редактор мультипанели")',
+        '("publication_composer", "Собрать рисунок A/B/C")',
+        '("multi_panel", "Сравнить на нескольких диаграммах")',
         '("grain_profile", "Профиль по зерну")',
         '("rock_workspace", "Породы")',
         '("rocks", "Редактор пород")',
@@ -27,20 +29,23 @@ def main() -> None:
     for marker in [
         "from .publication_composer import render_publication_composer_page",
         "from .grain_profile import render_grain_profile_page",
+        "from .multi_panel import render_multi_panel_page",
         "from .rock_workspace import render_rock_workspace_page",
-        "from .v0152_publication_wrappers import render_multi_panel_page",
         "from .v0153_grain_profile_wrappers import render_global_search_page",
         "from .v0154_rock_workspace_wrappers import render_rocks_page",
     ]:
         assert marker in pages, marker
+    assert "from .v0152_publication_wrappers import render_multi_panel_page" not in pages
+    assert "render_multi_panel_page_v0154_bridge as render_multi_panel_page" not in pages
 
-    # Release must keep all runtime safety layers accumulated in earlier releases.
+    # Release keeps earlier non-UI scientific/runtime safety hooks until each is
+    # explicitly replaced. UI wrapper accumulation is no longer a requirement.
     for marker in [
         "_install_import_runtime", "_install_physical_point_safety", "_install_amphibole_runtime",
     ]:
         assert marker in package, marker
 
-    print("v0.15.5 route stack tests: OK")
+    print("v0.15.7 route stack tests: OK")
 
 
 if __name__ == "__main__":
