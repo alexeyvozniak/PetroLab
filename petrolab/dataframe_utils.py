@@ -116,18 +116,38 @@ def apply_column_filters(
     return result
 
 
+def _dataset_import_label(dataset: Mapping[str, Any]) -> str:
+    raw = dataset.get("imported_at")
+    if raw in (None, ""):
+        return ""
+    try:
+        stamp = pd.to_datetime(raw, errors="raise")
+        return stamp.strftime("%d.%m.%Y %H:%M:%S")
+    except (TypeError, ValueError, OverflowError):
+        return str(raw).strip()
+
+
 def dataset_label(dataset: Mapping[str, Any]) -> str:
-    """Build a human-readable dataset selector label without leaking database IDs."""
+    """Build a human-readable selector label from scientific provenance, never DB IDs."""
     parts = [
         str(dataset.get("project_name") or "").strip(),
         str(dataset.get("name") or "").strip(),
     ]
+    mineral = str(dataset.get("mineral_key") or "").strip()
+    if mineral and mineral != "generic":
+        parts.append(mineral)
     row_count = dataset.get("row_count")
     if row_count is not None:
         parts.append(f"{int(row_count)} строк")
     source = str(dataset.get("source_filename") or "").strip()
-    if source:
-        parts.append(source)
+    sheet = str(dataset.get("source_sheet") or "").strip()
+    if source and sheet:
+        parts.append(f"{source} / {sheet}")
+    elif source or sheet:
+        parts.append(source or sheet)
+    imported = _dataset_import_label(dataset)
+    if imported:
+        parts.append(f"импорт {imported}")
     return " · ".join(part for part in parts if part)
 
 
