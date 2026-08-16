@@ -47,6 +47,36 @@ def _padded_limits(values: pd.Series, *, log: bool) -> tuple[float, float] | Non
     return lower - pad, upper + pad
 
 
+def _manual_axis_range(panel: dict, axis: str) -> tuple[float, float] | None:
+    try:
+        lower = float(panel.get(f"{axis}_min"))
+        upper = float(panel.get(f"{axis}_max"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
+        return None
+    if bool(panel.get(f"log_{axis}", False)) and lower <= 0:
+        return None
+    return lower, upper
+
+
+def apply_manual_panel_limits(
+    panels: list[dict],
+    limits: list[dict[str, tuple[float, float] | None]],
+) -> list[dict[str, tuple[float, float] | None]]:
+    """Override automatic limits only for axes with an explicit valid pair."""
+    result: list[dict[str, tuple[float, float] | None]] = []
+    for index, panel in enumerate(panels):
+        base = limits[index] if index < len(limits) and isinstance(limits[index], dict) else {}
+        item = {"x": base.get("x"), "y": base.get("y")}
+        for axis in ("x", "y"):
+            manual = _manual_axis_range(panel, axis)
+            if manual is not None:
+                item[axis] = manual
+        result.append(item)
+    return result
+
+
 def panel_axis_limits(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -55,30 +85,30 @@ def panel_axis_limits(
     focus_ids: Iterable[str] = (),
     id_column: str = "_analysis_id",
 ) -> list[dict[str, tuple[float, float] | None]]:
-    """Resolve panel axis ranges without changing the plotted row universe.
+    """Resolve automatic panel ranges, then layer explicit panel overrides.
 
     Modes:
-    - ``independent``: Matplotlib autoscale (no explicit limits).
-    - ``shared``: equal ranges are used whenever the same scientific variable
-      appears on several panel axes. Different variables are never forced into
-      a common range.
-    - ``focus``: every panel is zoomed to the current analysis selection while
-      the full dataframe remains plotted as visual context.
+    - ``independent``: plotting-library autoscale unless that panel has explicit
+      X/Y min+max.
+    - ``shared``: equal ranges whenever the same scientific variable appears on
+      several axes; explicit range on one panel overrides only that axis/panel.
+    - ``focus``: zoom each panel to the current analysis selection while keeping
+      all rows plotted; explicit panel ranges still win.
     """
     result = [{"x": None, "y": None} for _ in panels]
     normalized = str(mode or "independent").casefold()
     if normalized not in {"shared", "focus"} or dataframe.empty:
-        return result
+        return apply_manual_panel_limits(panels, result)
 
     focus = tuple(dict.fromkeys(str(value) for value in focus_ids if str(value)))
     scope = dataframe
     if normalized == "focus":
         if not focus or id_column not in dataframe.columns:
-            return result
+            return apply_manual_panel_limits(panels, result)
         wanted = set(focus)
         scope = dataframe.loc[dataframe[id_column].astype(str).isin(wanted)].copy()
         if scope.empty:
-            return result
+            return apply_manual_panel_limits(panels, result)
 
     if normalized == "shared":
         cache: dict[tuple[str, bool], tuple[float, float] | None] = {}
@@ -94,10 +124,8 @@ def panel_axis_limits(
             for axis, log_key in (("x", "log_x"), ("y", "log_y")):
                 variable = str(panel.get(axis) or "")
                 result[index][axis] = cache.get((variable, bool(panel.get(log_key, False))))
-        return result
+        return apply_manual_panel_limits(panels, result)
 
-    # Fit-selection deliberately uses each panel's paired valid rows: a point
-    # that cannot be drawn on that panel must not influence its zoom window.
     for index, panel in enumerate(panels):
         x = str(panel.get("x") or "")
         y = str(panel.get("y") or "")
@@ -110,7 +138,7 @@ def panel_axis_limits(
             continue
         result[index]["x"] = _padded_limits(work[x], log=log_x)
         result[index]["y"] = _padded_limits(work[y], log=log_y)
-    return result
+    return apply_manual_panel_limits(panels, result)
 
 
 def build_multi_panel_scatter(
@@ -131,13 +159,7 @@ def build_multi_panel_scatter(
     grid: bool = False,
     axis_limits: list[dict[str, tuple[float, float] | None]] | None = None,
 ):
-    """Render several XY views from one immutable selection and one shared style map.
-
-    ``axis_limits`` controls only the viewport. It never filters or duplicates
-    the dataframe, so Selection/Hide/Exclude and source provenance stay intact.
-    A panel may include a `panel_label` dictionary created by
-    `publication_composer.default_panel_label`.
-    """
+    """Render several XY views from one immutable selection and one shared style map."""
     valid = [panel for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
     if not valid:
         raise ValueError("Нет валидных панелей для построения")
