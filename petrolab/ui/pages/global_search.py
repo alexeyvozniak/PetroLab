@@ -18,6 +18,7 @@ from petrolab.source_registry import SOURCE_LABEL_COLUMN, SOURCE_TABLE_COLUMN, a
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
+from petrolab.ui.smart_plot_start import seed_plot_handoff
 from petrolab.ui.work_context import filter_dataframe_to_context, get_work_context
 
 
@@ -59,6 +60,8 @@ def _context_actions(result: pd.DataFrame, scope_label: str) -> None:
     analysis_ids = result["_analysis_id"].astype(str).drop_duplicates().tolist()
     dataset_ids = sorted({int(value) for value in result.get("_dataset_id", pd.Series(dtype=int)).dropna().tolist()})
     context = {
+        "origin": "search",
+        "label": scope_label,
         "scope": scope_label,
         "query": str(st.session_state.get("global_search_query") or ""),
         "analysis_ids": analysis_ids,
@@ -66,10 +69,13 @@ def _context_actions(result: pd.DataFrame, scope_label: str) -> None:
     }
     c1, c2, c3 = st.columns(3)
     if c1.button("Построить график", type="primary", width="stretch", key="global_search_plot"):
-        st.session_state["workflow_plot_dataset_ids"] = dataset_ids
-        st.session_state["workflow_plot_analysis_ids"] = analysis_ids
-        st.session_state["workflow_plot_context"] = context
-        st.session_state["workflow_plot_notice"] = "В график переданы результаты поиска."
+        seed_plot_handoff(
+            st.session_state,
+            dataset_ids=dataset_ids,
+            analysis_ids=analysis_ids,
+            context=context,
+            notice="В график переданы точные результаты поиска.",
+        )
         navigate("plots")
         st.rerun()
     if c2.button("Таблица статьи", width="stretch", key="global_search_table"):

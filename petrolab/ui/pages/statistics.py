@@ -26,6 +26,7 @@ from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.selection_components import render_selection_mode, render_selection_panel
 from petrolab.ui.selection_context import read_row_states, read_selection, set_selection
+from petrolab.ui.smart_plot_start import seed_selection_plot_handoff
 
 
 def _xlsx_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
@@ -265,7 +266,7 @@ def render_statistics_page() -> None:
         kwargs["min_cluster_size"] = p1.number_input("Минимальный размер кластера", min_value=2, max_value=max(2, len(prepared.index)), value=min(5, len(prepared.index)), step=1, key="stats_hdbscan_min_cluster")
         kwargs["min_samples"] = p2.number_input("min_samples", min_value=1, max_value=max(1, len(prepared.index)), value=min(5, len(prepared.index)), step=1, key="stats_hdbscan_min_samples")
     result = run_clustering(prepared, **kwargs)
-    meta = [column for column in ["_analysis_id", "Sample", "Grain", "Point", "Generation", "PetroLab Generation", "Набор", "Минерал"] if column in dataframe.columns]
+    meta = [column for column in ["_analysis_id", "_dataset_id", "Sample", "Grain", "Point", "Generation", "PetroLab Generation", "Набор", "Минерал"] if column in dataframe.columns]
     cluster_view = dataframe.loc[result.labels.index, meta].copy()
     cluster_view["Cluster"] = result.labels.astype(int).to_numpy()
     st.dataframe(_human_table(cluster_view), width="stretch", hide_index=True, height=360)
@@ -282,13 +283,26 @@ def render_statistics_page() -> None:
         format_func=lambda value: "Шум / −1" if int(value) == -1 else f"Cluster {int(value) + 1}",
         key="stats_cluster_choose",
     )
-    cluster_ids = cluster_view[cluster_view["Cluster"].isin(chosen_clusters)]["_analysis_id"].astype(str).tolist() if chosen_clusters else []
+    chosen_rows = cluster_view[cluster_view["Cluster"].isin(chosen_clusters)].copy() if chosen_clusters else cluster_view.iloc[0:0].copy()
+    cluster_ids = chosen_rows["_analysis_id"].astype(str).tolist() if not chosen_rows.empty else []
+    cluster_dataset_ids: list[int] = []
+    if not chosen_rows.empty and "_dataset_id" in chosen_rows.columns:
+        cluster_dataset_ids = list(dict.fromkeys(
+            int(value)
+            for value in pd.to_numeric(chosen_rows["_dataset_id"], errors="coerce").dropna().tolist()
+        ))
     h1, h2 = st.columns(2)
     if h1.button("Выбрать эти кластеры", disabled=not cluster_ids, width="stretch", key="stats_cluster_select"):
         set_selection(cluster_ids, origin="Кластеры", mode="replace", label=", ".join(str(value) for value in chosen_clusters), metadata={"clusters": chosen_clusters})
         st.rerun()
     if h2.button("Показать эти кластеры на XY", disabled=not cluster_ids, type="primary", width="stretch", key="stats_cluster_to_xy"):
         set_selection(cluster_ids, origin="Кластеры", mode="replace", label=", ".join(str(value) for value in chosen_clusters), metadata={"clusters": chosen_clusters})
+        seed_selection_plot_handoff(
+            st.session_state,
+            dataset_ids=cluster_dataset_ids,
+            analysis_ids=cluster_ids,
+            origin="Кластеры",
+        )
         navigate("plots")
         st.rerun()
 

@@ -17,6 +17,7 @@ from petrolab.ui.selection_context import (
     set_row_state,
 )
 from petrolab.ui.selection_export import resolve_selection_dataframe, selection_xlsx_bytes
+from petrolab.ui.smart_plot_start import seed_selection_plot_handoff
 
 
 _CHEMISTRY_PRIORITY = (
@@ -131,8 +132,12 @@ def render_selection_panel(
         st.caption("Один и тот же отбор используется между таблицей, XY, multi-panel и статистикой. Сохранение как группа/Generation — отдельное действие.")
         a1, a2, a3, a4, a5, a6 = st.columns(6)
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
-            if dataset_ids:
-                st.session_state["workflow_plot_dataset_ids"] = dataset_ids
+            seed_selection_plot_handoff(
+                st.session_state,
+                dataset_ids=dataset_ids,
+                analysis_ids=context.analysis_ids,
+                origin=context.origin or "Selection",
+            )
             navigate("plots")
             st.rerun()
         if a2.button("Несколько", key=f"{key_prefix}_to_multi", width="stretch"):

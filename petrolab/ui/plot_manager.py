@@ -62,6 +62,8 @@ def render_series_manager(
     *,
     key_prefix: str,
     expanded: bool = False,
+    initial_visible_series: tuple[str, ...] | list[str] | None = None,
+    widget_token: str = "",
 ) -> tuple[pd.DataFrame, tuple[str, ...]]:
     """Origin-like series visibility/order manager with JMP-linked selection.
 
@@ -69,14 +71,24 @@ def render_series_manager(
     row Hide/Exclude state. The explicit `В отбор` column is a separate action:
     selected series can replace/add/subtract their analysis IDs in the canonical
     SelectionContext without changing Work Group or Generation.
+
+    ``initial_visible_series`` and ``widget_token`` let a canonical PlotSpec resume
+    a compact workspace without mutating global row state. A new token deliberately
+    starts a fresh editor state from the supplied PlotSpec; ordinary reruns keep the
+    same token and therefore preserve the user's local series edits.
     """
     if dataframe.empty or not group_column or group_column not in dataframe.columns:
         return dataframe, ()
 
     incoming = _incoming_visible_series(key_prefix)
+    if initial_visible_series is not None:
+        incoming = tuple(str(value) for value in initial_visible_series if str(value))
     source = _series_table(dataframe, group_column, visible_series=incoming)
     if source.empty:
         return dataframe, ()
+
+    token = str(widget_token or "").strip()
+    editor_key = f"{key_prefix}_series_manager" + (f"_{token}" if token else "")
 
     with st.expander("Серии", expanded=expanded):
         st.caption(
@@ -97,7 +109,7 @@ def render_series_manager(
                     "Порядок", min_value=1, max_value=max(1, len(source)), step=1, width="small"
                 ),
             },
-            key=f"{key_prefix}_series_manager",
+            key=editor_key,
         )
 
         selected_ids, selected_names = _selected_series_ids(dataframe, group_column, edited)

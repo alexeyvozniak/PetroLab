@@ -8,6 +8,16 @@ import pandas as pd
 from petrolab.ui.plot_spec import PlotSpec
 
 
+def _unique_analysis_ids(values: Iterable[Any]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            str(value).strip()
+            for value in values
+            if str(value).strip()
+        )
+    )
+
+
 def advanced_plot_spec(
     plot_dataframe: pd.DataFrame,
     *,
@@ -20,23 +30,24 @@ def advanced_plot_spec(
     journal_preset: str,
     appearance: Mapping[str, Any],
     styles: Mapping[str, Mapping[str, Any]],
+    universe_analysis_ids: Iterable[Any] | None = None,
 ) -> PlotSpec:
-    """Translate the advanced editor's current graph into the shared PlotSpec.
+    """Translate the advanced editor's graph into the shared PlotSpec.
 
-    This captures only the rows actually admitted to the graph after source,
-    range, outlier and log-axis checks. Recipe-only controls remain in the saved
-    advanced recipe; the PlotSpec is the portable scientific graph object used
-    for linked/multi-panel handoff.
+    ``analysis_ids`` describe the graph's scientific DataUniverse, not only the rows
+    currently visible after source/series/log/outlier presentation filters. When an
+    explicit universe is supplied it is preserved verbatim (deduplicated); this lets
+    hidden sources or temporarily excluded points return when the corresponding
+    presentation control is changed. Legacy callers without an explicit universe
+    retain the previous visible-row behavior for compatibility.
     """
-    analysis_ids: tuple[str, ...] = ()
-    if "_analysis_id" in plot_dataframe.columns:
-        analysis_ids = tuple(
-            dict.fromkeys(
-                str(value).strip()
-                for value in plot_dataframe["_analysis_id"].tolist()
-                if str(value).strip()
-            )
-        )
+    if universe_analysis_ids is not None:
+        analysis_ids = _unique_analysis_ids(universe_analysis_ids)
+    elif "_analysis_id" in plot_dataframe.columns:
+        analysis_ids = _unique_analysis_ids(plot_dataframe["_analysis_id"].tolist())
+    else:
+        analysis_ids = ()
+
     visible_series = tuple(str(value) for value in styles if str(value)) if group_column else ()
     return PlotSpec(
         dataset_ids=tuple(dict.fromkeys(int(value) for value in dataset_ids)),
