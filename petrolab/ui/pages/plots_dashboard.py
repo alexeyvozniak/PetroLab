@@ -15,7 +15,9 @@ from petrolab.publication_manifest import build_selection_manifest, manifest_jso
 from petrolab.settings_service import load_settings
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
+from petrolab.ui.plot_spec import PlotSpec, send_to_multi_panel, set_current_plot_spec
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.source_controls import render_source_visibility_controls
 from petrolab.ui.xy_components import (
@@ -25,6 +27,39 @@ from petrolab.ui.xy_components import (
     style_map,
 )
 from petrolab.visualization_presets import FIGURE_PRESETS
+
+
+_CURATED_GROUPS = (
+    "PetroLab Generation", "Generation", WORK_GROUP_COLUMN, "Sample", "Grain", "Textural zone",
+    SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал",
+)
+
+
+def _group_control(dataframe: pd.DataFrame, numeric: list[str], visible_sources: list[str]) -> str | None:
+    categorical = [
+        column for column in dataframe.columns
+        if not str(column).startswith("_")
+        and column not in numeric
+        and dataframe[column].nunique(dropna=True) <= 80
+    ]
+    curated = [column for column in _CURATED_GROUPS if column in categorical]
+    options = ["Без группировки", *curated]
+    if any(column not in curated for column in categorical):
+        options.append("Другой столбец…")
+    suggested = SOURCE_LABEL_COLUMN if len(visible_sources) > 1 and SOURCE_LABEL_COLUMN in curated else "Без группировки"
+    if st.session_state.get("quick_group") not in options:
+        st.session_state.pop("quick_group", None)
+    group = st.selectbox(
+        "Группа",
+        options,
+        index=options.index(suggested),
+        key="quick_group",
+        help="Основные научные сущности показаны сразу; технические и редкие колонки спрятаны в «Другой столбец…».",
+    )
+    if group == "Другой столбец…":
+        advanced = [column for column in categorical if column not in curated]
+        group = st.selectbox("Другой столбец", advanced, key="quick_group_advanced") if advanced else "Без группировки"
+    return None if group == "Без группировки" else str(group)
 
 
 def _quick_workspace(project_id: int) -> None:
@@ -62,7 +97,7 @@ def _quick_workspace(project_id: int) -> None:
         )
         if requested_analysis_ids:
             dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
-            st.caption(f"Получен точный отбор из базы: {len(dataframe)} точек до QC-проверки.")
+            st.caption(f"Открыт точный переданный поднабор: {len(dataframe)} точек до QC-проверки.")
         if "QC решение" in dataframe.columns:
             excluded = dataframe["QC решение"].astype(str).str.casefold().eq("исключить")
             if excluded.any():
@@ -109,31 +144,9 @@ def _quick_workspace(project_id: int) -> None:
             st.info("После фильтрации недостаточно числовых колонок.")
             return
         x = st.selectbox("X", numeric, key="quick_x")
-        y = st.selectbox("Y", numeric, index=min(1, len(numeric) - 1), key="quick_y")
-        categorical = [
-            column
-            for column in dataframe.columns
-            if not str(column).startswith("_")
-            and column not in numeric
-            and dataframe[column].nunique(dropna=True) <= 80
-        ]
-        preferred = [
-            column
-            for column in [SOURCE_LABEL_COLUMN, WORK_GROUP_COLUMN, "Generation", "Набор", "Минерал"]
-            if column in categorical
-        ]
-        groups = preferred + [column for column in categorical if column not in preferred]
-        group_options = ["Без группировки"] + groups
-        suggested_group = SOURCE_LABEL_COLUMN if len(visible_sources) > 1 and SOURCE_LABEL_COLUMN in groups else "Без группировки"
-        if st.session_state.get("quick_group") not in group_options:
-            st.session_state.pop("quick_group", None)
-        group = st.selectbox(
-            "Группа",
-            group_options,
-            index=group_options.index(suggested_group),
-            key="quick_group",
-        )
-        group_col = None if group == "Без группировки" else group
+        y_options = [column for column in numeric if column != x]
+        y = st.selectbox("Y", y_options, key="quick_y")
+        group_col = _group_control(dataframe, numeric, visible_sources)
         with st.expander("Оси и вид", expanded=False):
             log_x = st.checkbox("Логарифмическая X", key="quick_log_x")
             log_y = st.checkbox("Логарифмическая Y", key="quick_log_y")
@@ -168,6 +181,23 @@ def _quick_workspace(project_id: int) -> None:
             (f"{len(names)} групп", "neutral"),
         ])
 
+    spec = PlotSpec(
+        dataset_ids=tuple(selected_ids),
+        analysis_ids=tuple(plot_source["_analysis_id"].astype(str).tolist()) if "_analysis_id" in plot_source.columns else (),
+        x=x,
+        y=y,
+        group_column=group_col or "",
+        x_label=x,
+        y_label=y,
+        title=title,
+        log_x=bool(log_x),
+        log_y=bool(log_y),
+        visible_sources=tuple(str(value) for value in visible_sources),
+        hidden_sources=tuple(str(value) for value in hidden_sources),
+        style_map=styles,
+    )
+    set_current_plot_spec(spec)
+
     with right:
         render_quick_interactive(
             plot_source,
@@ -180,7 +210,17 @@ def _quick_workspace(project_id: int) -> None:
             log_x=log_x,
             log_y=log_y,
             styles=styles,
+            project_id=project_id,
         )
+        if st.button(
+            "＋ Добавить этот график в несколько диаграмм",
+            type="primary",
+            width="stretch",
+            key="quick_send_to_multi",
+        ):
+            send_to_multi_panel(spec)
+            navigate("multi_panel")
+            st.rerun()
 
     st.markdown('<div class="petrolab-export-zone"></div>', unsafe_allow_html=True)
     st.markdown("### Публикационный экспорт")
@@ -251,15 +291,20 @@ def _quick_workspace(project_id: int) -> None:
 def render_plots_dashboard_page() -> None:
     render_page_header(
         "XY-диаграммы",
-        "Быстрое построение для ежедневной работы и полный редактор для фильтрации, отбора точек и публикационного экспорта.",
+        "Выберите данные один раз, исследуйте точки связанным отбором и при необходимости добавляйте готовый график в multi-panel.",
         eyebrow="Исследование",
     )
     project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте проект.")
         return
-    quick, advanced = st.tabs(["Быстрое построение", "Расширенный редактор"])
-    with quick:
+    mode = st.segmented_control(
+        "Режим XY",
+        ["Быстрое построение", "Расширенный редактор"],
+        default="Быстрое построение",
+        key="plots_dashboard_mode",
+    ) or "Быстрое построение"
+    if mode == "Быстрое построение":
         _quick_workspace(project_id)
-    with advanced:
+    else:
         render_advanced_xy_workspace(project_id)
