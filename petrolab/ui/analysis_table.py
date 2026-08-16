@@ -13,6 +13,7 @@ from petrolab.ui.record_detail import render_record_detail
 from petrolab.ui.selection_components import render_selection_panel
 from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 from petrolab.ui.table_filters import FILTER_MODES, apply_categorical_filter, normalize_filter_mode
+from petrolab.ui.table_scope import table_scope_caption, table_scope_counts
 from petrolab.ui.table_view_state import TableViewState, apply_table_view, capture_table_view, clear_table_view
 from petrolab.ui.view_presets import builtin_table_view_presets
 
@@ -403,7 +404,8 @@ def render_analysis_table(
         st.info("По текущему поиску/фильтру ничего не найдено.")
         return working
 
-    current = set(read_selection().analysis_ids)
+    selection_context = read_selection()
+    current = set(selection_context.analysis_ids)
     editor = working.copy()
     editor.insert(0, "Выбрать", editor["_analysis_id"].astype(str).isin(current))
     editor.insert(1, "Точка", [human_point_label(row) for _, row in editor.iterrows()])
@@ -428,8 +430,9 @@ def render_analysis_table(
         active_view.append(f"сортировка: {sort_col}")
     if query:
         active_view.append("поиск")
+    scope_counts = table_scope_counts(dataframe, working, selection_context.analysis_ids)
     st.caption(
-        f"{len(working):,} строк".replace(",", " ")
+        table_scope_caption(scope_counts)
         + (" · " + " · ".join(active_view) if active_view else "")
         + " · настройки меняют только вид"
     )
