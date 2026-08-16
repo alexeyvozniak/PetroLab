@@ -8,6 +8,7 @@ import streamlit as st
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, clear_work_group, list_work_groups, set_work_group
 from petrolab.dataframe_utils import human_point_label
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, assign_generation
+from petrolab.linked_petrography import related_thin_section_markers
 from petrolab.ui.navigation import navigate
 from petrolab.ui.selection_context import (
     clear_selection,
@@ -88,6 +89,38 @@ def _selection_token(analysis_ids: tuple[str, ...]) -> str:
     return hashlib.sha1("\x1f".join(analysis_ids).encode("utf-8")).hexdigest()[:14]
 
 
+def _render_thin_section_action(*, project_id: int | None, analysis_ids: tuple[str, ...], key_prefix: str) -> None:
+    if project_id is None:
+        return
+    links = related_thin_section_markers(int(project_id), analysis_ids)
+    if not links:
+        return
+
+    if len(links) == 1:
+        selected_link = links[0]
+    else:
+        index = st.selectbox(
+            "Физическая точка",
+            list(range(len(links))),
+            format_func=lambda value: f"{links[int(value)].display_label} · {links[int(value)].image_type}",
+            key=f"{key_prefix}_thin_link_choice",
+            help="Если Selection связан с несколькими физическими точками, выберите место, которое хотите открыть.",
+        )
+        selected_link = links[int(index)]
+
+    action, note = st.columns([1.35, 4.65], gap="small")
+    if action.button("На шлифе", key=f"{key_prefix}_to_thin_section", width="stretch"):
+        st.session_state["thin_section_focus_id_pending"] = int(selected_link.thin_section_id)
+        st.session_state["thin_image_focus_id_pending"] = int(selected_link.slide_image_id)
+        st.session_state["thin_marker_focus_id_pending"] = int(selected_link.marker_id)
+        navigate("thin_section")
+        st.rerun()
+    note.caption(
+        f"Физический контекст · {len(links)} точ. · {selected_link.display_label}. "
+        "Переход сохраняет текущий Selection; морфология и Generation не смешиваются."
+    )
+
+
 def render_selection_panel(
     dataframe: pd.DataFrame,
     *,
@@ -130,6 +163,8 @@ def render_selection_panel(
             st.info("Отбор сохранён, но выбранные анализы не входят в текущий вид. Перейдите к таблице/графику с этим контекстом.")
 
         st.caption("Один и тот же отбор используется между таблицей, XY, multi-panel и статистикой. Сохранение как группа/Generation — отдельное действие.")
+        _render_thin_section_action(project_id=project_id, analysis_ids=context.analysis_ids, key_prefix=key_prefix)
+
         a1, a2, a3, a4, a5, a6 = st.columns(6)
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
             seed_selection_plot_handoff(
