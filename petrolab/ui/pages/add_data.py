@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from petrolab.ui.intake_workflow import render_intake_workflow
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
@@ -33,5 +34,4 @@ def render_add_data_page() -> None:
         "при необходимости добавить изображения и связать их с теми же точками. "
         "Статья или данные коллеги отличаются только provenance, а не отдельной системой импорта."
     )
-    # The canonical uploader/staging flow is rendered immediately below by the
-    # intake integration layer. Do not reintroduce competing cards/routes here.
+    render_intake_workflow(int(project["id"]))
