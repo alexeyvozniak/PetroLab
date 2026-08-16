@@ -83,7 +83,7 @@ def _render_table_with_locked_provenance(
     data: bytes,
     token: str,
 ) -> list[int]:
-    """Run staging explicitly and keep already-recorded external provenance stable."""
+    """Run explicit provenance -> staging -> safe import without module rebinding."""
     source_widget_key = f"universal_source_kind_{token}"
     study_key = f"universal_study_id_{token}"
     lock_key = f"universal_locked_source_kind_{token}"
@@ -95,8 +95,18 @@ def _render_table_with_locked_provenance(
         "Для первичной петрографической разметки используйте Textural zone "
         "(ядро, кайма, реакционная зона). Generation оставляйте для химической интерпретации."
     )
-    result = staged_intake.render_table_import_v0154(
-        universal_intake._render_table_import,
+
+    def staged_original(inner_project_id: int, inner_name: str, inner_data: bytes, inner_token: str) -> list[int]:
+        return staged_intake.render_table_import_v0154(
+            universal_intake._render_table_import,
+            int(inner_project_id),
+            inner_name,
+            inner_data,
+            inner_token,
+        )
+
+    result = universal_intake_extensions.render_table_import_with_provenance(
+        staged_original,
         int(project_id),
         name,
         data,
