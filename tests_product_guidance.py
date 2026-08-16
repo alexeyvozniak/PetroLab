@@ -88,21 +88,34 @@ class ProductGuidanceTests(unittest.TestCase):
             self.assertEqual(mixed.route, "mixed_minerals")
             self.assertGreaterEqual(mixed.count, 2)
 
-    def test_primary_navigation_is_user_task_oriented(self):
+    def test_primary_navigation_and_intake_are_consolidated(self):
         navigation = Path("petrolab/ui/navigation.py").read_text(encoding="utf-8")
         add_data = Path("petrolab/ui/pages/add_data.py").read_text(encoding="utf-8")
         for marker in [
-            "Основное",
-            "Рабочий стол",
-            "Добавить данные",
-            "Требует внимания",
-            "Глобальный поиск",
-            "Массовые действия",
-            "Все инструменты",
+            '"Главная"',
+            '"Данные"',
+            '"Графики"',
+            '"Статистика"',
+            '"Шлифы и изображения"',
+            '"Расчёты"',
+            '"Публикация"',
+            '"Поиск"',
+            '"Настройки"',
+            '"Дополнительно"',
         ]:
             self.assertIn(marker, navigation)
-        for marker in ["Мои анализы", "Статья / коллега", "Полевые Sample", "pending_study_id"]:
+        for obsolete in ["Все инструменты", "Рабочая область"]:
+            self.assertNotIn(obsolete, navigation)
+
+        for marker in [
+            "Единый вход",
+            "файл → листы/колонки → разнести строки по Sample",
+            "Статья или данные коллеги отличаются только provenance",
+            "не reintroduce competing cards/routes",
+        ]:
             self.assertIn(marker, add_data)
+        for obsolete in ["### Мои анализы", "### Статья / коллега", "### Полевые Sample", "pending_study_id"]:
+            self.assertNotIn(obsolete, add_data)
 
 
 if __name__ == "__main__":
