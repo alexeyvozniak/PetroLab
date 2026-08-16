@@ -100,22 +100,26 @@ for marker in ["class PlotSpec", "dataset_ids", "analysis_ids", "group_column", 
     assert marker in plot_spec, marker
 smart_start = (UI / "smart_plot_start.py").read_text(encoding="utf-8")
 for marker in [
-    "resolve_plot_scope", "consume_plot_scope", "clear_exact_plot_scope",
-    "choose_xy_recommendation", "seed_xy_state", "seed_import_plot_handoff",
+    "resolve_plot_scope", "consume_plot_scope", "clear_exact_plot_scope", "seed_plot_handoff",
+    "xy_recommendations", "choose_xy_recommendation", "seed_xy_state", "seed_import_plot_handoff",
     "seed_selection_plot_handoff", "advanced_recipe_from_spec",
 ]:
     assert marker in smart_start, marker
 plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
 for marker in [
-    "consume_plot_scope", "clear_exact_plot_scope", "choose_xy_recommendation", "seed_xy_state",
-    '"Smart Start ·', '"Весь набор"', "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
-    '"＋ Добавить диаграмму"', '"Настроить подробнее"', "advanced_recipe_from_spec",
-    "render_series_manager", "_plots_show_advanced",
+    "consume_plot_scope", "clear_exact_plot_scope", "xy_recommendations", "seed_xy_state",
+    '"Smart Start ·', '"Весь набор"', '"График"', '"Рекомендовано ·', '"Другой график ·',
+    '"Свои оси"', '"⇄"', "PlotSpec(", "set_current_plot_spec", "send_to_multi_panel",
+    '"＋ Добавить диаграмму"', '"Настроить подробнее"', 'st.expander("Экспорт и публикация"',
+    "advanced_recipe_from_spec", "render_series_manager", "_plots_show_advanced",
 ]:
     assert marker in plots, marker
 for obsolete_mode in ['"Быстрое построение"', '"Расширенный редактор"', '"Режим XY"']:
     assert obsolete_mode not in plots, f"up-front XY mode fork returned: {obsolete_mode}"
 assert "workflow_plot_analysis_ids" not in plots, "route scope must be consumed centrally, not pop-only in the page"
+assert "choose_xy_recommendation" not in plots, "normal workbench must use ranked recommendations, not a single hidden choice"
+assert "_mark_custom_axes" in plots, "manual axis edits must become authoritative"
+assert "_swap_quick_axes" in plots, "axis swap must stay a one-click workbench action"
 assert "st.tabs(" not in plots, "compact and deep XY must not both execute on every rerun"
 
 # Origin-like managers own series visibility/order and the multi-panel layer list.
@@ -148,8 +152,8 @@ assert "_linked_selection_ids" not in linked, "page-local linked selection state
 
 statistics = (PAGES / "statistics.py").read_text(encoding="utf-8")
 for marker in [
-    "read_row_states", "set_selection", "render_selection_panel",
-    '"Показать эти кластеры на XY"', 'navigate("plots")',
+    "read_row_states", "set_selection", "render_selection_panel", "seed_selection_plot_handoff",
+    '"Показать эти кластеры на XY"', 'origin="Кластеры"', 'navigate("plots")',
 ]:
     assert marker in statistics, marker
 assert "st.tabs(" not in statistics, "all statistics sections must not execute eagerly"
@@ -261,4 +265,4 @@ for path in sorted(PAGES.glob("*.py")):
         width = int(match.group(1))
         assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
 
-print("v0.15.8 Airtable/JMP/Origin + stable Smart Start UI structure tests: OK")
+print("v0.15.8 Airtable/JMP/Origin + ranked Smart Start UI structure tests: OK")
