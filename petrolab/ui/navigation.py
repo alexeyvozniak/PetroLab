@@ -10,7 +10,7 @@ from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-# Nine task-oriented entries are the normal navigation.  Implementation pages
+# Nine task-oriented entries are the normal navigation. Implementation pages
 # remain addressable for old recipes/internal links, but they are not menu items.
 PRIMARY_NAV = [
     ("home", "Главная"),
@@ -23,13 +23,11 @@ PRIMARY_NAV = [
     ("search", "Поиск"),
     ("settings", "Настройки"),
 ]
-# Compatibility for tests/extensions that still import the old constant name.
 DAILY_NAV = PRIMARY_NAV
 
 TOOL_SECTIONS = {
     "Данные": [
         ("add_data", "Добавить данные"),
-        ("database", "Вся база"),
         ("sessions", "Аналитические сессии"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
@@ -62,10 +60,11 @@ TOOL_SECTIONS = {
     ],
 }
 
-# These routes are retained only for compatibility with existing links/recipes.
-# They deliberately do not appear in the normal sidebar because their functions
-# are now reached through the canonical Data/Calculation workflows.
+# Compatibility-only routes. They stay routable because old recipes, deep links,
+# and internal actions may still target them, but they are deliberately absent
+# from the normal sidebar.
 _HIDDEN_ROUTE_LABELS = {
+    "database": "Вся база",
     "compare": "Сравнить данные",
     "quick_import": "Быстрый импорт",
     "workflow": "Рабочий процесс",
