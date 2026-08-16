@@ -134,7 +134,20 @@ class WindowsInstallerContractTests(unittest.TestCase):
         self.assertIn("PetroLab.ico", workflow)
         self.assertIn("PetroLab-Installer.ico", workflow)
         self.assertIn("Wait for full Windows verification", workflow)
-        self.assertIn('git tag -f windows-latest $env:GITHUB_SHA', workflow)
+        standard_publish = 'git tag -f windows-latest $env:GITHUB_SHA' in workflow
+        guarded_release_publish = all(
+            marker in workflow
+            for marker in [
+                'github.head_ref == \'release/v0157-publish\'',
+                'git tag -f windows-latest $targetSha',
+                'git/ref/heads/main',
+                'Full Windows verification passed',
+            ]
+        )
+        self.assertTrue(
+            standard_publish or guarded_release_publish,
+            "rolling tag must target either the verified main push SHA or an explicitly guarded main release SHA",
+        )
         self.assertIn("actions/upload-artifact@v4", workflow)
         self.assertIn("gh release upload windows-latest", workflow)
 
