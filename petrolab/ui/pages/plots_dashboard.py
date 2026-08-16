@@ -24,7 +24,8 @@ from petrolab.ui.project_context import active_project_id
 from petrolab.ui.smart_plot_start import (
     advanced_recipe_from_spec,
     choose_xy_recommendation,
-    resolve_plot_scope,
+    clear_exact_plot_scope,
+    consume_plot_scope,
     seed_xy_state,
 )
 from petrolab.ui.source_controls import render_source_visibility_controls
@@ -78,23 +79,17 @@ def _quick_workspace(project_id: int) -> None:
         return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
 
-    requested_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
-    requested_analysis_ids = [
-        str(value) for value in st.session_state.pop("workflow_plot_analysis_ids", []) if str(value)
-    ]
-    requested_context = st.session_state.pop("workflow_plot_context", {})
     work_context = get_work_context(project_id)
-    scope = resolve_plot_scope(
+    scope = consume_plot_scope(
+        st.session_state,
+        project_id=project_id,
         available_dataset_ids=labels.values(),
         work_context=work_context,
-        requested_dataset_ids=requested_ids,
-        requested_analysis_ids=requested_analysis_ids,
-        requested_context=requested_context,
     )
-    had_explicit_scope = bool(requested_ids or requested_analysis_ids or (work_context or {}).get("dataset_ids"))
+    had_explicit_scope = scope.explicit or bool((work_context or {}).get("dataset_ids"))
     if had_explicit_scope and not scope.dataset_ids:
         st.warning(
-            "Текущий рабочий контекст ссылается на наборы, которых больше нет в проекте. "
+            "Текущий контекст графика ссылается на наборы, которых больше нет в проекте. "
             "PetroLab не расширяет такой контекст автоматически до всей базы."
         )
         return
@@ -136,8 +131,17 @@ def _quick_workspace(project_id: int) -> None:
         )
         if scope.analysis_ids:
             dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(set(scope.analysis_ids))].copy()
-            st.caption(f"Открыт точный переданный поднабор: {len(dataframe)} точек до QC-проверки.")
-        elif work_context:
+            exact_text, exact_action = st.columns([3.2, 1])
+            exact_text.caption(f"Точный переданный поднабор: {len(dataframe)} точек до QC-проверки.")
+            if exact_action.button(
+                "Весь набор",
+                width="stretch",
+                key="quick_plot_release_exact_scope",
+                help="Явно снять точный analysis_id-отбор и перейти ко всем точкам выбранных наборов.",
+            ):
+                clear_exact_plot_scope(st.session_state)
+                st.rerun()
+        elif not scope.explicit and work_context:
             before_context = len(dataframe)
             dataframe = filter_dataframe_to_context(dataframe, work_context)
             if len(dataframe) != before_context:
