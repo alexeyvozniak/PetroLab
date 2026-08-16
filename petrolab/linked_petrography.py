@@ -1,6 +1,6 @@
 """Canonical bridge between analytical Selection and thin-section spatial markers.
 
-This module is intentionally UI-independent.  It references the existing slide marker,
+This module is intentionally UI-independent. It references the existing slide-marker,
 analysis-row and physical-entity models; it does not create another point registry or
 another Selection implementation.
 """
@@ -10,8 +10,7 @@ from dataclasses import dataclass
 from math import hypot
 
 from petrolab.db import connect
-from petrolab.measurement_registry import list_entities
-from petrolab.slides import list_slide_images, list_slide_markers
+from petrolab.slides import ensure_slide_schema
 
 
 @dataclass(frozen=True)
@@ -38,57 +37,92 @@ def _analysis_ids(values) -> tuple[str, ...]:
 
 
 def related_thin_section_markers(project_id: int, analysis_ids) -> tuple[PetrographyLink, ...]:
-    """Return exact spatial markers whose stored links intersect ``analysis_ids``.
+    """Return spatial markers explicitly linked to any exact selected ``analysis_id``.
 
-    Physical identity is resolved only through ``slide_marker_analysis_links``.  Labels,
-    Sample names and Point strings are never used to infer a relationship.
+    The lookup is one indexed SQL query, not an N+1 marker scan. Physical identity is
+    resolved only through ``slide_marker_analysis_links``. Similar Sample/Point labels
+    are deliberately irrelevant.
     """
-    wanted = set(_analysis_ids(analysis_ids))
+    wanted = _analysis_ids(analysis_ids)
     if not wanted:
         return ()
+    ensure_slide_schema()
+    placeholders = ",".join("?" for _ in wanted)
+    sql = f"""
+        SELECT
+            m.id AS marker_id,
+            m.slide_image_id AS slide_image_id,
+            i.thin_section_id AS thin_section_id,
+            section.name AS thin_section_name,
+            i.title AS image_title,
+            i.image_type AS image_type,
+            COALESCE(NULLIF(m.label, ''), entity.name, '') AS marker_label,
+            m.x_norm AS x_norm,
+            m.y_norm AS y_norm,
+            all_links.analysis_id AS linked_analysis_id
+        FROM slide_markers m
+        JOIN slide_images i
+          ON i.id=m.slide_image_id AND i.project_id=m.project_id
+        JOIN physical_entities section
+          ON section.id=i.thin_section_id
+         AND section.project_id=m.project_id
+         AND section.kind='thin_section'
+        LEFT JOIN physical_entities entity ON entity.id=m.entity_id
+        JOIN slide_marker_analysis_links all_links ON all_links.marker_id=m.id
+        WHERE m.project_id=?
+          AND EXISTS (
+              SELECT 1
+              FROM slide_marker_analysis_links selected_link
+              WHERE selected_link.marker_id=m.id
+                AND selected_link.analysis_id IN ({placeholders})
+          )
+        ORDER BY
+            section.name COLLATE NOCASE,
+            i.image_type COLLATE NOCASE,
+            i.title COLLATE NOCASE,
+            marker_label COLLATE NOCASE,
+            m.id,
+            all_links.analysis_id
+    """
+    with connect() as con:
+        rows = con.execute(sql, (int(project_id), *wanted)).fetchall()
 
-    images = {int(image.id): image for image in list_slide_images(int(project_id))}
-    sections = {
-        int(entity["id"]): str(entity.get("name") or f"Шлиф {entity['id']}")
-        for entity in list_entities(int(project_id))
-        if str(entity.get("kind") or "") == "thin_section"
-    }
-    result: list[PetrographyLink] = []
-    for marker in list_slide_markers(int(project_id)):
-        linked = _analysis_ids(marker.get("analysis_ids", ()))
-        if not wanted.intersection(linked):
-            continue
-        image = images.get(int(marker["slide_image_id"]))
-        if image is None or image.thin_section_id is None:
-            continue
-        section_id = int(image.thin_section_id)
-        if section_id not in sections:
-            continue
-        result.append(
-            PetrographyLink(
-                marker_id=int(marker["id"]),
-                slide_image_id=int(image.id),
-                thin_section_id=section_id,
-                thin_section_name=sections[section_id],
-                image_title=str(image.title),
-                image_type=str(image.image_type),
-                marker_label=str(marker.get("label") or marker.get("entity_name") or ""),
-                x_norm=float(marker["x_norm"]),
-                y_norm=float(marker["y_norm"]),
-                analysis_ids=linked,
-            )
+    grouped: dict[int, dict] = {}
+    for row in rows:
+        marker_id = int(row["marker_id"])
+        item = grouped.setdefault(
+            marker_id,
+            {
+                "marker_id": marker_id,
+                "slide_image_id": int(row["slide_image_id"]),
+                "thin_section_id": int(row["thin_section_id"]),
+                "thin_section_name": str(row["thin_section_name"]),
+                "image_title": str(row["image_title"]),
+                "image_type": str(row["image_type"]),
+                "marker_label": str(row["marker_label"] or ""),
+                "x_norm": float(row["x_norm"]),
+                "y_norm": float(row["y_norm"]),
+                "analysis_ids": [],
+            },
         )
+        analysis_id = str(row["linked_analysis_id"]).strip()
+        if analysis_id and analysis_id not in item["analysis_ids"]:
+            item["analysis_ids"].append(analysis_id)
+
     return tuple(
-        sorted(
-            result,
-            key=lambda item: (
-                item.thin_section_name.casefold(),
-                item.image_type.casefold(),
-                item.image_title.casefold(),
-                item.marker_label.casefold(),
-                item.marker_id,
-            ),
+        PetrographyLink(
+            marker_id=item["marker_id"],
+            slide_image_id=item["slide_image_id"],
+            thin_section_id=item["thin_section_id"],
+            thin_section_name=item["thin_section_name"],
+            image_title=item["image_title"],
+            image_type=item["image_type"],
+            marker_label=item["marker_label"],
+            x_norm=item["x_norm"],
+            y_norm=item["y_norm"],
+            analysis_ids=tuple(item["analysis_ids"]),
         )
+        for item in grouped.values()
     )
 
 
@@ -115,25 +149,20 @@ def analysis_ids_for_marker(markers: list[dict], marker_id: int) -> tuple[str, .
 
 def dataset_ids_for_analysis_ids(project_id: int, analysis_ids) -> tuple[int, ...]:
     """Resolve datasets for an exact analysis scope without changing that scope."""
-    wanted = set(_analysis_ids(analysis_ids))
+    wanted = _analysis_ids(analysis_ids)
     if not wanted:
         return ()
+    placeholders = ",".join("?" for _ in wanted)
     with connect() as con:
         rows = con.execute(
-            """SELECT a.analysis_id, a.dataset_id
-               FROM analysis_rows a
-               JOIN project_dataset_links p ON p.dataset_id=a.dataset_id
-               WHERE p.project_id=?
-               ORDER BY a.dataset_id, a.analysis_id""",
-            (int(project_id),),
+            f"""SELECT DISTINCT a.dataset_id
+                FROM analysis_rows a
+                JOIN project_dataset_links p ON p.dataset_id=a.dataset_id
+                WHERE p.project_id=? AND a.analysis_id IN ({placeholders})
+                ORDER BY a.dataset_id""",
+            (int(project_id), *wanted),
         ).fetchall()
-    return tuple(
-        dict.fromkeys(
-            int(row["dataset_id"])
-            for row in rows
-            if str(row["analysis_id"]) in wanted
-        )
-    )
+    return tuple(int(row["dataset_id"]) for row in rows)
 
 
 def nearest_marker_id(
@@ -147,8 +176,8 @@ def nearest_marker_id(
     """Find a marker close to a click in normalized coordinates.
 
     ``aspect_ratio`` is image height / width, so distance remains visually sensible on
-    very wide or tall images.  The threshold is relative to image width, not master
-    pixel count, and therefore remains usable for large microscope scans.
+    very wide or tall images. The threshold is relative to image width, not master pixel
+    count, and therefore remains usable for large microscope scans.
     """
     ratio = max(float(aspect_ratio), 1e-9)
     best_id: int | None = None
