@@ -95,9 +95,27 @@ def _context_fingerprint(value: Any) -> tuple[Any, ...]:
     )
 
 
+def _active_scientific_context(state: Mapping[str, Any]) -> dict[str, Any]:
+    explicit = state.get("_petrolab_plot_scope_context")
+    if isinstance(explicit, dict):
+        return deepcopy(explicit)
+    work = state.get("_petrolab_work_context")
+    return deepcopy(work) if isinstance(work, dict) else {}
+
+
 def current_advanced_recipe(state: Mapping[str, Any]) -> dict[str, Any]:
     raw = state.get(ADVANCED_CURRENT_RECIPE_KEY)
-    return deepcopy(raw) if isinstance(raw, dict) else {}
+    if not isinstance(raw, dict):
+        return {}
+    payload = deepcopy(raw)
+    parked_context = payload.get("_scientific_context")
+    if parked_context is not None:
+        active_context = _active_scientific_context(state)
+        if _context_fingerprint(parked_context) != _context_fingerprint(active_context):
+            # Keep the old recipe stored for audit/session history, but never surface
+            # it into a different active Sample/search/Selection context.
+            return {}
+    return payload
 
 
 def store_current_advanced_recipe(
@@ -105,6 +123,7 @@ def store_current_advanced_recipe(
     recipe: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = deepcopy(dict(recipe))
+    payload.setdefault("_scientific_context", _active_scientific_context(state))
     state[ADVANCED_CURRENT_RECIPE_KEY] = payload
     return payload
 
@@ -171,7 +190,7 @@ def _compatible_for_deep_resume(
 
     compact_context = compact.get("_scientific_context")
     parked_context = parked.get("_scientific_context")
-    if compact_context is not None or parked_context is not None:
+    if compact_context is not None and parked_context is not None:
         if _context_fingerprint(compact_context) != _context_fingerprint(parked_context):
             return False
     return True
@@ -185,9 +204,9 @@ def advanced_recipe_for_entry(
 
     Compact controls always win for state they can represent. Deep-only filters and
     publication settings are resumed only when dataset scope, mineral scope, X/Y and
-    exact scientific context still match the graph they were created for. Otherwise
-    they are deliberately discarded for this entry rather than being applied to a
-    different scientific question.
+    (when supplied) exact scientific context still match the graph they were created
+    for. ``current_advanced_recipe`` also refuses to surface parked state whose
+    scientific context no longer matches the active graph/work context.
     """
     compact = deepcopy(dict(compact_recipe))
     parked = deepcopy(dict(parked_recipe or {}))
