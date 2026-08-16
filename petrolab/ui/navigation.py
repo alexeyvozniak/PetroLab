@@ -4,6 +4,7 @@ import streamlit as st
 
 from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.settings_service import load_settings
+from petrolab.ui.navigation_state import can_go_back, go_back as restore_previous_route, push_current
 from petrolab.ui.project_context import active_project_id, set_active_project
 from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
@@ -77,9 +78,22 @@ _ALL_ENTRIES = DAILY_NAV + [item for entries in TOOL_SECTIONS.values() for item 
 ROUTE_LABELS = {route: label for route, label in _ALL_ENTRIES}
 
 
-def navigate(route: str) -> None:
-    if route in ROUTE_LABELS:
-        st.session_state["nav_route"] = route
+def navigate(route: str, *, record_history: bool = True) -> None:
+    if route not in ROUTE_LABELS:
+        return
+    current = str(st.session_state.get("nav_route", "home"))
+    if record_history and current in ROUTE_LABELS and current != route:
+        push_current(st.session_state, current_route=current)
+    st.session_state["nav_route"] = route
+
+
+def go_back() -> str | None:
+    current = str(st.session_state.get("nav_route", "home"))
+    return restore_previous_route(
+        st.session_state,
+        current_route=current,
+        valid_routes=set(ROUTE_LABELS),
+    )
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
@@ -108,14 +122,11 @@ def _nav_button(route: str, label: str, current: str, *, prefix: str = "nav") ->
         type="primary" if route == current else "secondary",
         width="stretch",
     ):
-        st.session_state["nav_route"] = route
+        navigate(route)
         st.rerun()
 
 
 def render_sidebar(version: str) -> str:
-    # Бренд и версия намеренно находятся в одном HTML-блоке. Так их вертикальная
-    # геометрия рассчитывается браузером как единое целое и не зависит от того,
-    # какую высоту Streamlit заранее выделил двум соседним markdown-элементам.
     st.markdown(
         '<div class="petrolab-sidebar-brand-block">'
         '<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>'
@@ -123,6 +134,16 @@ def render_sidebar(version: str) -> str:
         '</div>',
         unsafe_allow_html=True,
     )
+
+    current = str(st.session_state.get("nav_route", "home"))
+    if current not in ROUTE_LABELS:
+        current = "home"
+        st.session_state["nav_route"] = current
+
+    if can_go_back(st.session_state):
+        if st.button("← Назад", key="sidebar_go_back", width="stretch", help="Вернуться в предыдущий рабочий контекст"):
+            if go_back() is not None:
+                st.rerun()
 
     projects = list_projects()
     st.markdown('<div class="petrolab-nav-section">Проект</div>', unsafe_allow_html=True)
@@ -164,7 +185,7 @@ def render_sidebar(version: str) -> str:
         if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
             st.session_state["global_search_query_pending"] = str(search or "").strip()
             st.session_state["global_search_scope_pending"] = "all"
-            st.session_state["nav_route"] = "search"
+            navigate("search")
             st.rerun()
     else:
         st.session_state.pop("_sidebar_project_ready", None)
@@ -173,10 +194,6 @@ def render_sidebar(version: str) -> str:
     _render_update_notice(version)
 
     current = str(st.session_state.get("nav_route", "home"))
-    if current not in ROUTE_LABELS:
-        current = "home"
-        st.session_state["nav_route"] = current
-
     st.markdown('<div class="petrolab-nav-section">Основное</div>', unsafe_allow_html=True)
     for route, label in DAILY_NAV:
         _nav_button(route, label, current, prefix="daily_nav")
