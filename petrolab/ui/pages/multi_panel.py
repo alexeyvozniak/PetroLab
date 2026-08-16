@@ -19,6 +19,7 @@ from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.linked_panels import render_linked_panel_selection
+from petrolab.ui.panel_manager import render_panel_manager
 from petrolab.ui.plot_manager import render_series_manager
 from petrolab.ui.plot_spec import PlotSpec, clear_multi_panel_inbox, peek_multi_panel_inbox
 from petrolab.ui.project_context import active_project
@@ -32,6 +33,9 @@ _CURATED_GROUPS = (
     "PetroLab Generation", "Generation", WORK_GROUP_COLUMN, "Sample", "Grain", "Textural zone",
     SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал", "Physical Point",
 )
+_SCOPE_IDS_KEY = "_multi_panel_analysis_scope_ids"
+_SCOPE_SOURCE_KEY = "_multi_panel_scope_source"
+_INBOX_GROUP_TOKEN_KEY = "_multi_panel_group_inbox_token"
 
 
 def _xlsx_bytes(dataframe: pd.DataFrame) -> bytes:
@@ -65,13 +69,29 @@ def _panel_defaults(numeric: list[str], inbox: PlotSpec | None = None) -> list[t
     return pairs[:10]
 
 
+def _set_inbox_scope(inbox: PlotSpec) -> None:
+    st.session_state[_SCOPE_IDS_KEY] = list(inbox.analysis_ids)
+    st.session_state[_SCOPE_SOURCE_KEY] = "XY"
+
+
+def _clear_exact_scope() -> None:
+    st.session_state.pop(_SCOPE_IDS_KEY, None)
+    st.session_state.pop(_SCOPE_SOURCE_KEY, None)
+
+
 def _raw_dataframe(project_id: int, inbox: PlotSpec | None) -> tuple[pd.DataFrame, list[int]]:
     datasets = list_accessible_datasets(project_id)
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
-    requested = list(inbox.dataset_ids) if inbox is not None else [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
-    defaults = [label for label, dataset_id in labels.items() if dataset_id in requested] or list(labels)
+    pending_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
     if inbox is not None:
+        requested = list(inbox.dataset_ids)
+        _set_inbox_scope(inbox)
         st.session_state.pop("multi_panel_datasets", None)
+    else:
+        requested = pending_ids
+        if pending_ids:
+            _clear_exact_scope()
+    defaults = [label for label, dataset_id in labels.items() if dataset_id in requested] or list(labels)
     selected_labels = st.multiselect(
         "Наборы", list(labels), default=defaults, key="multi_panel_datasets",
     )
@@ -83,10 +103,18 @@ def _raw_dataframe(project_id: int, inbox: PlotSpec | None) -> tuple[pd.DataFram
             attach_work_groups(load_unified_with_derived(project_id, selected_ids))
         )
     )
-    if inbox is not None and inbox.analysis_ids and "_analysis_id" in dataframe.columns:
-        exact = set(inbox.analysis_ids)
+
+    scope_ids = [str(value) for value in st.session_state.get(_SCOPE_IDS_KEY, []) if str(value)]
+    if scope_ids and "_analysis_id" in dataframe.columns:
+        exact = set(scope_ids)
         dataframe = dataframe[dataframe["_analysis_id"].astype(str).isin(exact)].copy()
-        st.caption(f"Перенесён точный состав исходного XY: {len(dataframe)} анализов.")
+        scope_label = str(st.session_state.get(_SCOPE_SOURCE_KEY) or "переданного вида")
+        c1, c2 = st.columns([4, 1])
+        c1.caption(f"Точный состав из {scope_label}: {len(dataframe)} анализов. Он сохраняется при rerun и смене панелей.")
+        if c2.button("Весь набор", key="multi_panel_clear_exact_scope", width="stretch"):
+            _clear_exact_scope()
+            st.rerun()
+
     minerals = sorted(dataframe.get("Минерал", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
     if minerals:
         chosen = st.multiselect("Минералы", minerals, default=minerals, key="multi_panel_minerals")
@@ -120,21 +148,6 @@ def _composite_dataframe(project_id: int) -> tuple[pd.DataFrame, list[int]]:
     return dataframe, []
 
 
-def _prepare_inbox_widgets(inbox: PlotSpec | None, numeric: list[str]) -> None:
-    if inbox is None or inbox.x not in numeric or inbox.y not in numeric:
-        return
-    token = f"{inbox.x}|{inbox.y}|{inbox.group_column}|{len(inbox.analysis_ids)}|{inbox.title}"
-    if st.session_state.get("_multi_panel_inbox_applied") == token:
-        return
-    st.session_state["multi_panel_count"] = max(2, int(st.session_state.get("multi_panel_count", 2) or 2))
-    st.session_state["multi_x_0"] = inbox.x
-    st.session_state["multi_y_0"] = inbox.y
-    st.session_state["multi_title_0"] = inbox.title or f"{inbox.y} vs {inbox.x}"
-    st.session_state["multi_log_x_0"] = bool(inbox.log_x)
-    st.session_state["multi_log_y_0"] = bool(inbox.log_y)
-    st.session_state["_multi_panel_inbox_applied"] = token
-
-
 def _group_control(dataframe: pd.DataFrame, numeric: list[str], inbox: PlotSpec | None) -> str | None:
     categorical = [
         column for column in dataframe.columns
@@ -145,9 +158,16 @@ def _group_control(dataframe: pd.DataFrame, numeric: list[str], inbox: PlotSpec 
     advanced = [column for column in categorical if column not in curated]
     if advanced:
         options.append("Другой столбец…")
+
     desired = inbox.group_column if inbox is not None and inbox.group_column in curated else None
-    if desired and st.session_state.get("multi_panel_group") not in options:
-        st.session_state["multi_panel_group"] = desired
+    if desired:
+        token = f"{desired}|{inbox.x}|{inbox.y}|{len(inbox.analysis_ids)}"
+        if st.session_state.get(_INBOX_GROUP_TOKEN_KEY) != token:
+            st.session_state["multi_panel_group"] = desired
+            st.session_state[_INBOX_GROUP_TOKEN_KEY] = token
+    current = st.session_state.get("multi_panel_group")
+    if current not in options:
+        st.session_state.pop("multi_panel_group", None)
     suggested = desired or (SOURCE_LABEL_COLUMN if SOURCE_LABEL_COLUMN in curated else (curated[0] if curated else "Без группировки"))
     group = st.selectbox(
         "Общая группировка всех панелей", options,
@@ -159,25 +179,34 @@ def _group_control(dataframe: pd.DataFrame, numeric: list[str], inbox: PlotSpec 
     return None if group == "Без группировки" else str(group)
 
 
-def _ordered_panels(panels: list[dict]) -> list[dict]:
-    if len(panels) <= 1:
-        return panels
-    order = pd.DataFrame({
-        "Панель": [panel.get("title") or f"Панель {index + 1}" for index, panel in enumerate(panels)],
-        "Позиция": list(range(1, len(panels) + 1)),
-    })
-    edited = st.data_editor(
-        order, hide_index=True, width="stretch",
-        disabled=["Панель"],
-        column_config={"Позиция": st.column_config.NumberColumn("Позиция", min_value=1, max_value=len(panels), step=1)},
-        key="multi_panel_order",
+def _style_editor(dataframe: pd.DataFrame, group_col: str, managed_series: tuple[str, ...], inbox: PlotSpec | None) -> dict:
+    groups = list(managed_series) or sorted(
+        dataframe[group_col].astype("string").fillna("Без группы").replace("", "Без группы").unique().tolist()
     )
-    positions = pd.to_numeric(edited["Позиция"], errors="coerce")
-    if positions.isna().any() or positions.duplicated().any():
-        st.warning("Позиции панелей должны быть уникальными числами. Пока используется исходный порядок.")
-        return panels
-    indices = sorted(range(len(panels)), key=lambda index: float(positions.iloc[index]))
-    return [panels[index] for index in indices]
+    seed_key = f"_multi_panel_style_seed_{group_col}"
+    inbox_token_key = f"_multi_panel_style_inbox_token_{group_col}"
+    if inbox is not None and inbox.group_column == group_col and inbox.style_map:
+        token = f"{inbox.x}|{inbox.y}|{len(inbox.analysis_ids)}|{group_col}"
+        if st.session_state.get(inbox_token_key) != token:
+            st.session_state[seed_key] = dict(inbox.style_map)
+            st.session_state[inbox_token_key] = token
+            st.session_state.pop(f"multi_panel_styles_{group_col}", None)
+    existing = st.session_state.get(seed_key)
+    existing = dict(existing) if isinstance(existing, dict) else {}
+    with st.expander("Стили серий · общие для всех графиков", expanded=False):
+        editor = st.data_editor(
+            style_dataframe([str(value) for value in groups], existing=existing),
+            width="stretch", hide_index=True,
+            column_config={
+                "Alpha": st.column_config.NumberColumn("Alpha", min_value=0.05, max_value=1.0, step=0.05),
+                "Alpha поля": st.column_config.NumberColumn("Alpha поля", min_value=0.0, max_value=1.0, step=0.05),
+                "Показывать": st.column_config.SelectboxColumn("Показывать", options=["Точки", "Поле", "Точки + поле", "Только центр"]),
+                "Поле": st.column_config.SelectboxColumn("Поле", options=["Confidence ellipse", "Convex hull", "KDE 90%"]),
+            }, key=f"multi_panel_styles_{group_col}",
+        )
+    styles = style_map(editor)
+    st.session_state[seed_key] = styles
+    return styles
 
 
 def render_multi_panel_page() -> None:
@@ -194,7 +223,7 @@ def render_multi_panel_page() -> None:
     project_id = int(project["id"])
     inbox = peek_multi_panel_inbox()
     if inbox is not None:
-        st.success("Первый график перенесён из XY вместе с данными, осями и группировкой.")
+        st.success("Первый график перенесён из XY вместе с составом точек, осями, группировкой и стилями.")
 
     requested_mode = st.session_state.pop("multi_panel_data_mode", None)
     modes = ["Обычные анализы", "Физические точки EDS + LA"]
@@ -225,36 +254,22 @@ def render_multi_panel_page() -> None:
         ("composite" if mode != "Обычные анализы" else "analysis rows", "success" if mode != "Обычные анализы" else "neutral"),
     ])
 
-    _prepare_inbox_widgets(inbox, numeric)
-    render_section_header("Панели", "Добавляйте оси и меняйте порядок без повторного выбора исходных данных")
+    render_section_header("Панели", "Origin-подобный менеджер: одна строка — одна панель")
     defaults = _panel_defaults(numeric, inbox)
     panel_count = st.slider(
         "Количество графиков", 2, 10,
         min(4, max(2, len(defaults))) if "multi_panel_count" not in st.session_state else int(st.session_state["multi_panel_count"]),
         key="multi_panel_count",
     )
-    panels: list[dict] = []
-    for index in range(panel_count):
-        default_x, default_y = defaults[index % len(defaults)] if defaults else (numeric[0], numeric[1])
-        with st.container(border=True):
-            st.markdown(f"**Панель {index + 1}**")
-            c1, c2, c3 = st.columns([1, 1, 1.2])
-            x = c1.selectbox(
-                "X", numeric, index=numeric.index(default_x) if default_x in numeric else 0,
-                key=f"multi_x_{index}",
-            )
-            y_options = [column for column in numeric if column != x]
-            y_default = default_y if default_y in y_options else y_options[0]
-            y = c2.selectbox(
-                "Y", y_options, index=y_options.index(y_default), key=f"multi_y_{index}",
-            )
-            default_title = inbox.title if index == 0 and inbox is not None and inbox.title else f"{y} vs {x}"
-            title = c3.text_input("Название", value=default_title, key=f"multi_title_{index}")
-            l1, l2 = st.columns(2)
-            log_x = l1.checkbox("log X", value=bool(inbox.log_x) if index == 0 and inbox is not None else False, key=f"multi_log_x_{index}")
-            log_y = l2.checkbox("log Y", value=bool(inbox.log_y) if index == 0 and inbox is not None else False, key=f"multi_log_y_{index}")
-            panels.append({"x": x, "y": y, "x_label": x, "y_label": y, "title": title, "log_x": log_x, "log_y": log_y})
-    panels = _ordered_panels(panels)
+    panels = render_panel_manager(
+        numeric,
+        defaults,
+        int(panel_count),
+        inbox=inbox,
+        key_prefix="multi_panel",
+    )
+    if not panels:
+        return
 
     group_col = _group_control(dataframe, numeric, inbox)
     dataframe, managed_series = render_series_manager(
@@ -267,22 +282,7 @@ def render_multi_panel_page() -> None:
 
     styles: dict = {}
     if group_col:
-        groups = list(managed_series) or sorted(
-            dataframe[group_col].astype("string").fillna("Без группы").replace("", "Без группы").unique().tolist()
-        )
-        existing = inbox.style_map if inbox is not None and inbox.group_column == group_col else {}
-        with st.expander("Стили серий · общие для всех графиков", expanded=False):
-            editor = st.data_editor(
-                style_dataframe([str(value) for value in groups], existing=existing),
-                width="stretch", hide_index=True,
-                column_config={
-                    "Alpha": st.column_config.NumberColumn("Alpha", min_value=0.05, max_value=1.0, step=0.05),
-                    "Alpha поля": st.column_config.NumberColumn("Alpha поля", min_value=0.0, max_value=1.0, step=0.05),
-                    "Показывать": st.column_config.SelectboxColumn("Показывать", options=["Точки", "Поле", "Точки + поле", "Только центр"]),
-                    "Поле": st.column_config.SelectboxColumn("Поле", options=["Confidence ellipse", "Convex hull", "KDE 90%"]),
-                }, key=f"multi_panel_styles_{group_col}",
-            )
-            styles = style_map(editor)
+        styles = _style_editor(dataframe, group_col, managed_series, inbox)
 
     preset_names = list(FIGURE_PRESETS)
     preset_name = st.selectbox(
