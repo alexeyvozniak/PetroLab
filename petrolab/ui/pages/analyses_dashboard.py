@@ -12,7 +12,7 @@ from petrolab.analysis_drafts import (
     replace_visible_analysis_draft,
 )
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
-from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label
+from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label, human_point_label
 from petrolab.db import META_COLUMNS, list_accessible_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
@@ -23,12 +23,16 @@ from petrolab.ui.analysis_components import (
 )
 from petrolab.ui.destructive_actions import confirm_then, render_pending
 from petrolab.ui.editability import common_editable_source_columns
+from petrolab.ui.exact_route import persist_exact_route, render_exact_route_banner
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", "QC уровень", "QC решение", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
 _SAVE_FLASH_KEY = "analysis_save_flash"
 _DRAFT_EDITOR_KEY = "unified_editor_dashboard"
+_EXACT_A = "_analyses_exact_analysis_ids"
+_EXACT_D = "_analyses_exact_dataset_ids"
+_EXACT_C = "_analyses_exact_context"
 
 
 def _view_columns(dataframe, derived: set[str], mode: str):
@@ -90,14 +94,12 @@ def _thermodynamic_row_selector(dataframe, project_id: int) -> None:
         "исходная химия и структурная формула при этом не меняются."
     )
     choices: dict[str, str] = {}
+    seen: dict[str, int] = {}
     for _, row in dataframe.head(3000).iterrows():
         analysis_id = str(row["_analysis_id"])
-        identity = " · ".join(
-            str(row.get(column) or "—")
-            for column in ("Sample", "Grain", "Point", "Generation")
-            if column in dataframe.columns
-        )
-        label = f"＋ {identity} · {analysis_id[:8]}"
+        base = human_point_label(row)
+        seen[base] = seen.get(base, 0) + 1
+        label = f"＋ {base}" if seen[base] == 1 else f"＋ {base} · вариант {seen[base]}"
         choices[label] = analysis_id
     selected_label = st.selectbox(
         "Анализ",
@@ -123,6 +125,24 @@ def render_analyses_dashboard_page() -> None:
     if not datasets:
         st.info("В активном проекте нет данных.")
         return
+
+    exact_ids, _, _ = persist_exact_route(
+        st.session_state,
+        incoming_analysis_key="workflow_edit_analysis_ids",
+        incoming_dataset_key="workflow_edit_dataset_ids",
+        incoming_context_key="workflow_edit_context",
+        persistent_analysis_key=_EXACT_A,
+        persistent_dataset_key=_EXACT_D,
+        persistent_context_key=_EXACT_C,
+    )
+    render_exact_route_banner(
+        count=len(exact_ids),
+        label="Снять точный отбор и открыть наборы целиком",
+        reset_key="analyses_reset_exact",
+        persistent_keys=(_EXACT_A, _EXACT_D, _EXACT_C),
+        incoming_keys=("workflow_edit_analysis_ids", "workflow_edit_dataset_ids", "workflow_edit_context"),
+        extra_clear=(_DRAFT_EDITOR_KEY,),
+    )
 
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
     requested_dataset_ids = [
