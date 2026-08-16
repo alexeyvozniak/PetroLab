@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from petrolab.dataset_visibility import visible_working_datasets
 from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.settings_service import load_settings
 from petrolab.ui.navigation_state import can_go_back, go_back as restore_previous_route, push_current
@@ -166,7 +167,7 @@ def render_sidebar(version: str) -> str:
             key="sidebar_project", label_visibility="collapsed",
         )
         set_active_project(int(selected))
-        datasets = list_accessible_datasets(int(selected))
+        datasets = visible_working_datasets(list_accessible_datasets(int(selected)))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True
