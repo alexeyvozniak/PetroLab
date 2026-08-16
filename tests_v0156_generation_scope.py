@@ -23,7 +23,7 @@ def main() -> None:
         from petrolab.generations import generation_map
         from petrolab.ui.pages.generations import (
             _project_analysis_ids,
-            _project_work_groups,
+            _project_work_group_map,
             _promote_project_work_group,
         )
 
@@ -58,7 +58,9 @@ def main() -> None:
 
         allowed_a = _project_analysis_ids(project_a)
         assert allowed_a == set(ids_a), (allowed_a, ids_a)
-        assert _project_work_groups(allowed_a) == ["HF"]
+        project_groups = _project_work_group_map(allowed_a)
+        assert set(project_groups) == set(ids_a)
+        assert set(project_groups.values()) == {"HF"}
 
         changed = _promote_project_work_group(allowed_a, "HF", "N-HF", rationale="scope test")
         assert changed == len(ids_a)
