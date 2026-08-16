@@ -1,15 +1,13 @@
 # PetroLab: linked petrography workflow
 
-See branch history for the full product contract. This branch implements the linked scientific round trip:
-
 **plot Selection → exact analysis ids → physical thin-section points → highlighted image location → back to the same Selection in plots/table/statistics.**
 
 Scientific invariants:
-- Textural zone, Work Group and Generation remain distinct;
-- Selection, Hide and Exclude remain distinct;
-- no physical identity is inferred from labels alone;
-- one physical point may link several analytical observations (e.g. EPMA + LA-ICP-MS);
-- exact analysis scope must never broaden silently;
+- Textural zone, Work Group and Generation remain distinct.
+- Selection, Hide and Exclude remain distinct.
+- No physical identity is inferred from labels alone.
+- One physical point may link several analytical observations (e.g. EPMA + LA-ICP-MS).
+- Exact analysis scope must never broaden silently.
 - PPL/XPL/BSE coordinates are not treated as shared until explicit registration exists.
 
 P0 acceptance:
