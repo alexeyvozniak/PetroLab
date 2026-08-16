@@ -8,7 +8,7 @@ from petrolab.dataframe_utils import apply_quick_filter, display_value, human_po
 from petrolab.generations import PETROLAB_GENERATION_COLUMN, SOURCE_GENERATION_COLUMN
 from petrolab.source_registry import SOURCE_LABEL_COLUMN
 from petrolab.ui.selection_components import render_selection_panel
-from petrolab.ui.selection_context import read_selection, set_selection
+from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 
 
 _IDENTITY_COLUMNS = (
@@ -70,7 +70,7 @@ def _field_control(dataframe: pd.DataFrame, *, key_prefix: str) -> list[str]:
     current_mode = str(st.session_state.get(mode_key, "Основное"))
     if current_mode not in _FIELD_MODES:
         current_mode = "Основное"
-    with st.popover(f"Поля · {current_mode}", width="stretch"):
+    with st.popover("Поля", width="stretch"):
         mode = st.radio(
             "Набор полей",
             _FIELD_MODES,
@@ -116,8 +116,7 @@ def _filter_control(dataframe: pd.DataFrame, *, key_prefix: str) -> pd.DataFrame
     options = ["Без фильтра", *candidates]
     if current not in options:
         current = "Без фильтра"
-    label = "Фильтр" if current == "Без фильтра" else f"Фильтр · {current}"
-    with st.popover(label, width="stretch"):
+    with st.popover("Фильтр", width="stretch"):
         column = st.selectbox(
             "Поле",
             options,
@@ -185,8 +184,7 @@ def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.Data
     current = str(st.session_state.get(group_key, "Не группировать"))
     if current not in options:
         current = "Не группировать"
-    label = "Группа" if current == "Не группировать" else f"Группа · {current}"
-    with st.popover(label, width="stretch"):
+    with st.popover("Группа", width="stretch"):
         group_col = st.selectbox(
             "Группировать по",
             options,
@@ -204,7 +202,8 @@ def _group_control(dataframe: pd.DataFrame, *, key_prefix: str) -> tuple[pd.Data
             return dataframe, None
         st.caption("Строки одной группы будут стоять рядом; сама колонка группы остаётся видимой в таблице.")
 
-    grouped = dataframe.assign(_petrolab_group_sort=dataframe[group_col].astype("string").fillna(""))
+    helper = dataframe[group_col].astype("string").fillna("")
+    grouped = dataframe.assign(_petrolab_group_sort=helper)
     grouped = grouped.sort_values("_petrolab_group_sort", kind="stable").drop(columns=["_petrolab_group_sort"])
     return grouped, str(group_col)
 
@@ -223,8 +222,7 @@ def _sort_control(
     options = ["Без сортировки", *candidates]
     if current not in options:
         current = "Без сортировки"
-    label = "Сортировка" if current == "Без сортировки" else f"Сортировка · {current}"
-    with st.popover(label, width="stretch"):
+    with st.popover("Сортировка", width="stretch"):
         column = st.selectbox(
             "Сортировать по",
             options,
@@ -242,28 +240,29 @@ def _sort_control(
             return dataframe, None
 
     ascending = direction == "По возрастанию"
-    try:
-        if group_col and group_col in dataframe.columns and group_col != column:
-            result = dataframe.sort_values(
-                [group_col, column],
-                ascending=[True, ascending],
-                na_position="last",
-                kind="stable",
-            )
-        else:
-            result = dataframe.sort_values(column, ascending=ascending, na_position="last", kind="stable")
-    except TypeError:
+    if group_col and group_col in dataframe.columns and group_col != column:
+        group_helper = dataframe[group_col].astype("string").fillna("")
+        sort_helper = dataframe[column] if pd.api.types.is_numeric_dtype(dataframe[column]) else dataframe[column].astype("string").fillna("")
+        result = dataframe.assign(_petrolab_group_sort=group_helper, _petrolab_sort=sort_helper).sort_values(
+            by=["_petrolab_group_sort", "_petrolab_sort"],
+            ascending=[True, ascending],
+            na_position="last",
+            kind="stable",
+        ).drop(columns=["_petrolab_group_sort", "_petrolab_sort"])
+    elif pd.api.types.is_numeric_dtype(dataframe[column]):
+        result = dataframe.sort_values(column, ascending=ascending, na_position="last", kind="stable")
+    else:
         helper = dataframe[column].astype("string").fillna("")
         result = dataframe.assign(_petrolab_sort=helper).sort_values(
-            by=["_petrolab_sort"] if not group_col or group_col == column else [group_col, "_petrolab_sort"],
-            ascending=ascending if not group_col or group_col == column else [True, ascending],
+            by="_petrolab_sort",
+            ascending=ascending,
             na_position="last",
             kind="stable",
         ).drop(columns=["_petrolab_sort"])
     return result, str(column)
 
 
-def _render_expanded_record(dataframe: pd.DataFrame, *, key_prefix: str) -> None:
+def _render_expanded_record(dataframe: pd.DataFrame) -> None:
     context = read_selection()
     if context.count != 1 or dataframe.empty or "_analysis_id" not in dataframe.columns:
         return
@@ -283,6 +282,31 @@ def _render_expanded_record(dataframe: pd.DataFrame, *, key_prefix: str) -> None
             }
         )
         st.dataframe(details, width="stretch", hide_index=True, height=360)
+
+
+def _render_view_selection_actions(working: pd.DataFrame, *, key_prefix: str) -> None:
+    visible_ids = working["_analysis_id"].astype(str).tolist()
+    current = set(read_selection().analysis_ids)
+    c1, c2, c3, c4, note = st.columns([1.2, 1, 1.05, .8, 2.6], gap="small")
+    if c1.button(
+        f"Применить · {sum(value in current for value in visible_ids)}",
+        type="primary",
+        width="stretch",
+        key=f"{key_prefix}_apply_selection",
+        help="Применить чекбоксы таблицы как новый общий Selection.",
+    ):
+        return
+    if c2.button("Все видимые", width="stretch", key=f"{key_prefix}_select_visible"):
+        set_selection(visible_ids, origin="Таблица · видимые", mode="replace", label="Видимые строки")
+        st.rerun()
+    if c3.button("Инвертировать", width="stretch", key=f"{key_prefix}_invert_visible"):
+        inverted = [analysis_id for analysis_id in visible_ids if analysis_id not in current]
+        set_selection(inverted, origin="Таблица · инверсия", mode="replace", label="Инверсия видимых")
+        st.rerun()
+    if c4.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
+        clear_selection()
+        st.rerun()
+    note.caption("Операции относятся к текущему виду; фильтр и сортировка сами по себе Selection не меняют.")
 
 
 def render_analysis_table(
@@ -359,20 +383,31 @@ def render_analysis_table(
 
     checked_indices = edited.index[edited["Выбрать"].fillna(False).astype(bool)].tolist()
     checked_ids = working.loc[working.index.isin(checked_indices), "_analysis_id"].astype(str).tolist()
-    c1, c2 = st.columns([1, 3])
+    c1, c2, c3, c4, note = st.columns([1.2, 1, 1.05, .8, 2.6], gap="small")
     if c1.button(
-        f"Применить отбор · {len(checked_ids)}",
+        f"Применить · {len(checked_ids)}",
         type="primary",
         width="stretch",
         key=f"{key_prefix}_apply_selection",
     ):
         set_selection(checked_ids, origin="Таблица", mode="replace")
         st.rerun()
-    c2.caption(
-        "Чекбоксы задают тот же SelectionContext, который подсвечивается на XY/PCA/multi-panel. "
-        "Фильтр, группировка, сортировка и скрытие полей Selection не меняют."
+    visible_ids = working["_analysis_id"].astype(str).tolist()
+    if c2.button("Все видимые", width="stretch", key=f"{key_prefix}_select_visible"):
+        set_selection(visible_ids, origin="Таблица · видимые", mode="replace", label="Видимые строки")
+        st.rerun()
+    if c3.button("Инвертировать", width="stretch", key=f"{key_prefix}_invert_visible"):
+        inverted = [analysis_id for analysis_id in visible_ids if analysis_id not in current]
+        set_selection(inverted, origin="Таблица · инверсия", mode="replace", label="Инверсия видимых")
+        st.rerun()
+    if c4.button("Очистить", width="stretch", key=f"{key_prefix}_clear_visible_selection"):
+        clear_selection()
+        st.rerun()
+    note.caption(
+        "Чекбоксы, «все видимые» и инверсия меняют общий Selection. "
+        "Фильтр, группировка, сортировка и скрытие полей — только текущий вид."
     )
 
-    _render_expanded_record(dataframe, key_prefix=key_prefix)
+    _render_expanded_record(dataframe)
     render_selection_panel(dataframe, project_id=project_id, key_prefix=f"{key_prefix}_selection")
     return working
