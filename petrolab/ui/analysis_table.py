@@ -253,11 +253,9 @@ def _sort_control(
         else:
             result = dataframe.sort_values(column, ascending=ascending, na_position="last", kind="stable")
     except TypeError:
-        # Mixed object columns are still useful scientific metadata. Sort their display
-        # representation rather than failing the whole table view.
         helper = dataframe[column].astype("string").fillna("")
         result = dataframe.assign(_petrolab_sort=helper).sort_values(
-            _by=["_petrolab_sort"] if not group_col or group_col == column else [group_col, "_petrolab_sort"],
+            by=["_petrolab_sort"] if not group_col or group_col == column else [group_col, "_petrolab_sort"],
             ascending=ascending if not group_col or group_col == column else [True, ascending],
             na_position="last",
             kind="stable",
