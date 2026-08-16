@@ -106,7 +106,8 @@ def render_selection_panel(
         if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
             if dataset_ids:
                 st.session_state["workflow_plot_dataset_ids"] = dataset_ids
-            st.session_state["workflow_plot_analysis_ids"] = list(context.analysis_ids)
+            # Selection remains a highlight, not a filter: the XY view keeps the
+            # full dataset population and reads the same canonical analysis_ids.
             navigate("plots")
             st.rerun()
         if a2.button("Несколько", key=f"{key_prefix}_to_multi", width="stretch"):
