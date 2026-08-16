@@ -1,4 +1,4 @@
-__version__ = "0.15.8"
+__version__ = "0.15.9"
 
 from .measurement_policy import install as _install_measurement_policy
 _install_measurement_policy()
