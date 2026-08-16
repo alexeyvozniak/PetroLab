@@ -142,36 +142,56 @@ def _selection_count(driver: webdriver.Chrome) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _force_plotly_box_mode(driver: webdriver.Chrome) -> str:
+    """Set client-side Plotly dragmode after the app's box tool is proven visible.
+
+    The Streamlit segmented control is tested as a user-facing contract. For the
+    physical drag itself we avoid racing a Streamlit rerun and directly switch the
+    already-rendered Plotly graph to its native box-select mode.
+    """
+    return str(driver.execute_script(
+        """
+        const graph = document.querySelector('[data-testid="stPlotlyChart"] .js-plotly-plot');
+        if (!graph || !window.Plotly) return '';
+        window.Plotly.relayout(graph, {dragmode: 'select'});
+        return (graph._fullLayout && graph._fullLayout.dragmode) || '';
+        """
+    ) or "")
+
+
 def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path) -> None:
     """Physically box-select Plotly points and verify the same Selection in multi-panel."""
     _click_primary_without_refresh(driver, "Графики", output, "linked_box_xy")
     _wait_for_page_content(driver, ("XY-диаграммы", "Прямоугольник"), "linked_box_xy", output)
     wait = WebDriverWait(driver, 30)
     try:
+        # The PetroLab control must be visible and reachable; this is the explicit
+        # JMP-like interaction mode offered to the user.
         wait.until(lambda d: bool(_main_buttons(d, "Прямоугольник")))
         box_button = _main_buttons(driver, "Прямоугольник")[0]
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", box_button)
-        box_button.click()
+        assert box_button.is_enabled()
 
+        wait.until(lambda d: _force_plotly_box_mode(d) == "select")
         drag_surface = wait.until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, '[data-testid="stPlotlyChart"] .nsewdrag')
             )
         )
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", drag_surface)
-        time.sleep(0.8)
+        time.sleep(0.4)
         size = drag_surface.size
         width = max(80, int(size.get("width", 0)))
         height = max(80, int(size.get("height", 0)))
-        # Selenium/W3C element offsets are relative to the element centre. Keep the
-        # complete physical drag safely inside Plotly's nsewdrag surface.
-        start_x = -max(20, int(width * 0.40))
-        start_y = -max(20, int(height * 0.40))
-        dx = max(40, int(width * 0.80))
-        dy = max(40, int(height * 0.80))
+        # W3C element offsets are relative to the element centre. Draw a large box
+        # completely inside the plotting rectangle so point pixels/presets may vary.
+        start_x = -max(20, int(width * 0.38))
+        start_y = -max(20, int(height * 0.38))
+        dx = max(40, int(width * 0.76))
+        dy = max(40, int(height * 0.76))
         ActionChains(driver).move_to_element_with_offset(
             drag_surface, start_x, start_y
-        ).click_and_hold().move_by_offset(dx, dy, duration=0.8).release().perform()
+        ).click_and_hold().pause(0.15).move_by_offset(dx, dy, duration=0.8).pause(0.15).release().perform()
 
         selected = int(wait.until(lambda d: _selection_count(d) or False))
         assert selected > 0, "Physical Plotly box drag did not create a linked Selection"
@@ -185,7 +205,7 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
             in d.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
         )
         wait.until(lambda d: _selection_count(d) == selected)
-    except Exception:
+    except Exception as exc:
         output.mkdir(parents=True, exist_ok=True)
         driver.save_screenshot(str(output / "plotly_box_selection_failure.png"))
         main_text = ""
@@ -195,8 +215,8 @@ def _assert_plotly_box_selection_handoff(driver: webdriver.Chrome, output: Path)
             pass
         raise AssertionError(
             "Real Plotly box-selection did not survive the XY → multi-panel handoff. "
-            f"Main text: {main_text!r}"
-        )
+            f"Cause: {exc!r}. Main text: {main_text!r}"
+        ) from exc
 
 
 def main() -> None:
