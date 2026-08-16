@@ -12,6 +12,7 @@ _PLOT_SCOPE_DATASETS_KEY = "_petrolab_plot_scope_dataset_ids"
 _PLOT_SCOPE_ANALYSES_KEY = "_petrolab_plot_scope_analysis_ids"
 _PLOT_SCOPE_CONTEXT_KEY = "_petrolab_plot_scope_context"
 _PLOT_SCOPE_LABEL_KEY = "_petrolab_plot_scope_label"
+_WORK_CONTEXT_SIGNATURE_KEY = "_petrolab_plot_work_context_signature"
 QUICK_CUSTOM_GRAPH_CHOICE = "__custom_axes__"
 
 
@@ -54,6 +55,18 @@ def _route_is_explicit(
         _unique_ints(requested_dataset_ids)
         or _unique_strings(requested_analysis_ids)
         or requested_context is not None
+    )
+
+
+def _work_context_signature(context: Mapping[str, Any] | None) -> tuple[Any, ...]:
+    raw = context or {}
+    return (
+        _unique_ints(raw.get("dataset_ids", ())),
+        _unique_strings(raw.get("analysis_ids", ())),
+        str(raw.get("sample_id") or ""),
+        str(raw.get("sample") or ""),
+        str(raw.get("thin_section_id") or ""),
+        str(raw.get("label") or ""),
     )
 
 
@@ -114,6 +127,34 @@ def _clear_persisted_plot_scope(state: MutableMapping[str, Any]) -> None:
         state.pop(key, None)
 
 
+def _clear_quick_resume_state(state: MutableMapping[str, Any]) -> None:
+    for key in list(state):
+        if str(key).startswith("_quick_resume_"):
+            state.pop(key, None)
+    state.pop("_quick_graph_recommendation_signature", None)
+
+
+def reset_quick_plot_presentation(state: MutableMapping[str, Any]) -> None:
+    """Clear graph-local presentation that must not leak into a new scientific context.
+
+    SelectionContext and persisted DataUniverse membership are deliberately untouched.
+    The reset removes only compact graph choices, log axes, local source/series
+    visibility, and stale canonical PlotSpec/advanced-resume presentation.
+    """
+    for key in (
+        "quick_plot_datasets", "quick_plot_minerals", "quick_plot_search",
+        "quick_graph_choice", "quick_x", "quick_y", "quick_group", "quick_group_advanced",
+        "quick_log_x", "quick_log_y", "quick_title", "quick_marker_size",
+        "_quick_series_epoch", CURRENT_PLOT_SPEC_KEY,
+    ):
+        state.pop(key, None)
+    for key in list(state):
+        name = str(key)
+        if name.startswith("quick_plot_visibility_") or name.startswith("quick_plot_series_manager"):
+            state.pop(key, None)
+    _clear_quick_resume_state(state)
+
+
 def consume_plot_scope(
     state: MutableMapping[str, Any],
     *,
@@ -135,6 +176,8 @@ def consume_plot_scope(
         same_project = False
     if stored_project is not None and not same_project:
         _clear_persisted_plot_scope(state)
+        reset_quick_plot_presentation(state)
+        state.pop(_WORK_CONTEXT_SIGNATURE_KEY, None)
 
     sentinel = object()
     incoming_datasets = state.pop("workflow_plot_dataset_ids", sentinel)
@@ -143,6 +186,9 @@ def consume_plot_scope(
     incoming = any(value is not sentinel for value in (incoming_datasets, incoming_analyses, incoming_context))
 
     if incoming:
+        # Exact external handoffs are new scientific questions. Their membership and
+        # provenance win; old log/source/series presentation must not hide points.
+        reset_quick_plot_presentation(state)
         scope = resolve_plot_scope(
             available_dataset_ids=available_dataset_ids,
             requested_dataset_ids=() if incoming_datasets is sentinel else incoming_datasets,
@@ -172,6 +218,14 @@ def consume_plot_scope(
             explicit=True,
         )
 
+    # WorkContext is the fallback universe only when no explicit graph scope exists.
+    # A different WorkContext is also a new scientific question, so presentation is
+    # reset once; ordinary reruns keep the same signature and preserve local edits.
+    signature = _work_context_signature(work_context)
+    previous_signature = state.get(_WORK_CONTEXT_SIGNATURE_KEY, sentinel)
+    if previous_signature is not sentinel and previous_signature != signature:
+        reset_quick_plot_presentation(state)
+    state[_WORK_CONTEXT_SIGNATURE_KEY] = signature
     return resolve_plot_scope(
         available_dataset_ids=available_dataset_ids,
         work_context=work_context,
@@ -349,13 +403,6 @@ def restore_quick_plot_state(
         state["quick_plot_visibility_dimension"] = "source"
 
 
-def _clear_quick_resume_state(state: MutableMapping[str, Any]) -> None:
-    for key in list(state):
-        if str(key).startswith("_quick_resume_"):
-            state.pop(key, None)
-    state.pop("_quick_graph_recommendation_signature", None)
-
-
 def seed_plot_handoff(
     state: MutableMapping[str, Any],
     *,
@@ -376,6 +423,9 @@ def seed_plot_handoff(
     payload["dataset_ids"] = list(datasets)
     payload["analysis_ids"] = list(analyses)
 
+    # Reset presentation before writing the new handoff. The incoming scientific
+    # membership itself is not a presentation setting and is written immediately after.
+    reset_quick_plot_presentation(state)
     state["workflow_plot_dataset_ids"] = list(datasets)
     state["workflow_plot_analysis_ids"] = list(analyses)
     state["workflow_plot_context"] = payload
@@ -384,12 +434,8 @@ def seed_plot_handoff(
     else:
         state.pop("workflow_plot_notice", None)
 
-    # A new route means a new graph question. Do not let stale graph/editor state
-    # intercept it before Smart Start has rendered the requested membership.
     state.pop("_plots_show_advanced", None)
     state.pop("loaded_recipe", None)
-    state.pop(CURRENT_PLOT_SPEC_KEY, None)
-    _clear_quick_resume_state(state)
     return datasets, analyses
 
 
