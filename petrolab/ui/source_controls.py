@@ -20,15 +20,9 @@ class PlotVisibilityDimension:
 
 
 _VISIBILITY_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    # Prefer row-level provenance from a compilation table. Fall back to an explicit
-    # staged Source column, then to the historical dataset-level article label.
     ("source", "Источник / статья", ("Row Source", "Source", SOURCE_LABEL_COLUMN)),
     ("sample", "Sample", ("Canonical Sample", "Sample", "Образец")),
-    (
-        "generation",
-        "Generation",
-        ("PetroLab Generation", "Generation", "Генерация"),
-    ),
+    ("generation", "Generation", ("PetroLab Generation", "Generation", "Генерация")),
     ("mineral", "Минерал", ("Минерал",)),
     ("work_group", "Рабочая группа", (WORK_GROUP_COLUMN,)),
 )
@@ -141,8 +135,6 @@ def _source_split(dataframe: pd.DataFrame, selected_sources: list[str]) -> tuple
     options = _visibility_options(dataframe, dimension)
     hidden = [value for value in options if value not in set(selected_sources)]
 
-    # Preserve the established dataset-level source contract for older projects and
-    # saved plot recipes. Compilation tables use the newer row-level branch below.
     if dimension.column == SOURCE_LABEL_COLUMN:
         visible_frame, hidden_frame = filter_visible_sources(dataframe, selected_sources)
         return visible_frame, hidden_frame, hidden
@@ -172,6 +164,14 @@ def render_source_visibility_controls(
     state = normalize_visibility_filters(dataframe, st.session_state.get(state_key, {}))
     st.session_state[state_key] = state
 
+    initial_visible, _initial_hidden = apply_plot_visibility_filters(dataframe, state)
+    total_count = len(dataframe)
+    initial_count = len(initial_visible)
+    manager_label = (
+        f"Что показывать · {initial_count}/{total_count}"
+        if state else f"Что показывать · все {total_count}"
+    )
+
     dimension_key = f"{key}_visibility_dimension"
     dimension_keys = list(dimension_map)
     current_dimension = st.session_state.get(dimension_key)
@@ -179,92 +179,87 @@ def render_source_visibility_controls(
         current_dimension = "source" if "source" in dimension_map else dimension_keys[0]
         st.session_state[dimension_key] = current_dimension
 
-    st.markdown("#### Что показывать")
-    current_dimension = st.selectbox(
-        "Управлять видимостью по",
-        dimension_keys,
-        key=dimension_key,
-        format_func=lambda value: dimension_map[value].label,
-        help=(
-            "Один блок управляет временной видимостью статей, Sample, Generation, минералов "
-            "и рабочих групп. Ограничения разных категорий можно сочетать."
-        ),
-    )
-    if st.button(
-        "Включить все",
-        key=f"{key}_show_all",
-        disabled=not state,
-        help="Сбросить все ограничения видимости и вернуть на график все доступные точки.",
-        width="stretch",
-    ):
-        st.session_state[state_key] = {}
+    with st.expander(manager_label, expanded=bool(state)):
+        current_dimension = st.selectbox(
+            "Управлять видимостью по",
+            dimension_keys,
+            key=dimension_key,
+            format_func=lambda value: dimension_map[value].label,
+            help=(
+                "Один менеджер управляет временной видимостью статей, Sample, Generation, минералов "
+                "и рабочих групп. Ограничения разных категорий можно сочетать."
+            ),
+        )
+
+        active = dimension_map[current_dimension]
+        options = _visibility_options(dataframe, active)
+        counts = _visibility_tokens(dataframe[active.column]).value_counts().to_dict()
+        default_values = state.get(active.key, options)
+        widget_key = f"{key}_visibility_values_{active.key}"
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = default_values
+        else:
+            previous = list(st.session_state[widget_key])
+            valid_previous = [value for value in previous if value in options]
+            if previous and not valid_previous:
+                valid_previous = default_values
+            if valid_previous != previous:
+                st.session_state[widget_key] = valid_previous
+
+        visible_values = st.multiselect(
+            "Статьи и источники на графике" if active.key == "source" else "Что оставить на графике",
+            options,
+            key=widget_key,
+            format_func=lambda value: (
+                f"{_display_visibility_value(value)} · "
+                f"{_russian_count(int(counts.get(value, 0)), ('точка', 'точки', 'точек'))}"
+            ),
+            help=(
+                "Снимите значения, чтобы временно убрать соответствующие точки только на текущий график "
+                "и из его экспорта. Анализы, QC, связи и интерпретации не меняются — данные остаются в базе."
+            ),
+        )
+        if set(visible_values) == set(options):
+            state.pop(active.key, None)
+        else:
+            state[active.key] = list(visible_values)
+        state = normalize_visibility_filters(dataframe, state)
+        st.session_state[state_key] = state
+
+        if st.button(
+            "Включить все",
+            key=f"{key}_show_all",
+            disabled=not state,
+            help="Сбросить все ограничения видимости и вернуть на график все доступные точки.",
+            width="stretch",
+        ):
+            st.session_state[state_key] = {}
+            for dimension in dimensions:
+                st.session_state[f"{key}_visibility_values_{dimension.key}"] = _visibility_options(dataframe, dimension)
+            st.rerun()
+
+        visible_preview, _ = apply_plot_visibility_filters(dataframe, state)
+        active_summary: list[str] = []
         for dimension in dimensions:
-            widget_key = f"{key}_visibility_values_{dimension.key}"
-            st.session_state[widget_key] = _visibility_options(dataframe, dimension)
-        st.rerun()
-
-    active = dimension_map[current_dimension]
-    options = _visibility_options(dataframe, active)
-    counts = _visibility_tokens(dataframe[active.column]).value_counts().to_dict()
-    default_values = state.get(active.key, options)
-    widget_key = f"{key}_visibility_values_{active.key}"
-    if widget_key not in st.session_state:
-        st.session_state[widget_key] = default_values
-    else:
-        previous = list(st.session_state[widget_key])
-        valid_previous = [value for value in previous if value in options]
-        if previous and not valid_previous:
-            valid_previous = default_values
-        if valid_previous != previous:
-            st.session_state[widget_key] = valid_previous
-
-    visible_values = st.multiselect(
-        "Статьи и источники на графике" if active.key == "source" else "Что оставить на графике",
-        options,
-        key=widget_key,
-        format_func=lambda value: (
-            f"{_display_visibility_value(value)} · "
-            f"{_russian_count(int(counts.get(value, 0)), ('точка', 'точки', 'точек'))}"
-        ),
-        help=(
-            "Снимите значения, чтобы временно убрать соответствующие точки только на текущий график "
-            "и из его экспорта. Анализы, QC, связи и интерпретации не меняются — данные остаются в базе."
-        ),
-    )
-    if set(visible_values) == set(options):
-        state.pop(active.key, None)
-    else:
-        state[active.key] = list(visible_values)
-    state = normalize_visibility_filters(dataframe, state)
-    st.session_state[state_key] = state
+            if dimension.key not in state:
+                continue
+            active_summary.append(
+                f"{dimension.label}: {len(state[dimension.key])}/{len(_visibility_options(dataframe, dimension))}"
+            )
+        if active_summary:
+            st.caption(
+                f"Видно {_russian_count(len(visible_preview), ('точка', 'точки', 'точек'))} из {total_count}. "
+                f"Активно: {' · '.join(active_summary)}. Это влияет только на текущий график и экспорт; "
+                "данные остаются в базе."
+            )
+        else:
+            st.caption(
+                "Все точки видимы. Можно временно выключить источник, Sample, Generation, минерал "
+                "или рабочую группу — Selection и данные в базе не меняются."
+            )
 
     visible, _all_hidden = apply_plot_visibility_filters(dataframe, state)
-
     selected_sources = state.get("source", source_options)
     selected_sources = [value for value in source_options if value in set(selected_sources)]
     _source_visible_frame, source_hidden_frame, hidden_sources = _source_split(dataframe, selected_sources)
-
-    active_summary: list[str] = []
-    for dimension in dimensions:
-        if dimension.key not in state:
-            continue
-        total = len(_visibility_options(dataframe, dimension))
-        selected = len(state[dimension.key])
-        active_summary.append(f"{dimension.label}: {selected}/{total}")
-
-    visible_count = len(visible)
-    total_count = len(dataframe)
-    summary = " · ".join(active_summary)
-    if summary:
-        st.caption(
-            f"Видно {_russian_count(visible_count, ('точка', 'точки', 'точек'))} из {total_count}. "
-            f"Активно: {summary}. Это влияет только на текущий график и экспорт; данные остаются в базе."
-        )
-    else:
-        st.caption(
-            f"Видно {_russian_count(visible_count, ('точка', 'точки', 'точек'))} из {total_count}. "
-            "Можно переключить категорию выше и выключить источник, Sample, Generation, минерал "
-            "или рабочую группу без изменения базы."
-        )
-
     return visible, source_hidden_frame, selected_sources, hidden_sources
