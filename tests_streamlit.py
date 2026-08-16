@@ -91,7 +91,9 @@ def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
     assert str(app.session_state["workspace_mode"]) == "Массив данных", app.session_state["workspace_mode"]
     selectors = [widget for widget in app.selectbox if widget.label == "Массив данных"]
     assert selectors, "Data workspace did not expose the existing dataset selector"
-    assert len(app.data_editor) > 0, "Data workspace did not render the analysis working table"
+    # Streamlit AppTest exposes st.data_editor output through the dataframe element list,
+    # not through a dedicated .data_editor attribute.
+    assert len(app.dataframe) > 0, "Data workspace did not render the analysis working table"
 
 
 def assert_back_restores_route(app) -> None:
