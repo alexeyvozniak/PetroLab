@@ -1,0 +1,85 @@
+name: Linked petrography workflow
+
+on:
+  push:
+    branches:
+      - "product/linked-petrography-*"
+  pull_request:
+    branches: [main]
+    paths:
+      - "petrolab/linked_petrography.py"
+      - "petrolab/ui/selection_components.py"
+      - "petrolab/ui/pages/thin_section_workspace.py"
+      - "petrolab/ui/smart_plot_start.py"
+      - "petrolab/slides.py"
+      - "tests_linked_petrography.py"
+      - "tests_linked_petrography_storage.py"
+      - "tests_linked_petrography_browser.py"
+      - "docs/LINKED_PETROGRAPHY_SCENARIO.md"
+      - ".github/workflows/linked-petrography.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  graph-thin-section-roundtrip:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        shell: cmd
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
+
+      - name: Compile linked scientific path
+        shell: cmd
+        run: python -m compileall -q petrolab/linked_petrography.py petrolab/ui/selection_components.py petrolab/ui/pages/thin_section_workspace.py tests_linked_petrography.py tests_linked_petrography_storage.py tests_linked_petrography_browser.py
+
+      - name: Run graph to thin-section round-trip contract
+        shell: cmd
+        run: python tests_linked_petrography.py
+
+      - name: Run real storage round trip
+        shell: cmd
+        run: python tests_linked_petrography_storage.py
+
+      - name: Preserve Smart Start exact scope
+        shell: cmd
+        run: python tests_smart_plot_start.py
+
+      - name: Preserve canonical linked Selection
+        shell: cmd
+        run: python tests_v0157_linked_selection.py
+
+      - name: Streamlit smoke
+        shell: cmd
+        run: python tests_streamlit.py
+
+      - name: Run real browser graph to BSE golden path
+        shell: cmd
+        run: python tests_linked_petrography_browser.py
+
+      - name: Upload linked petrography screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-linked-petrography-browser
+          path: linked_petrography_browser_artifacts
+          if-no-files-found: warn
+          retention-days: 30

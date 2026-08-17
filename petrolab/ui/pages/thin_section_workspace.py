@@ -12,6 +12,12 @@ except ImportError:  # pragma: no cover - guarded UI fallback
     streamlit_image_coordinates = None
 
 from petrolab.db import connect, list_accessible_datasets, load_dataset_dataframe
+from petrolab.linked_petrography import (
+    analysis_ids_for_marker,
+    dataset_ids_for_analysis_ids,
+    marker_ids_for_selection,
+    nearest_marker_id,
+)
 from petrolab.measurement_registry import create_entity, list_entities
 from petrolab.sample_registry import list_samples
 from petrolab.slides import (
@@ -27,6 +33,8 @@ from petrolab.slides import (
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
+from petrolab.ui.selection_context import read_selection, set_selection
+from petrolab.ui.smart_plot_start import seed_selection_plot_handoff
 from petrolab.ui.work_context import set_work_context
 
 
@@ -99,12 +107,23 @@ def _field_kind(field: dict) -> str:
     return str(geometry.get("kind") or ("region" if {"x", "y", "width", "height"}.issubset(geometry) else "field"))
 
 
-def _render_overlay(image, markers: list[dict], fields: list[dict], *, show_points: bool, show_regions: bool, show_grains: bool, pending_vertices: list[tuple[float, float]] | None = None) -> Image.Image:
+def _render_overlay(
+    image,
+    markers: list[dict],
+    fields: list[dict],
+    *,
+    show_points: bool,
+    show_regions: bool,
+    show_grains: bool,
+    selected_marker_ids: tuple[int, ...] = (),
+    pending_vertices: list[tuple[float, float]] | None = None,
+) -> Image.Image:
     preview = Path(image.preview_path)
     with Image.open(preview) as source:
         canvas = source.convert("RGB").copy()
     draw = ImageDraw.Draw(canvas)
     width, height = canvas.size
+    selected = set(int(value) for value in selected_marker_ids)
 
     for field in fields:
         geometry = field.get("geometry") or {}
@@ -129,11 +148,22 @@ def _render_overlay(image, markers: list[dict], fields: list[dict], *, show_poin
     if show_points:
         radius = max(5, min(16, width // 140))
         for index, marker in enumerate(markers, 1):
+            marker_id = int(marker["id"])
+            is_selected = marker_id in selected
+            marker_radius = radius + (4 if is_selected else 0)
             x = float(marker["x_norm"]) * width
             y = float(marker["y_norm"]) * height
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill="#F26B4D", outline="white", width=2)
+            if is_selected:
+                outer = marker_radius + max(3, width // 500)
+                draw.ellipse((x - outer, y - outer, x + outer, y + outer), outline="#174EA6", width=max(4, width // 450))
+            draw.ellipse(
+                (x - marker_radius, y - marker_radius, x + marker_radius, y + marker_radius),
+                fill="#F26B4D",
+                outline="#174EA6" if is_selected else "white",
+                width=4 if is_selected else 2,
+            )
             label = str(marker.get("label") or marker.get("entity_name") or f"P{index}")
-            draw.text((x + radius + 3, y - radius), label, fill="#452019", stroke_width=2, stroke_fill="white")
+            draw.text((x + marker_radius + 3, y - marker_radius), label, fill="#452019", stroke_width=2, stroke_fill="white")
 
     vertices = pending_vertices or []
     if vertices:
@@ -215,11 +245,50 @@ def _local_search(markers: list[dict], fields: list[dict], query: str) -> tuple[
     return marker_result, field_result
 
 
+def _select_marker(project_id: int, markers: list[dict], marker_id: int, *, image_title: str) -> bool:
+    analysis_ids = analysis_ids_for_marker(markers, int(marker_id))
+    if not analysis_ids:
+        st.warning("Эта физическая точка пока не связана ни с одним анализом.")
+        return False
+    marker = next((item for item in markers if int(item["id"]) == int(marker_id)), None)
+    label = str((marker or {}).get("label") or (marker or {}).get("entity_name") or f"Точка {marker_id}")
+    set_selection(
+        analysis_ids,
+        origin=f"Шлиф · {image_title} · {label}",
+        mode="replace",
+        label=label,
+    )
+    return True
+
+
+def _open_marker_in_plots(project_id: int, markers: list[dict], marker_id: int, *, image_title: str) -> None:
+    if not _select_marker(project_id, markers, marker_id, image_title=image_title):
+        return
+    context = read_selection()
+    dataset_ids = dataset_ids_for_analysis_ids(project_id, context.analysis_ids)
+    seed_selection_plot_handoff(
+        st.session_state,
+        dataset_ids=dataset_ids,
+        analysis_ids=context.analysis_ids,
+        origin=context.origin or "Шлиф",
+    )
+    navigate("plots")
+    st.rerun()
+
+
 def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[dict]) -> None:
-    render_section_header("Разметка", "Точка — кликом; область — протягиванием; контур зерна — несколькими кликами")
+    render_section_header("Разметка", "Просмотр — выбрать существующую физическую точку; разметка — добавить новую")
     if streamlit_image_coordinates is None:
         st.error("Компонент разметки не установлен. Установите зависимости из requirements.txt или откройте расширенный режим.")
         return
+
+    selection = read_selection()
+    selection_marker_ids = marker_ids_for_selection(markers, selection.analysis_ids)
+    if selection.analysis_ids:
+        render_badges([
+            (f"Selection · {selection.count}", "accent"),
+            (f"на этом снимке · {len(selection_marker_ids)} точ.", "success" if selection_marker_ids else "neutral"),
+        ])
 
     search_col, everywhere_col = st.columns([5, 1])
     with search_col:
@@ -252,6 +321,7 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
 
     polygon_key = f"thin_polygon_{image.id}"
     vertices = list(st.session_state.get(polygon_key, []))
+    visible_selection_marker_ids = marker_ids_for_selection(visible_markers, selection.analysis_ids)
     overlay = _render_overlay(
         image,
         visible_markers,
@@ -259,11 +329,36 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
         show_points=show_points,
         show_regions=show_regions,
         show_grains=show_grains,
+        selected_marker_ids=visible_selection_marker_ids,
         pending_vertices=vertices if mode == "Контур зерна" else None,
     )
 
     if mode == "Просмотр":
-        st.image(overlay, width="stretch")
+        if not show_points or not visible_markers:
+            st.image(overlay, width="stretch")
+            st.caption("Включите слой «Точки», чтобы выбирать физические отметки прямо на снимке.")
+            return
+        event = streamlit_image_coordinates(
+            overlay,
+            use_column_width="always",
+            key=f"thin_view_canvas_{image.id}",
+        )
+        token = int((event or {}).get("unix_time") or 0)
+        state_key = f"thin_view_event_{image.id}"
+        if token and token != int(st.session_state.get(state_key, 0)):
+            st.session_state[state_key] = token
+            point = _event_point(event)
+            if point:
+                ratio = float(image.pixel_height or 1) / float(image.pixel_width or 1)
+                marker_id = nearest_marker_id(
+                    visible_markers,
+                    x_norm=float(point[0]),
+                    y_norm=float(point[1]),
+                    aspect_ratio=ratio,
+                )
+                if marker_id is not None and _select_marker(project_id, markers, marker_id, image_title=str(image.title)):
+                    st.rerun()
+        st.caption("Кликните по существующей отметке: Selection станет всеми измерениями этой физической позиции (например EPMA + LA-ICP-MS).")
         return
 
     if mode == "Область":
@@ -386,18 +481,49 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
         st.rerun()
 
 
-def _links_tab(project_id: int, markers: list[dict], fields: list[dict]) -> None:
+def _links_tab(project_id: int, image, markers: list[dict], fields: list[dict]) -> None:
     linked_ids = sorted({str(value) for marker in markers for value in marker.get("analysis_ids", [])})
+    selection = read_selection()
+    selected_marker_ids = set(marker_ids_for_selection(markers, selection.analysis_ids))
     render_badges([
         (f"точек · {len(markers)}", "accent"),
         (f"связанных анализов · {len(linked_ids)}", "success" if linked_ids else "neutral"),
+        (f"Selection на снимке · {len(selected_marker_ids)}", "success" if selected_marker_ids else "neutral"),
         (f"областей/контуров · {len(fields)}", "neutral"),
     ])
     if markers:
         frame = pd.DataFrame(markers)
         columns = [column for column in ("label", "entity_name", "field_name", "analysis_ids", "note", "x_norm", "y_norm") if column in frame.columns]
-        st.dataframe(frame[columns], width="stretch", hide_index=True, height=420)
-    if linked_ids and st.button("Открыть связанные анализы", type="primary", width="stretch", key="thin_open_linked_analyses"):
+        st.dataframe(frame[columns], width="stretch", hide_index=True, height=320)
+
+        marker_ids = [int(marker["id"]) for marker in markers]
+        marker_by_id = {int(marker["id"]): marker for marker in markers}
+        marker_id = st.selectbox(
+            "Физическая точка",
+            marker_ids,
+            format_func=lambda value: str(marker_by_id[int(value)].get("label") or marker_by_id[int(value)].get("entity_name") or f"Точка {value}"),
+            key=f"thin_link_marker_{image.id}",
+        )
+        marker_analysis_ids = analysis_ids_for_marker(markers, int(marker_id))
+        m1, m2 = st.columns(2)
+        if m1.button(
+            f"Выбрать измерения · {len(marker_analysis_ids)}",
+            disabled=not marker_analysis_ids,
+            key=f"thin_select_marker_{image.id}",
+            width="stretch",
+        ):
+            if _select_marker(project_id, markers, int(marker_id), image_title=str(image.title)):
+                st.rerun()
+        if m2.button(
+            "Открыть в графиках",
+            type="primary",
+            disabled=not marker_analysis_ids,
+            key=f"thin_plot_marker_{image.id}",
+            width="stretch",
+        ):
+            _open_marker_in_plots(project_id, markers, int(marker_id), image_title=str(image.title))
+
+    if linked_ids and st.button("Открыть все анализы этого снимка", width="stretch", key=f"thin_open_linked_analyses_{image.id}"):
         st.session_state["workflow_edit_analysis_ids"] = linked_ids
         st.session_state["workflow_edit_context"] = {"scope": "Шлиф", "analysis_ids": linked_ids}
         _go("analyses")
@@ -418,7 +544,7 @@ def render_thin_section_workspace_page() -> None:
     project = active_project()
     render_page_header(
         "Работать со шлифом",
-        "Выберите шлиф, откройте PPL/XPL/BSE и размечайте аналитические точки, области и зерна прямо на изображении.",
+        "Выберите шлиф, откройте PPL/XPL/BSE и работайте с тем же Selection, что в таблицах и графиках.",
         eyebrow="Сценарий",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -434,13 +560,15 @@ def render_thin_section_workspace_page() -> None:
         return
 
     by_id = {int(item["id"]): item for item in sections}
-    pending_focus = st.session_state.pop("thin_section_focus_id_pending", None)
     ids = list(by_id)
-    default_index = ids.index(int(pending_focus)) if pending_focus is not None and int(pending_focus) in by_id else 0
+    pending_focus = st.session_state.pop("thin_section_focus_id_pending", None)
+    if pending_focus is not None and int(pending_focus) in by_id:
+        st.session_state["thin_section_selected"] = int(pending_focus)
+    elif st.session_state.get("thin_section_selected") not in ids:
+        st.session_state["thin_section_selected"] = ids[0]
     section_id = st.selectbox(
         "Шлиф",
         ids,
-        index=default_index,
         format_func=lambda value: _section_label(by_id[int(value)]),
         key="thin_section_selected",
     )
@@ -457,10 +585,13 @@ def render_thin_section_workspace_page() -> None:
         sample_id=section.get("sample_id"),
         thin_section_id=int(section_id),
     )
+    selection = read_selection()
+    section_selection_markers = marker_ids_for_selection(all_markers, selection.analysis_ids)
     render_badges([
         (f"снимков · {len(images)}", "accent"),
         (f"точек · {len(all_markers)}", "neutral"),
         (f"связанных анализов · {len(linked_ids)}", "success" if linked_ids else "neutral"),
+        (f"Selection здесь · {len(section_selection_markers)}", "success" if section_selection_markers else "neutral"),
     ])
     _quick_upload(project_id, int(section_id))
     images = [image for image in list_slide_images(project_id) if image.thin_section_id == int(section_id)]
@@ -469,9 +600,15 @@ def render_thin_section_workspace_page() -> None:
         return
 
     image_by_id = {int(image.id): image for image in images}
+    image_ids = list(image_by_id)
+    pending_image = st.session_state.pop("thin_image_focus_id_pending", None)
+    if pending_image is not None and int(pending_image) in image_by_id:
+        st.session_state["thin_image_selected"] = int(pending_image)
+    elif st.session_state.get("thin_image_selected") not in image_ids:
+        st.session_state["thin_image_selected"] = image_ids[0]
     image_id = st.selectbox(
         "Снимок",
-        list(image_by_id),
+        image_ids,
         format_func=lambda value: f"{image_by_id[int(value)].title} · {image_by_id[int(value)].image_type}",
         key="thin_image_selected",
     )
@@ -479,11 +616,16 @@ def render_thin_section_workspace_page() -> None:
     markers = list_slide_markers(project_id, slide_image_id=image.id)
     fields = list_slide_fields(project_id, slide_image_id=image.id)
 
+    pending_marker = st.session_state.pop("thin_marker_focus_id_pending", None)
+    if pending_marker is not None and any(int(marker["id"]) == int(pending_marker) for marker in markers):
+        st.session_state[f"thin_mode_{image.id}"] = "Просмотр"
+        st.session_state[f"thin_local_search_{section_id}"] = ""
+
     annotate_tab, links_tab, images_tab = st.tabs(["Разметка", "Связи", "Снимки и управление"])
     with annotate_tab:
         _annotation_panel(project_id, image, markers, fields)
     with links_tab:
-        _links_tab(project_id, markers, fields)
+        _links_tab(project_id, image, markers, fields)
     with images_tab:
         st.caption("PPL, XPL и BSE одного шлифа хранятся как связанные снимки одного физического объекта. Разметка пока задаётся отдельно на каждом снимке, чтобы PetroLab не предполагал автоматическое совмещение без проверки.")
         view = pd.DataFrame([

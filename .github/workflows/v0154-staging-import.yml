@@ -7,6 +7,7 @@ on:
       - "feature/**"
       - "fix/**"
       - "refactor/**"
+      - "product/**"
   pull_request:
     branches: ["main"]
 
@@ -66,6 +67,7 @@ jobs:
           petrolab/ui/pages/whole_rock_compare_linked_v0154.py
           petrolab/ui/pages/v0151_intake_wrappers.py
           tests_import_staging.py
+          tests_staging_mouse_selection.py
           tests_row_provenance_v0154.py
           tests_term_registry_v0154.py
           tests_rock_staging_v0154.py
@@ -78,6 +80,7 @@ jobs:
         shell: cmd
         run: |
           python tests_import_staging.py
+          python tests_staging_mouse_selection.py
           python tests_row_provenance_v0154.py
           python tests_term_registry_v0154.py
           python tests_rock_staging_v0154.py
