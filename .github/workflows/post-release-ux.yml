@@ -75,6 +75,8 @@ jobs:
           tests_cluster_xy_handoff.py
           tests_statistics.py
           tests_formula_input_validation.py
+          tests_import_staging.py
+          tests_staging_mouse_selection.py
           tests_image_intake_browser.py
       - name: Run source-sheet and phase-repair regression
         run: python tests_post_release_ux.py
@@ -84,8 +86,10 @@ jobs:
         run: python tests_statistics.py
       - name: Run formula zero-floor regression
         run: python tests_formula_input_validation.py
-      - name: Run universal staging regression
-        run: python tests_staging_import.py
+      - name: Run universal staging regressions
+        run: |
+          python tests_import_staging.py
+          python tests_staging_mouse_selection.py
       - name: Run Streamlit smoke
         run: python tests_streamlit.py
       - name: Run direct image intake browser acceptance
