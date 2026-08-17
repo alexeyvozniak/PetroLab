@@ -230,8 +230,8 @@ def main() -> None:
             driver.save_screenshot(str(ARTIFACTS / "01_after_image_button_diagnostic.png"))
             raise
         driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
-        assert "Фотография → исходный лист" in text
         assert "Фазовые наборы выбирать не нужно" in text
+        assert "Перетащите изображения или выберите файлы" in text
         assert "Что добавить?" not in text
         assert "Добавить данные" not in text
         _assert_no_exception(driver)
