@@ -13,14 +13,19 @@ from PIL import Image
 ROOT = Path(tempfile.mkdtemp(prefix="petrolab_post_release_ux_"))
 os.environ["PETROLAB_DATA_DIR"] = str(ROOT / "data")
 
-from petrolab.db import add_dataset, create_project, load_dataset_dataframe, replace_dataset_rows
+from petrolab.db import add_dataset, create_project, get_dataset, list_accessible_datasets, load_dataset_dataframe, replace_dataset_rows
 from petrolab.phase_suggestions import materialize_confirmed_phases
 from petrolab.repositories.image_repository import get_image_record
 from petrolab.services.image_service import ImageAssignment, ImagePayload, ImageScope, SCOPE_ANALYSIS
 from petrolab.services.source_sheet_image_service import create_source_sheet_image_batch
 from petrolab.source_sheet_scope import list_source_sheet_scopes, load_source_sheet_universe
 from petrolab.storage import ensure_storage
-from petrolab.ui.pages.v0160_phase_queue_hotfix import _nested_split_pairs, _ordered_candidates, _reviewable
+from petrolab.ui.pages.v0160_phase_queue_hotfix import (
+    _nested_split_pairs,
+    _ordered_candidates,
+    _repair_nested_splits,
+    _reviewable,
+)
 from petrolab.ui.source_sheet_image_wizard import _draft_prefix
 
 
@@ -80,6 +85,7 @@ def main() -> None:
             {ids[0]: "phlogopite", ids[1]: "magnetite"},
         )
         assert set(created) == {"phlogopite", "magnetite"}
+        phlogopite_id = int(created["phlogopite"])
         scopes = list_source_sheet_scopes(project_id)
         sheet1 = next(scope for scope in scopes if scope.source_sheet == "Sheet 1")
         sheet2 = next(scope for scope in scopes if scope.source_sheet == "Sheet 2")
@@ -145,14 +151,37 @@ def main() -> None:
         queue = _ordered_candidates(rows, completed={1}, after_dataset_id=1)
         assert [int(item["id"]) for item in queue] == [3]
 
-        nested = [
-            {"id": 10, "name": "Book · phlogopite", "mineral_key": "mica", "row_count": 5, "source_sha256": "x", "source_sheet": "S"},
-            {"id": 11, "name": "Book · phlogopite · phlogopite", "mineral_key": "mica", "row_count": 5, "source_sha256": "x", "source_sheet": "S"},
+        # Reproduce the old UI bug: a phase child is submitted to the splitter again,
+        # producing Session · phlogopite · phlogopite. Repair must move the immutable
+        # analysis_id back into Session · phlogopite, update row counts and hide only
+        # the redundant child shell from this project.
+        repeated = materialize_confirmed_phases(phlogopite_id, {ids[0]: "phlogopite"})
+        nested_id = int(repeated["phlogopite"])
+        assert nested_id != phlogopite_id
+        assert int(get_dataset(phlogopite_id)["row_count"]) == 0
+        assert int(get_dataset(nested_id)["row_count"]) == 1
+        current = list_accessible_datasets(project_id)
+        pairs = _nested_split_pairs(current)
+        matching = [
+            (child, parent) for child, parent in pairs
+            if int(child["id"]) == nested_id and int(parent["id"]) == phlogopite_id
         ]
-        pairs = _nested_split_pairs(nested)
-        assert [(int(child["id"]), int(parent["id"])) for child, parent in pairs] == [(11, 10)]
+        assert len(matching) == 1
+        moved, hidden = _repair_nested_splits(project_id, matching)
+        assert moved == 1 and hidden == 1
+        repaired = load_dataset_dataframe(phlogopite_id, include_meta=True)
+        assert repaired["_analysis_id"].astype(str).tolist() == [ids[0]]
+        assert int(get_dataset(phlogopite_id)["row_count"]) == 1
+        assert nested_id not in {int(item["id"]) for item in list_accessible_datasets(project_id)}
 
-        print("PetroLab post-release UX: source-sheet links, queue progression and draft isolation: OK")
+        # Source-sheet universe still has all points after the repair, and the saved
+        # image still references both immutable ids across phase datasets.
+        repaired_scope = next(scope for scope in list_source_sheet_scopes(project_id) if scope.source_sheet == "Sheet 1")
+        repaired_universe = load_source_sheet_universe(project_id, repaired_scope)
+        assert set(repaired_universe["_analysis_id"].astype(str)) == set(ids)
+        assert set(get_image_record(result.asset_ids[0])["analysis_ids"]) == {ids[0], ids[1]}
+
+        print("PetroLab post-release UX: source-sheet links, phase repair, queue progression and draft isolation: OK")
     finally:
         shutil.rmtree(ROOT, ignore_errors=True)
 
