@@ -89,16 +89,18 @@ except ValueError as exc:
 else:
     raise AssertionError("Duplicate scientific inputs must be blocked")
 
-# Structural formulae reject physically invalid numeric inputs.
-try:
-    calculate_formula_safe(
-        pd.DataFrame([{"SiO2": 40.0, "MgO": -1.0, "FeO": 10.0}]),
-        "olivine", "ol_4o_fe2",
-    )
-except ValueError as exc:
-    assert "отриц" in str(exc).lower()
-else:
-    raise AssertionError("Negative chemistry must not enter structural formulae")
+# Finite below-zero analytical concentrations are background-correction noise near
+# the detection limit. Structural formulae floor them to zero only in the calculation
+# copy, preserve the measured source value, and report the substitution explicitly.
+negative_source = pd.DataFrame([{"SiO2": 40.0, "MgO": -1.0, "FeO": 10.0}])
+negative_result = calculate_formula_safe(
+    negative_source,
+    "olivine", "ol_4o_fe2",
+)
+assert float(negative_result.data.loc[0, "MgO"]) == -1.0
+assert np.isclose(float(negative_result.data.loc[0, "apfu_Mg"]), 0.0)
+assert "MgO: 1" in negative_result.note_ru
+assert float(negative_source.loc[0, "MgO"]) == -1.0
 
 # Censored values are preserved in source data but require a deliberate numerical choice before APFU.
 try:
