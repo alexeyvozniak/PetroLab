@@ -7,6 +7,7 @@ import streamlit as st
 
 from petrolab.analytical_sessions import set_annotations
 from petrolab.db import connect, list_accessible_datasets, unlink_dataset_from_project
+import petrolab.phase_suggestions as _phase_suggestions
 from petrolab.phase_suggestions import _move_rows_to_dataset, _reindex_dataset_rows
 from petrolab.ui.layout import render_badges, render_section_header
 from petrolab.ui.project_context import active_project_id
@@ -17,6 +18,7 @@ from . import v0160_user_ux_hotfix as _ux_chain
 
 
 _REVIEWED_KEY = "_phase_review_completed_dataset_ids"
+_BASE_MINERAL_KEY_FOR_PHASE = _phase_suggestions.mineral_key_for_phase
 
 
 def _reviewable(dataset: dict[str, Any]) -> bool:
@@ -88,6 +90,10 @@ def _repair_nested_splits(project_id: int, pairs: list[tuple[dict[str, Any], dic
     moved = 0
     hidden = 0
     repaired_children: set[int] = set()
+    annotation_updates: list[tuple[list[str], str]] = []
+
+    # First move rows in one SQLite transaction. Do not open a second writer while
+    # this transaction is active: on Windows that can produce "database is locked".
     with connect() as con:
         for child, parent in pairs:
             child_id = int(child["id"])
@@ -102,16 +108,19 @@ def _repair_nested_splits(project_id: int, pairs: list[tuple[dict[str, Any], dic
                 _reindex_dataset_rows(con, child_id)
                 parent_phase = str(parent.get("name") or "").rsplit(" · ", 1)[-1].strip()
                 if parent_phase:
-                    # This restores the interpretation that existed before the accidental re-split.
-                    set_annotations(
-                        analysis_ids,
-                        {"confirmed_phase": parent_phase},
-                        namespace="phase",
-                        source="manual_repair",
-                    )
+                    annotation_updates.append((analysis_ids, parent_phase))
                 moved += len(analysis_ids)
             repaired_children.add(child_id)
         con.commit()
+
+    # The row move is now committed; annotation repair can safely use its own connection.
+    for analysis_ids, parent_phase in annotation_updates:
+        set_annotations(
+            analysis_ids,
+            {"confirmed_phase": parent_phase},
+            namespace="phase",
+            source="manual_repair",
+        )
 
     for child_id in repaired_children:
         unlink_dataset_from_project(int(project_id), int(child_id))
@@ -151,6 +160,32 @@ def _render_repeat_split_cleanup(project_id: int, datasets: list[dict[str, Any]]
             st.rerun()
 
 
+def _safe_manual_phase_key(label: str) -> str:
+    """Use the UX aliases without recursing after the underlying mapper is monkey-patched."""
+    text = str(label or "").strip().casefold()
+    if any(token in text for token in ("magnet", "spinel", "chromit", "магнет", "шпинел", "хромит")):
+        return "spinel"
+    if "ilmen" in text or "ильмен" in text:
+        return "fe_ti_oxide"
+    if any(token in text for token in ("phlog", "biot", "annite", "muscov", "mica", "слюд", "флогоп", "биотит")):
+        return "mica"
+    if any(token in text for token in ("diop", "augite", "aegir", "hedenberg", "clinopyrox", "клинопирокс")):
+        return "clinopyroxene"
+    if any(token in text for token in ("amphib", "kaersut", "richter", "hornblend", "arfved", "амфиб")):
+        return "amphibole"
+    if any(token in text for token in ("andrad", "melanite", "schorl", "grossular", "garnet", "гранат")):
+        return "garnet"
+    if any(token in text for token in ("forster", "fayalit", "oliv", "олив")):
+        return "olivine"
+    if any(token in text for token in ("calcite", "dolomit", "anker", "sider", "carbonate", "кальцит", "доломит", "анкерит")):
+        return "carbonate"
+    if any(token in text for token in ("nephel", "sodal", "nosean", "leucit", "нефел", "содал", "нозеан")):
+        return "feldspathoid"
+    if any(token in text for token in ("sanidin", "orthoclas", "albite", "plagioclas", "feldspar", "санидин", "ортоклаз", "альбит")):
+        return "feldspar"
+    return _BASE_MINERAL_KEY_FOR_PHASE(label)
+
+
 def render_mixed_minerals_page() -> None:
     """Review each raw/mixed dataset once, then advance to the next sheet."""
     project_id = active_project_id()
@@ -166,7 +201,13 @@ def render_mixed_minerals_page() -> None:
     _render_repeat_split_cleanup(project_id, datasets)
 
     completed_raw = st.session_state.get(_REVIEWED_KEY, [])
-    completed = {int(value) for value in completed_raw if str(value).isdigit()}
+    completed: set[int] = set()
+    for value in completed_raw if isinstance(completed_raw, (list, tuple, set)) else []:
+        try:
+            completed.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
     just_finished = st.session_state.pop("workflow_recent_mixed_dataset_id", None)
     finished_id: int | None = None
     if just_finished is not None:
@@ -211,12 +252,15 @@ def render_mixed_minerals_page() -> None:
     original_mixed_list = _mixed.list_accessible_datasets
     original_audit_list = _audit_chain.list_accessible_datasets
     original_ux_list = _ux_chain.list_accessible_datasets
+    original_manual_phase_key = _ux_chain._manual_phase_key
     _mixed.list_accessible_datasets = filtered_datasets
     _audit_chain.list_accessible_datasets = filtered_datasets
     _ux_chain.list_accessible_datasets = filtered_datasets
+    _ux_chain._manual_phase_key = _safe_manual_phase_key
     try:
         _ux_chain.render_mixed_minerals_page()
     finally:
         _mixed.list_accessible_datasets = original_mixed_list
         _audit_chain.list_accessible_datasets = original_audit_list
         _ux_chain.list_accessible_datasets = original_ux_list
+        _ux_chain._manual_phase_key = original_manual_phase_key
