@@ -5,6 +5,7 @@ import streamlit as st
 from petrolab.ui import universal_intake_extensions
 from petrolab.ui.source_sheet_image_wizard import render_source_sheet_image_wizard
 
+from . import add_data as _add_data
 from . import v0160_user_ux_hotfix as _ux_chain
 
 
@@ -22,13 +23,18 @@ def _source_sheet_image_gate(original):
 
 
 def render_add_data_page() -> None:
-    """Use source-sheet analysis universe and a direct images-only entry."""
+    """Use the current Add Data page with source-sheet image linking.
+
+    The former compatibility route tried to reach the intake extension through the
+    v0.15.6 audit wrapper, which no longer owns Add Data. Patch the actual canonical
+    extension point instead: images-only opens immediately, while table+images keeps
+    the explicit Next gate.
+    """
     original_wizard = universal_intake_extensions.render_image_wizard_multi_dataset
-    original_gate = _ux_chain._image_wizard_gate
-    universal_intake_extensions.render_image_wizard_multi_dataset = render_source_sheet_image_wizard
-    _ux_chain._image_wizard_gate = _source_sheet_image_gate
+    universal_intake_extensions.render_image_wizard_multi_dataset = _source_sheet_image_gate(
+        render_source_sheet_image_wizard
+    )
     try:
-        _ux_chain.render_add_data_page()
+        _add_data.render_add_data_page()
     finally:
         universal_intake_extensions.render_image_wizard_multi_dataset = original_wizard
-        _ux_chain._image_wizard_gate = original_gate
