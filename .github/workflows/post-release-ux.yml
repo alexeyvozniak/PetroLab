@@ -9,6 +9,7 @@ on:
       - 'petrolab/source_sheet_scope.py'
       - 'petrolab/services/source_sheet_image_service.py'
       - 'petrolab/ui/source_sheet_image_wizard.py'
+      - 'petrolab/ui/simple_image_intake.py'
       - 'petrolab/ui/intake_workflow.py'
       - 'petrolab/ui/cluster_plot_handoff.py'
       - 'petrolab/ui/pages/v0160_user_ux_hotfix.py'
@@ -59,6 +60,7 @@ jobs:
           petrolab/source_sheet_scope.py
           petrolab/services/source_sheet_image_service.py
           petrolab/ui/source_sheet_image_wizard.py
+          petrolab/ui/simple_image_intake.py
           petrolab/ui/intake_workflow.py
           petrolab/ui/cluster_plot_handoff.py
           petrolab/ui/pages/v0160_user_ux_hotfix.py
