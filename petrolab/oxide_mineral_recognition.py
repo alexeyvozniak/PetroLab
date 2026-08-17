@@ -8,6 +8,13 @@ import math
 
 
 OXIDE_EXTENSION_VERSION = "2026.08.1"
+OXIDE_MINERAL_KEYS = (
+    "magnetite",
+    "spinel",
+    "chromite",
+    "ilmenite",
+    "fe_ti_oxide",
+)
 
 
 @dataclass(frozen=True)
