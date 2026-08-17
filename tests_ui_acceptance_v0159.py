@@ -26,6 +26,13 @@ PAGES = {
     "add_data": "Добавить данные",
     "thin": "Шлифы и изображения",
 }
+PAGE_DESTINATIONS = {
+    "home": PROJECT_NAME,
+    "data": "Рабочий стол",
+    "graphs": "XY-диаграммы",
+    "add_data": "Добавить данные",
+    "thin": "Работать со шлифом",
+}
 
 
 def _seed_test_data(root: Path) -> None:
@@ -120,6 +127,23 @@ def _main_text(driver: webdriver.Chrome) -> str:
     return driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
 
 
+def _wait_for_destination(driver: webdriver.Chrome, needle: str, timeout: float = 35.0) -> None:
+    """Wait for the requested page itself, not for the previous DOM to look idle."""
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        try:
+            last = _main_text(driver)
+        except Exception:
+            last = ""
+        if needle in last:
+            _wait_for_idle(driver)
+            if needle in _main_text(driver):
+                return
+        time.sleep(0.2)
+    raise AssertionError(f"Destination {needle!r} did not render. Current main text: {last[:2500]}")
+
+
 def _visible_sidebar_button(driver: webdriver.Chrome, label: str):
     buttons = [
         button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
@@ -140,10 +164,10 @@ def _visible_sidebar_button(driver: webdriver.Chrome, label: str):
     return None
 
 
-def _navigate(driver: webdriver.Chrome, label: str) -> None:
+def _navigate(driver: webdriver.Chrome, label: str, destination: str) -> None:
     button = WebDriverWait(driver, 20).until(lambda d: _visible_sidebar_button(d, label))
     driver.execute_script("arguments[0].click();", button)
-    _wait_for_idle(driver)
+    _wait_for_destination(driver, destination)
 
 
 def _assert_no_exception(driver: webdriver.Chrome, width: int, height: int) -> None:
@@ -276,7 +300,7 @@ def main() -> None:
         for width, height in VIEWPORTS:
             driver.set_window_size(width, height)
             for page_name, nav_label in PAGES.items():
-                _navigate(driver, nav_label)
+                _navigate(driver, nav_label, PAGE_DESTINATIONS[page_name])
                 _assert_page(driver, page_name, width, height)
                 driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
