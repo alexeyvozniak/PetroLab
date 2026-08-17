@@ -3,6 +3,8 @@ name: Post-release UX regression
 on:
   pull_request:
     paths:
+      - 'petrolab/__init__.py'
+      - 'petrolab/phase_runtime.py'
       - 'petrolab/source_sheet_scope.py'
       - 'petrolab/services/source_sheet_image_service.py'
       - 'petrolab/ui/source_sheet_image_wizard.py'
@@ -49,6 +51,7 @@ jobs:
       - name: Compile hotfix
         run: >-
           python -m py_compile
+          petrolab/phase_runtime.py
           petrolab/source_sheet_scope.py
           petrolab/services/source_sheet_image_service.py
           petrolab/ui/source_sheet_image_wizard.py
