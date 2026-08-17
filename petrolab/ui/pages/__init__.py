@@ -80,6 +80,17 @@ from .v0156_audit_wrappers import (
     render_thin_section_workspace_page,
 )
 
+# Post-release UX consolidation: keep selection/editing on one Workspace page,
+# remove duplicate workbook controls, make the image step explicit and keep plot
+# dataset labels readable. Phase review gets an additional queue guard below.
+from .v0160_user_ux_hotfix import (
+    render_add_data_page,
+    render_mixed_minerals_page,
+    render_object_workspace_page,
+    render_plots_page,
+)
+from .v0160_phase_queue_hotfix import render_mixed_minerals_page
+
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
     "render_article_tables_page", "render_attention_page", "render_batch_edit_page",
