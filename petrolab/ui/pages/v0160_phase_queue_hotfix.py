@@ -19,6 +19,23 @@ from . import v0160_user_ux_hotfix as _ux_chain
 
 _REVIEWED_KEY = "_phase_review_completed_dataset_ids"
 _BASE_MINERAL_KEY_FOR_PHASE = _phase_suggestions.mineral_key_for_phase
+_SPLIT_STATE_SUFFIXES = (
+    " · Неразобранные / mixed",
+    " · Исходный mixed (разобрано)",
+)
+
+
+def _phase_dataset_root_name(value: Any) -> str:
+    """Return the stable scientific dataset name without transient mixed-state suffixes."""
+    clean = str(value or "").strip()
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _SPLIT_STATE_SUFFIXES:
+            if clean.endswith(suffix):
+                clean = clean[: -len(suffix)].rstrip()
+                changed = True
+    return clean
 
 
 def _reviewable(dataset: dict[str, Any]) -> bool:
@@ -63,7 +80,7 @@ def _ordered_candidates(
 
 
 def _nested_split_pairs(datasets: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """Find only child datasets that were split again from an already split phase dataset."""
+    """Find children accidentally split again from an already resolved phase dataset."""
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for item in datasets:
         signature = (str(item.get("source_sha256") or ""), str(item.get("source_sheet") or ""))
@@ -72,18 +89,25 @@ def _nested_split_pairs(datasets: list[dict[str, Any]]) -> list[tuple[dict[str, 
     result: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for siblings in groups.values():
         for child in siblings:
-            child_name = str(child.get("name") or "")
+            child_root = _phase_dataset_root_name(child.get("name"))
             parents = [
                 parent for parent in siblings
                 if int(parent["id"]) != int(child["id"])
-                and child_name.startswith(str(parent.get("name") or "") + " · ")
+                and child_root.startswith(_phase_dataset_root_name(parent.get("name")) + " · ")
                 and str(parent.get("mineral_key") or "generic") != "generic"
             ]
             if not parents:
                 continue
-            parent = max(parents, key=lambda item: len(str(item.get("name") or "")))
+            parent = max(
+                parents,
+                key=lambda item: len(_phase_dataset_root_name(item.get("name"))),
+            )
             result.append((child, parent))
-    return sorted(result, key=lambda pair: len(str(pair[0].get("name") or "")), reverse=True)
+    return sorted(
+        result,
+        key=lambda pair: len(_phase_dataset_root_name(pair[0].get("name"))),
+        reverse=True,
+    )
 
 
 def _repair_nested_splits(project_id: int, pairs: list[tuple[dict[str, Any], dict[str, Any]]]) -> tuple[int, int]:
@@ -106,7 +130,8 @@ def _repair_nested_splits(project_id: int, pairs: list[tuple[dict[str, Any], dic
             if analysis_ids:
                 _move_rows_to_dataset(con, child_id, parent_id, analysis_ids)
                 _reindex_dataset_rows(con, child_id)
-                parent_phase = str(parent.get("name") or "").rsplit(" · ", 1)[-1].strip()
+                parent_root = _phase_dataset_root_name(parent.get("name"))
+                parent_phase = parent_root.rsplit(" · ", 1)[-1].strip() if " · " in parent_root else ""
                 if parent_phase:
                     annotation_updates.append((analysis_ids, parent_phase))
                 moved += len(analysis_ids)
@@ -222,7 +247,6 @@ def render_mixed_minerals_page() -> None:
 
     candidates = _ordered_candidates(datasets, completed=completed, after_dataset_id=finished_id)
     if not candidates:
-        # Preserve the normal post-split actions before showing the end of the queue.
         _mixed._recent_split_actions(project_id)
         render_section_header("Разбор фаз завершён", "В текущем проходе больше нет сырых/mixed-наборов с точками")
         st.success("PetroLab не будет снова предлагать уже разобранные фазовые наборы.")
