@@ -65,9 +65,9 @@ def _render_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
         st.info("В этом исходном листе нет аналитических точек.")
         return
     query = st.text_input(
-        "Поиск по Sample / Point / фазе",
+        "Найти точку",
         key=f"{prefix}_point_query",
-        placeholder="Например: 19, P-14, magnetite, phlogopite",
+        placeholder="Sample, Point или фаза — например 19, P-14, magnetite",
     )
     filtered = dataframe
     needle = str(query or "").strip().casefold()
@@ -99,13 +99,13 @@ def _render_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
     if selected_key not in st.session_state or previous != valid_previous:
         st.session_state[selected_key] = valid_previous
     st.multiselect(
-        "Точки, видимые на этой фотографии",
+        "Какие точки видны на фотографии?",
         option_ids,
         format_func=lambda analysis_id: labels.get(str(analysis_id), str(analysis_id)[:8]),
         key=selected_key,
     )
     st.caption(
-        f"В исходном листе: {len(dataframe)} анализов · найдено: {len(filtered)} · выбрано: {len(st.session_state.get(selected_key, []))}."
+        f"Весь лист: {len(dataframe)} анализов · найдено: {len(filtered)} · выбрано: {len(st.session_state.get(selected_key, []))}."
     )
 
 
@@ -138,8 +138,6 @@ def _assignment_from_draft(prefix: str, filename: str, raw: bytes) -> ImageAssig
         value = str(st.session_state.get(f"{prefix}_field_value") or "").strip()
         if not column or not value:
             raise ValueError("Не выбрано поле/значение")
-        # Resolve field links to explicit immutable analysis ids so the link remains valid
-        # even if rows later move between phase datasets.
         dataframe = st.session_state.get(f"{prefix}_source_sheet_frame")
         if not isinstance(dataframe, pd.DataFrame) or column not in dataframe.columns:
             raise ValueError("Не удалось восстановить исходный лист для групповой привязки")
@@ -189,17 +187,62 @@ def _cleanup_cross_sheet_batch(asset_ids: list[int]) -> list[str]:
     return errors
 
 
+def _prepare_batch(
+    image_files: list[tuple[str, bytes]],
+    *,
+    batch: str,
+    by_key: dict[str, SourceSheetScope],
+    preferred_scope: SourceSheetScope,
+) -> tuple[list[tuple[SourceSheetScope, ImageAssignment]], list[str]]:
+    prepared: list[tuple[SourceSheetScope, ImageAssignment]] = []
+    errors: list[str] = []
+    for item_name, item_raw in image_files:
+        item_active = st.session_state.get(_active_sheet_key(batch, item_name, item_raw), preferred_scope.key)
+        item_scope = by_key.get(str(item_active), preferred_scope)
+        item_prefix = _draft_prefix(batch, item_name, item_raw, item_scope)
+        try:
+            assignment = _assignment_from_draft(item_prefix, item_name, item_raw)
+        except ValueError:
+            errors.append(item_name)
+            continue
+        if assignment is not None:
+            prepared.append((item_scope, assignment))
+    return prepared, errors
+
+
+def _save_prepared_batch(
+    project_id: int,
+    prepared: list[tuple[SourceSheetScope, ImageAssignment]],
+) -> tuple[list[int], list[str]]:
+    created: list[int] = []
+    try:
+        for scope, assignment in prepared:
+            result = create_source_sheet_image_batch(
+                project_id=int(project_id),
+                anchor_dataset_id=int(scope.anchor_dataset_id),
+                assignments=[assignment],
+            )
+            created.extend(int(value) for value in result.asset_ids)
+    except Exception as exc:
+        cleanup_errors = _cleanup_cross_sheet_batch(created)
+        errors = [f"Пачка не сохранена: {exc}"]
+        if cleanup_errors:
+            errors.append("Не удалось полностью откатить уже созданные изображения: " + " · ".join(cleanup_errors[:5]))
+        return [], errors
+    return created, []
+
+
 def render_source_sheet_image_wizard(
     project_id: int,
     image_files: list[tuple[str, bytes]],
     preferred_dataset_ids: list[int],
 ) -> None:
-    """Image linker whose scientific universe is a source sheet, not a phase dataset."""
+    """Simple sequential image linker over the immutable source-sheet universe."""
     if not image_files:
         return
     scopes = list_source_sheet_scopes(int(project_id))
     if not scopes:
-        st.info("Сначала импортируйте аналитическую таблицу.")
+        st.info("Сначала импортируйте аналитическую таблицу. После этого все её исходные листы появятся здесь.")
         return
     by_key = {scope.key: scope for scope in scopes}
     preferred_scope = next(
@@ -211,11 +254,11 @@ def render_source_sheet_image_wizard(
     )
 
     render_section_header(
-        "2. Изображения",
-        "Выбирайте исходный лист аналитической сессии: все его точки доступны вместе, даже если они уже разнесены по минералам.",
+        "Изображения",
+        "Для каждой фотографии выберите исходный лист и точки. Минералогическое разбиение наборов не скрывает точки листа.",
     )
     st.caption(
-        "Несохранённая разметка хранится отдельно для каждой фотографии и каждого листа. Переключение листа её не стирает."
+        "Черновик хранится отдельно для каждой фотографии и каждого листа. Можно переключаться между листами и возвращаться назад — выбор не стирается."
     )
 
     batch = _batch_token(image_files)
@@ -231,14 +274,14 @@ def render_source_sheet_image_wizard(
     for i, (item_name, item_raw) in enumerate(image_files):
         item_active = st.session_state.get(_active_sheet_key(batch, item_name, item_raw), preferred_scope.key)
         item_scope = by_key.get(str(item_active), preferred_scope)
-        prefix = _draft_prefix(batch, item_name, item_raw, item_scope)
-        ready = _draft_ready(prefix)
+        item_prefix = _draft_prefix(batch, item_name, item_raw, item_scope)
+        ready = _draft_ready(item_prefix)
         marker = "→" if i == index else ("✓" if ready else "○")
         statuses.append((f"{marker} {item_name}", "accent" if i == index else "success" if ready else "neutral"))
     render_badges(statuses[:12])
     if len(statuses) > 12:
         st.caption(f"Ещё файлов: {len(statuses) - 12}")
-    st.progress((index + 1) / len(image_files), text=f"{index + 1} из {len(image_files)} · {name}")
+    st.progress((index + 1) / len(image_files), text=f"Фото {index + 1} из {len(image_files)} · {name}")
 
     left, right = st.columns([1.25, 1])
     with left:
@@ -247,85 +290,86 @@ def render_source_sheet_image_wizard(
         except Exception:
             st.info("Предпросмотр недоступен, но файл можно сохранить.")
     with right:
+        st.markdown("#### К чему относится это изображение?")
         selected_sheet_key = st.selectbox(
-            "Исходный лист аналитической сессии",
+            "Исходный лист",
             list(by_key),
             format_func=lambda key: by_key[str(key)].label,
             key=active_key,
-            help="Это исходный лист, а не фазовый набор. Все analysis_id листа остаются доступны вместе.",
+            help="Показывается полный исходный лист аналитической сессии, а не отдельный фазовый набор.",
         )
         scope = by_key[str(selected_sheet_key)]
         prefix = _draft_prefix(batch, name, raw, scope)
         dataframe = load_source_sheet_universe(int(project_id), scope)
-        # Keep the current source-sheet universe inside the session draft. It is not
-        # persisted to disk and is only used to resolve field/whole-sheet scopes to ids.
         st.session_state[f"{prefix}_source_sheet_frame"] = dataframe
+        st.session_state.setdefault(f"{prefix}_scope", "К нескольким точкам анализа")
 
-        st.selectbox("Тип", IMAGE_KINDS, key=f"{prefix}_kind")
-        st.text_input("Подпись", value=Path(name).stem, key=f"{prefix}_title")
-        scope_label = st.radio("Связать с", list(SCOPE_LABELS), key=f"{prefix}_scope")
-        scope_type = SCOPE_LABELS[scope_label]
+        scope_label = str(st.session_state.get(f"{prefix}_scope") or "К нескольким точкам анализа")
+        scope_type = SCOPE_LABELS.get(scope_label, SCOPE_ANALYSIS)
         if scope_type == SCOPE_ANALYSIS:
             _render_point_controls(prefix, dataframe)
         elif scope_type == SCOPE_FIELD:
             _render_field_controls(prefix, dataframe)
         elif scope_type == SCOPE_DATASET:
-            st.caption(f"Изображение будет связано со всеми {len(dataframe)} анализами исходного листа.")
+            st.info(f"Будут связаны все {len(dataframe)} анализов исходного листа.")
         else:
-            st.caption("Этот файл будет пропущен.")
+            st.info("Эта фотография будет пропущена.")
 
-    back, next_col, save = st.columns([1, 1, 2])
-    if back.button("← Назад", disabled=index == 0, width="stretch", key=f"univimg_back_{batch}"):
+        with st.expander("Дополнительно", expanded=False):
+            st.selectbox("Тип изображения", IMAGE_KINDS, key=f"{prefix}_kind")
+            st.text_input("Подпись", value=Path(name).stem, key=f"{prefix}_title")
+            st.selectbox(
+                "Другой способ привязки",
+                list(SCOPE_LABELS),
+                key=f"{prefix}_scope",
+                help="Обычно ничего менять не нужно: выбирайте конкретные точки выше.",
+            )
+
+    prepared, errors = _prepare_batch(
+        image_files,
+        batch=batch,
+        by_key=by_key,
+        preferred_scope=preferred_scope,
+    )
+
+    back, action = st.columns([1, 2.2])
+    if back.button("← Предыдущее фото", disabled=index == 0, width="stretch", key=f"univimg_back_{batch}"):
         st.session_state[index_key] = index - 1
         st.rerun()
-    if next_col.button("Далее →", disabled=index == len(image_files) - 1, width="stretch", key=f"univimg_next_{batch}"):
-        if not _draft_ready(prefix):
-            st.warning("Сначала закончите привязку текущей фотографии или выберите «Не импортировать».")
-        else:
-            st.session_state[index_key] = index + 1
-            st.rerun()
 
-    prepared: list[tuple[SourceSheetScope, ImageAssignment]] = []
-    errors: list[str] = []
-    for item_name, item_raw in image_files:
-        item_active = st.session_state.get(_active_sheet_key(batch, item_name, item_raw), preferred_scope.key)
-        item_scope = by_key.get(str(item_active), preferred_scope)
-        item_prefix = _draft_prefix(batch, item_name, item_raw, item_scope)
-        try:
-            assignment = _assignment_from_draft(item_prefix, item_name, item_raw)
-        except ValueError:
-            errors.append(item_name)
-            continue
-        if assignment is not None:
-            prepared.append((item_scope, assignment))
-
-    if save.button("Проверить и сохранить всю пачку", type="primary", width="stretch", key=f"univimg_save_{batch}"):
-        if errors:
-            st.warning("Не закончена настройка: " + ", ".join(errors[:8]))
-            return
-        if not prepared:
-            st.warning("Нет изображений для сохранения.")
-            return
-        created: list[int] = []
-        try:
-            for scope, assignment in prepared:
-                result = create_source_sheet_image_batch(
-                    project_id=int(project_id),
-                    anchor_dataset_id=int(scope.anchor_dataset_id),
-                    assignments=[assignment],
-                )
-                created.extend(int(value) for value in result.asset_ids)
-        except Exception as exc:
-            cleanup_errors = _cleanup_cross_sheet_batch(created)
-            st.error(f"Пачка не сохранена: {exc}")
-            if cleanup_errors:
-                st.error("Не удалось полностью откатить уже созданные изображения: " + " · ".join(cleanup_errors[:5]))
-        else:
-            st.success(f"Сохранено изображений: {len(created)}. Привязки закреплены за immutable analysis_id.")
-            # Clear only this image batch after successful save. Until then all per-sheet
-            # drafts survive reruns, page navigation and source-sheet switching.
-            prefix = f"univimg_{batch}_"
+    if index < len(image_files) - 1:
+        if action.button(
+            "Готово → следующая фотография",
+            type="primary",
+            width="stretch",
+            key=f"univimg_next_{batch}",
+        ):
+            if not _draft_ready(prefix):
+                st.warning("Выберите хотя бы одну точку или другой способ привязки в «Дополнительно».")
+            else:
+                st.session_state[index_key] = index + 1
+                st.rerun()
+    else:
+        if action.button(
+            f"Сохранить все изображения · {len(image_files)}",
+            type="primary",
+            width="stretch",
+            key=f"univimg_save_{batch}",
+        ):
+            if errors:
+                st.warning("Не закончена разметка: " + ", ".join(errors[:8]))
+                return
+            if not prepared:
+                st.warning("Нет изображений для сохранения.")
+                return
+            created, save_errors = _save_prepared_batch(int(project_id), prepared)
+            if save_errors:
+                for message in save_errors:
+                    st.error(message)
+                return
+            st.success(f"Сохранено изображений: {len(created)}. Привязки закреплены за analysis_id.")
+            prefix_to_clear = f"univimg_{batch}_"
             for key in list(st.session_state):
-                if str(key).startswith(prefix) or key == index_key:
+                if str(key).startswith(prefix_to_clear) or key == index_key:
                     st.session_state.pop(key, None)
             st.rerun()
