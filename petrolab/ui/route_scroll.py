@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 _SCOPE_ACTION_CSS = """
@@ -29,33 +28,31 @@ _SCOPE_ACTION_CSS = """
 </style>
 """
 
+_SCROLL_TO_TOP_SCRIPT = """
+<script>
+(() => {
+  const reset = () => {
+    const main = document.querySelector('[data-testid="stMain"]');
+    if (main) {
+      main.scrollTop = 0;
+      main.scrollLeft = 0;
+    }
+    window.scrollTo(0, 0);
+  };
+  requestAnimationFrame(() => {
+    reset();
+    setTimeout(reset, 60);
+  });
+})();
+</script>
+"""
+
 
 def reset_route_scroll_if_pending() -> None:
     """Apply route-level UI guards and reset the viewport after navigation."""
-    st.markdown(_SCOPE_ACTION_CSS, unsafe_allow_html=True)
+    st.html(_SCOPE_ACTION_CSS)
     if not bool(st.session_state.pop("_scroll_to_top_pending", False)):
         return
-    components.html(
-        """
-        <script>
-        (() => {
-          const reset = () => {
-            const parentWindow = window.parent;
-            const doc = parentWindow.document;
-            const main = doc.querySelector('[data-testid="stMain"]');
-            if (main) {
-              main.scrollTop = 0;
-              main.scrollLeft = 0;
-            }
-            parentWindow.scrollTo(0, 0);
-          };
-          requestAnimationFrame(() => {
-            reset();
-            setTimeout(reset, 60);
-          });
-        })();
-        </script>
-        """,
-        height=0,
-        scrolling=False,
-    )
+    # Streamlit 1.60 supports trusted inline JavaScript through st.html. Keep the
+    # script constant and local: no user-provided content is interpolated here.
+    st.html(_SCROLL_TO_TOP_SCRIPT, unsafe_allow_javascript=True)
