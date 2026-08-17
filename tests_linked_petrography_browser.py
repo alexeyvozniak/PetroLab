@@ -178,9 +178,23 @@ def _visible_button(driver: webdriver.Chrome, label: str):
     return candidates[0] if candidates else None
 
 
+def _visible_tab(driver: webdriver.Chrome, label: str):
+    candidates = [
+        tab for tab in driver.find_elements(By.CSS_SELECTOR, '[role="tab"], [data-baseweb="tab"]')
+        if tab.is_displayed() and tab.text.strip() == label
+    ]
+    return candidates[0] if candidates else None
+
+
 def _click_button(driver: webdriver.Chrome, label: str) -> None:
     button = WebDriverWait(driver, 20).until(lambda d: _visible_button(d, label))
     driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", button)
+    _wait_for_idle(driver)
+
+
+def _click_tab(driver: webdriver.Chrome, label: str) -> None:
+    tab = WebDriverWait(driver, 20).until(lambda d: _visible_tab(d, label))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", tab)
     _wait_for_idle(driver)
 
 
@@ -273,7 +287,7 @@ def main() -> None:
             assert expected in text, f"Missing {expected!r}: {text[:2500]}"
         _assert_no_exception(driver)
 
-        _click_button(driver, "Связи")
+        _click_tab(driver, "Связи")
         text = _main_text(driver)
         assert "точек · 2" in text
         assert "связанных анализов · 3" in text
