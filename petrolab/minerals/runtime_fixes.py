@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from . import formulae as _formulae
-from .input_validation import validate_formula_inputs
+from .input_validation import SCIENTIFIC_FORMULA_COLUMNS, validate_formula_inputs
 
 
 # Capture every registered calculator before installing wrappers. Common input validation
@@ -25,6 +25,24 @@ _FE2O3_TO_FEO_EQUIVALENT = (
     2.0 * _formulae.OXIDES["FeO"].molar_mass
     / _formulae.OXIDES["Fe2O3"].molar_mass
 )
+
+
+def _floor_negative_formula_inputs(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Floor physically impossible negative concentrations only in a calculation copy."""
+    work = df.copy()
+    changed: dict[str, int] = {}
+    for column in work.columns:
+        name = str(column)
+        if name not in SCIENTIFIC_FORMULA_COLUMNS:
+            continue
+        values = pd.to_numeric(work[column], errors="coerce")
+        negative = values.lt(0).fillna(False)
+        count = int(negative.sum())
+        if not count:
+            continue
+        work.loc[negative, column] = 0.0
+        changed[name] = count
+    return work, changed
 
 
 def _prepare_all_fe_as_fe2(df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
@@ -85,7 +103,7 @@ def _run_policy_calculator(
 ) -> _formulae.CalculationResult:
     original = _ORIGINAL_CALCULATORS[mineral_key]
     validate_formula_inputs(df)
-    work = df.copy()
+    work, floored = _floor_negative_formula_inputs(df)
     temporary_halogen_columns: list[str] = []
 
     # The mica routine can estimate an OH maximum when an entire halogen panel was not
@@ -105,6 +123,12 @@ def _run_policy_calculator(
     restored = _restore_source_columns(df, work, result.data)
 
     notes = [result.note_ru] if result.note_ru else []
+    if floored:
+        summary = ", ".join(f"{name}: {count}" for name, count in sorted(floored.items()))
+        notes.append(
+            "Отрицательные аналитические концентрации были приняты равными 0 только для расчёта "
+            f"({summary}). Исходные значения сохранены без изменения."
+        )
     if converted_fe:
         notes.append(
             "Для выбранного режима «весь Fe как Fe²⁺» отдельно заданный Fe2O3 был "

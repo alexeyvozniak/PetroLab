@@ -30,6 +30,7 @@ from petrolab.ui.pages import (
     render_whole_rock_compare_page,
 )
 from petrolab.ui.release_chrome import apply_release_chrome
+from petrolab.ui.route_scroll import reset_route_scroll_if_pending
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import apply_smart_plot_defaults, route_fresh_import_to_workflow
 
@@ -112,3 +113,4 @@ with st.sidebar:
     route = render_sidebar(__version__)
 
 ROUTES.get(route, render_home_page)()
+reset_route_scroll_if_pending()
