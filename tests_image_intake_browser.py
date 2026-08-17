@@ -121,7 +121,6 @@ def _main_text(driver: webdriver.Chrome) -> str:
 
 
 def _wait_for_main_text(driver: webdriver.Chrome, needle: str, timeout: float = 25.0) -> str:
-    """Wait for a destination DOM, not merely for the previous DOM to look idle."""
     deadline = time.time() + timeout
     last = ""
     while time.time() < deadline:
@@ -226,14 +225,15 @@ def main() -> None:
         driver.save_screenshot(str(ARTIFACTS / "00_workspace_before_image_intake.png"))
         _click_button(driver, "+ Добавить изображения")
         try:
-            text = _wait_for_main_text(driver, "Добавить данные")
+            text = _wait_for_main_text(driver, "Добавить изображения")
         except AssertionError:
             driver.save_screenshot(str(ARTIFACTS / "01_after_image_button_diagnostic.png"))
             raise
         driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
-        assert "Что добавить?" in text
-        assert "Изображения" in text
-        assert "Добавить изображения" in text
+        assert "Фотография → исходный лист" in text
+        assert "Фазовые наборы выбирать не нужно" in text
+        assert "Что добавить?" not in text
+        assert "Добавить данные" not in text
         _assert_no_exception(driver)
 
         upload = WebDriverWait(driver, 20).until(
@@ -249,11 +249,12 @@ def main() -> None:
         assert "Какие точки видны на фотографии?" in text
         assert "Весь лист: 3 анализов" in text
         assert "Дальше → разметить изображения" not in text
-        assert "Тип изображения" not in text  # hidden under collapsed Дополнительно
+        assert "Тип изображения" not in text
+        assert "Что добавить?" not in text
         _assert_no_exception(driver)
 
         driver.save_screenshot(str(ARTIFACTS / "02_direct_image_intake_1440x900.png"))
-        print("PetroLab direct image intake browser path: OK")
+        print("PetroLab compact direct image intake browser path: OK")
     finally:
         if driver is not None:
             driver.quit()
