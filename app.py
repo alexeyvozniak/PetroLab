@@ -4,7 +4,6 @@ import hashlib
 import json
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from petrolab import __version__
 from petrolab.settings_service import load_settings
@@ -31,6 +30,7 @@ from petrolab.ui.pages import (
     render_whole_rock_compare_page,
 )
 from petrolab.ui.release_chrome import apply_release_chrome
+from petrolab.ui.route_scroll import reset_route_scroll_if_pending
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import apply_smart_plot_defaults, route_fresh_import_to_workflow
 
@@ -77,35 +77,6 @@ def _reconcile_plot_recipe_state() -> None:
     st.session_state[token_key] = token
 
 
-def _scroll_to_top_after_route_change() -> None:
-    if not bool(st.session_state.pop("_scroll_to_top_pending", False)):
-        return
-    components.html(
-        """
-        <script>
-        (() => {
-          const reset = () => {
-            const parentWindow = window.parent;
-            const doc = parentWindow.document;
-            const main = doc.querySelector('[data-testid="stMain"]');
-            if (main) {
-              main.scrollTop = 0;
-              main.scrollLeft = 0;
-            }
-            parentWindow.scrollTo(0, 0);
-          };
-          requestAnimationFrame(() => {
-            reset();
-            setTimeout(reset, 60);
-          });
-        })();
-        </script>
-        """,
-        height=0,
-        scrolling=False,
-    )
-
-
 _reconcile_plot_recipe_state()
 route_fresh_import_to_workflow()
 apply_smart_plot_defaults()
@@ -116,7 +87,8 @@ ROUTES = {
     "composite_points": render_composite_points_page, "multi_panel": render_multi_panel_page,
     "publication_composer": render_publication_composer_page,
     "grain_profile": render_grain_profile_page,
-    "rock_workspace": render_rock_workspace_page, "whole_rock_compare": render_whole_rock_compare_page,
+    "rock_workspace": render_rock_workspace_page,
+    "whole_rock_compare": render_whole_rock_compare_page,
     "compare": render_compare_page, "calculate": render_calculate_page, "publish": render_publish_page,
     "workflow": render_guided_workflow_page, "add_data": render_add_data_page,
     "quick_import": render_quick_import_page,
@@ -141,4 +113,4 @@ with st.sidebar:
     route = render_sidebar(__version__)
 
 ROUTES.get(route, render_home_page)()
-_scroll_to_top_after_route_change()
+reset_route_scroll_if_pending()
