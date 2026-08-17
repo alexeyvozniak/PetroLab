@@ -6,10 +6,12 @@ on:
       - 'petrolab/source_sheet_scope.py'
       - 'petrolab/services/source_sheet_image_service.py'
       - 'petrolab/ui/source_sheet_image_wizard.py'
+      - 'petrolab/ui/intake_workflow.py'
       - 'petrolab/ui/pages/v0160_user_ux_hotfix.py'
       - 'petrolab/ui/pages/v0160_phase_queue_hotfix.py'
       - 'petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py'
       - 'petrolab/ui/pages/v0160_statistics_integrity_hotfix.py'
+      - 'petrolab/ui/pages/v0160_quick_image_entry_hotfix.py'
       - 'petrolab/oxide_mineral_recognition.py'
       - 'petrolab/mineral_recognition_extended.py'
       - 'petrolab/ui/pages/__init__.py'
@@ -40,10 +42,12 @@ jobs:
           petrolab/source_sheet_scope.py
           petrolab/services/source_sheet_image_service.py
           petrolab/ui/source_sheet_image_wizard.py
+          petrolab/ui/intake_workflow.py
           petrolab/ui/pages/v0160_user_ux_hotfix.py
           petrolab/ui/pages/v0160_phase_queue_hotfix.py
           petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py
           petrolab/ui/pages/v0160_statistics_integrity_hotfix.py
+          petrolab/ui/pages/v0160_quick_image_entry_hotfix.py
           petrolab/oxide_mineral_recognition.py
           petrolab/mineral_recognition_extended.py
           tests_post_release_ux.py
