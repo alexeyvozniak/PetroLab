@@ -25,6 +25,7 @@ on:
       - 'tests_cluster_xy_handoff.py'
       - 'tests_statistics.py'
       - 'tests_formula_input_validation.py'
+      - 'tests_image_intake_browser.py'
       - '.github/workflows/post-release-ux.yml'
   workflow_dispatch:
 
@@ -69,6 +70,7 @@ jobs:
           tests_cluster_xy_handoff.py
           tests_statistics.py
           tests_formula_input_validation.py
+          tests_image_intake_browser.py
       - name: Run source-sheet and phase-repair regression
         run: python tests_post_release_ux.py
       - name: Run cluster to XY regression
@@ -81,3 +83,12 @@ jobs:
         run: python tests_staging_import.py
       - name: Run Streamlit smoke
         run: python tests_streamlit.py
+      - name: Run direct image intake browser acceptance
+        run: python tests_image_intake_browser.py
+      - name: Upload direct image intake screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-direct-image-intake
+          path: image_intake_browser_artifacts/*.png
+          if-no-files-found: ignore
