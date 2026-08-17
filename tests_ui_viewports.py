@@ -49,6 +49,52 @@ def _wait_for_server(url: str, timeout: float = 30.0) -> None:
     raise RuntimeError(f"Streamlit did not start at {url}: {last_error}")
 
 
+def _running(driver: webdriver.Chrome) -> bool:
+    return bool(
+        driver.execute_script(
+            """
+            return Array.from(document.querySelectorAll('button')).some(el =>
+              el.offsetParent !== null && (el.innerText || '').trim() === 'Stop');
+            """
+        )
+    )
+
+
+def _main_signature(driver: webdriver.Chrome) -> tuple[int, int]:
+    value = driver.execute_script(
+        """
+        const main = document.querySelector('[data-testid="stMain"]');
+        if (!main) return [0, 0];
+        return [(main.innerText || '').length, Math.round(main.scrollHeight || 0)];
+        """
+    )
+    return int(value[0]), int(value[1])
+
+
+def _wait_for_idle(driver: webdriver.Chrome, timeout: float = 35.0) -> None:
+    deadline = time.time() + timeout
+    previous: tuple[int, int] | None = None
+    stable = 0
+    while time.time() < deadline:
+        if _running(driver):
+            previous = None
+            stable = 0
+            time.sleep(0.15)
+            continue
+        signature = _main_signature(driver)
+        if signature[0] <= 0:
+            stable = 0
+        elif signature == previous:
+            stable += 1
+            if stable >= 3:
+                return
+        else:
+            previous = signature
+            stable = 0
+        time.sleep(0.2)
+    raise AssertionError(f"Streamlit did not become idle: {_main_signature(driver)}")
+
+
 def _seed_test_data(root: Path) -> None:
     os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
     from petrolab.db import add_dataset, create_project, replace_dataset_rows
@@ -123,6 +169,7 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
     driver.refresh()
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
+    _wait_for_idle(driver)
     output.mkdir(parents=True, exist_ok=True)
     try:
         if not _visible_sidebar_buttons(driver, label):
@@ -132,8 +179,8 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
         assert buttons, f"Sidebar button not found: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()
-        time.sleep(1.2)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stMain"]')))
+        _wait_for_idle(driver)
     except Exception:
         driver.save_screenshot(str(output / f"{page_name}_navigation_failure.png"))
         raise
@@ -220,7 +267,8 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
         "Emulation.setDeviceMetricsOverride",
         {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
     )
-    time.sleep(0.8)
+    time.sleep(0.2)
+    _wait_for_idle(driver)
     metrics = driver.execute_script("""
         return {
           innerWidth: window.innerWidth,
@@ -236,6 +284,7 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, page_nam
     assert metrics["scrollWidth"] <= allowed, f"Global horizontal overflow on {page_name} at {width}x{height}: {metrics}"
     assert metrics["mainWidth"] > 0, f"Main Streamlit container missing on {page_name}"
     assert metrics["mainRight"] <= allowed + 2, f"Main content escapes viewport on {page_name}: {metrics}"
+    assert not _running(driver), f"Screenshot attempted while Streamlit is still running on {page_name} at {width}x{height}"
     _assert_shell_geometry(driver, page_name, width, height)
     output.mkdir(parents=True, exist_ok=True)
     driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
@@ -298,6 +347,7 @@ def main() -> None:
         WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]'))
         )
+        _wait_for_idle(driver)
         for page_name, label in PAGES:
             _select_page(driver, label, output, page_name)
             for width, height in VIEWPORTS:
