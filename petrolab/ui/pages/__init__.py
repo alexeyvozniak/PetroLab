@@ -92,6 +92,7 @@ from .v0160_user_ux_hotfix import (
 from .v0160_phase_queue_hotfix import render_mixed_minerals_page
 from .v0160_source_sheet_intake_hotfix import render_add_data_page
 from .v0160_statistics_integrity_hotfix import render_statistics_page
+from .v0160_quick_image_entry_hotfix import render_object_workspace_page
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
