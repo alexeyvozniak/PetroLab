@@ -21,6 +21,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 PORT = 8527
 ROOT = Path(tempfile.mkdtemp(prefix="petrolab_image_intake_browser_"))
 os.environ["PETROLAB_DATA_DIR"] = str(ROOT / "data")
+ARTIFACTS = Path("image_intake_browser_artifacts")
 
 from petrolab.db import add_dataset, create_project, replace_dataset_rows
 from petrolab.storage import ensure_storage
@@ -119,6 +120,24 @@ def _main_text(driver: webdriver.Chrome) -> str:
     return driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
 
 
+def _wait_for_main_text(driver: webdriver.Chrome, needle: str, timeout: float = 25.0) -> str:
+    """Wait for a destination DOM, not merely for the previous DOM to look idle."""
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        try:
+            last = _main_text(driver)
+        except Exception:
+            last = ""
+        if needle in last:
+            _wait_for_idle(driver)
+            last = _main_text(driver)
+            if needle in last:
+                return last
+        time.sleep(0.2)
+    raise AssertionError(f"Timed out waiting for {needle!r}. Current main text: {last[:3000]}")
+
+
 def _visible_button(driver: webdriver.Chrome, label: str):
     items = [
         item for item in driver.find_elements(By.TAG_NAME, "button")
@@ -130,7 +149,6 @@ def _visible_button(driver: webdriver.Chrome, label: str):
 def _click_button(driver: webdriver.Chrome, label: str) -> None:
     button = WebDriverWait(driver, 20).until(lambda d: _visible_button(d, label))
     driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", button)
-    _wait_for_idle(driver)
 
 
 def _navigate_sidebar(driver: webdriver.Chrome, label: str) -> None:
@@ -151,7 +169,7 @@ def _navigate_sidebar(driver: webdriver.Chrome, label: str) -> None:
                     break
     assert candidates, f"Sidebar route not found: {label}"
     driver.execute_script("arguments[0].click();", candidates[0])
-    _wait_for_idle(driver)
+    _wait_for_main_text(driver, "Рабочий стол")
 
 
 def _assert_no_exception(driver: webdriver.Chrome) -> None:
@@ -166,6 +184,7 @@ def main() -> None:
     image_path = _seed()
     process: subprocess.Popen | None = None
     driver: webdriver.Chrome | None = None
+    ARTIFACTS.mkdir(exist_ok=True)
     try:
         env = os.environ.copy()
         process = subprocess.Popen(
@@ -204,9 +223,14 @@ def main() -> None:
         _wait_for_idle(driver)
 
         _navigate_sidebar(driver, "Данные")
+        driver.save_screenshot(str(ARTIFACTS / "00_workspace_before_image_intake.png"))
         _click_button(driver, "+ Добавить изображения")
-        text = _main_text(driver)
-        assert "Добавить данные" in text
+        try:
+            text = _wait_for_main_text(driver, "Добавить данные")
+        except AssertionError:
+            driver.save_screenshot(str(ARTIFACTS / "01_after_image_button_diagnostic.png"))
+            raise
+        driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
         assert "Что добавить?" in text
         assert "Изображения" in text
         assert "Добавить изображения" in text
@@ -216,9 +240,11 @@ def main() -> None:
             lambda d: d.find_element(By.CSS_SELECTOR, 'input[type="file"]')
         )
         upload.send_keys(str(image_path.resolve()))
-        _wait_for_idle(driver)
-        text = _main_text(driver)
-        assert "К чему относится это изображение?" in text, text[:3000]
+        try:
+            text = _wait_for_main_text(driver, "К чему относится это изображение?")
+        except AssertionError:
+            driver.save_screenshot(str(ARTIFACTS / "02_after_upload_diagnostic.png"))
+            raise
         assert "Исходный лист" in text
         assert "Какие точки видны на фотографии?" in text
         assert "Весь лист: 3 анализов" in text
@@ -226,9 +252,7 @@ def main() -> None:
         assert "Тип изображения" not in text  # hidden under collapsed Дополнительно
         _assert_no_exception(driver)
 
-        output = Path("image_intake_browser_artifacts")
-        output.mkdir(exist_ok=True)
-        driver.save_screenshot(str(output / "direct_image_intake_1440x900.png"))
+        driver.save_screenshot(str(ARTIFACTS / "02_direct_image_intake_1440x900.png"))
         print("PetroLab direct image intake browser path: OK")
     finally:
         if driver is not None:
