@@ -90,6 +90,7 @@ from .v0160_user_ux_hotfix import (
     render_plots_page,
 )
 from .v0160_phase_queue_hotfix import render_mixed_minerals_page
+from .v0160_source_sheet_intake_hotfix import render_add_data_page
 
 __all__ = [
     "render_add_data_page", "render_analyses_page", "render_analytical_sessions_page",
