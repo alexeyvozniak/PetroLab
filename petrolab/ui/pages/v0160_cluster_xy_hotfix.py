@@ -22,11 +22,11 @@ def _plot_context() -> dict:
     return dict(incoming) if isinstance(incoming, dict) else {}
 
 
-def _overlay_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
-    context = _plot_context()
+def apply_plot_overlays(dataframe: pd.DataFrame, context: Mapping[str, object]) -> pd.DataFrame:
+    """Return a copy with transient analysis-id keyed overlay columns attached."""
     raw_columns = context.get("overlay_columns")
     if not isinstance(raw_columns, Mapping) or dataframe.empty or "_analysis_id" not in dataframe.columns:
-        return dataframe
+        return dataframe.copy()
     out = dataframe.copy()
     ids = out["_analysis_id"].astype(str)
     for column, raw_mapping in raw_columns.items():
@@ -35,6 +35,10 @@ def _overlay_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
         mapping = {str(key): value for key, value in raw_mapping.items()}
         out[str(column)] = ids.map(mapping)
     return out
+
+
+def _overlay_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
+    return apply_plot_overlays(dataframe, _plot_context())
 
 
 def render_plots_page() -> None:
