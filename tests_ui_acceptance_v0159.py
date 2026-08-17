@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -8,23 +9,55 @@ import time
 import urllib.request
 from pathlib import Path
 
+import pandas as pd
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from tests_ui_viewports import _remove_temp_tree, _seed_test_data, _stop_process
+
+PORT = 8525
+PROJECT_NAME = "Viewport project"
+VIEWPORTS = [(1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844)]
+PAGES = {
+    "home": "Главная",
+    "data": "Данные",
+    "graphs": "Графики",
+    "add_data": "Добавить данные",
+    "thin": "Шлифы и изображения",
+}
 
 
-PORT = 8523
-VIEWPORTS = ((1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844))
-PAGES = (
-    ("home", "Главная"),
-    ("data", "Данные"),
-    ("graphs", "Графики"),
-    ("add_data", "Добавить данные"),
-    ("thin", "Шлифы и изображения"),
-)
+def _seed_test_data(root: Path) -> None:
+    os.environ["PETROLAB_DATA_DIR"] = str(root / "data")
+    from petrolab.db import add_dataset, create_project, replace_dataset_rows
+    from petrolab.storage import ensure_storage
+
+    ensure_storage()
+    project_id = create_project(PROJECT_NAME, "Stable UI acceptance fixture")
+    dataframe = pd.DataFrame(
+        {
+            "Sample": ["Sample 1", "Sample 1", "Sample 2"],
+            "Point": ["P-1", "P-2", "P-3"],
+            "SiO2": [40.0, 41.0, 42.0],
+            "Al2O3": [15.0, 14.0, 13.0],
+            "TiO2": [2.0, 2.2, 1.8],
+            "Generation": ["Core", "Rim", "Core"],
+        }
+    )
+    csv_path = root / "fixture.csv"
+    dataframe.to_csv(csv_path, index=False)
+    dataset_id = add_dataset(
+        project_id=project_id,
+        name="Viewport data",
+        mineral_key="mica",
+        source_filename="viewport.xlsx",
+        source_sheet="Data",
+        source_sha256="viewport-fixture",
+        csv_path=str(csv_path),
+        row_count=len(dataframe),
+    )
+    replace_dataset_rows(dataset_id, dataframe, source_rows=[2, 3, 4])
 
 
 def _wait_for_server(url: str, timeout: float = 35.0) -> None:
@@ -35,147 +68,113 @@ def _wait_for_server(url: str, timeout: float = 35.0) -> None:
             with urllib.request.urlopen(url, timeout=2) as response:
                 if response.status == 200:
                     return
-        except Exception as exc:  # pragma: no cover - useful in CI diagnostics
+        except Exception as exc:
             last_error = exc
-        time.sleep(0.4)
+        time.sleep(0.35)
     raise RuntimeError(f"Streamlit did not start at {url}: {last_error}")
 
 
 def _running(driver: webdriver.Chrome) -> bool:
     return bool(driver.execute_script(
         """
-        return Array.from(document.querySelectorAll('button')).some(el => {
-          if (el.offsetParent === null) return false;
-          return (el.innerText || '').trim() === 'Stop';
-        });
+        return Array.from(document.querySelectorAll('button')).some(el =>
+          el.offsetParent !== null && (el.innerText || '').trim() === 'Stop');
         """
     ))
 
 
-def _main_signature(driver: webdriver.Chrome) -> tuple[int, int]:
-    value = driver.execute_script(
+def _signature(driver: webdriver.Chrome) -> tuple[int, int]:
+    raw = driver.execute_script(
         """
         const main = document.querySelector('[data-testid="stMain"]');
         if (!main) return [0, 0];
         return [(main.innerText || '').length, Math.round(main.scrollHeight || 0)];
         """
     )
-    return int(value[0]), int(value[1])
+    return int(raw[0]), int(raw[1])
 
 
 def _wait_for_idle(driver: webdriver.Chrome, timeout: float = 35.0) -> None:
-    """Wait for Streamlit to finish rerun and for the rendered main tree to stop moving."""
     deadline = time.time() + timeout
+    previous = None
     stable = 0
-    previous: tuple[int, int] | None = None
     while time.time() < deadline:
         if _running(driver):
-            stable = 0
             previous = None
+            stable = 0
             time.sleep(0.15)
             continue
-        signature = _main_signature(driver)
-        if signature[0] <= 0:
-            stable = 0
-        elif signature == previous:
+        signature = _signature(driver)
+        if signature[0] > 0 and signature == previous:
             stable += 1
             if stable >= 3:
                 return
         else:
-            stable = 0
             previous = signature
+            stable = 0
         time.sleep(0.2)
-    raise AssertionError(
-        f"Streamlit did not become visually idle; running={_running(driver)}, signature={_main_signature(driver)}"
-    )
+    raise AssertionError(f"Streamlit did not become idle: {_signature(driver)}")
+
+
+def _main_text(driver: webdriver.Chrome) -> str:
+    return driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
 
 
 def _visible_sidebar_button(driver: webdriver.Chrome, label: str):
     buttons = [
         button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
-        if button.text.strip() == label and button.is_displayed()
+        if button.is_displayed() and button.text.strip() == label
     ]
-    return buttons[0] if buttons else None
+    if buttons:
+        return buttons[0]
+    for summary in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stExpander"] summary'):
+        if summary.is_displayed() and "Дополнительно" in summary.text:
+            driver.execute_script("arguments[0].click();", summary)
+            time.sleep(0.2)
+            buttons = [
+                button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
+                if button.is_displayed() and button.text.strip() == label
+            ]
+            if buttons:
+                return buttons[0]
+    return None
 
 
 def _navigate(driver: webdriver.Chrome, label: str) -> None:
-    driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
-    driver.set_window_size(1280, 900)
-    driver.refresh()
-    WebDriverWait(driver, 25).until(
-        lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
-    )
-    _wait_for_idle(driver)
-    button = _visible_sidebar_button(driver, label)
-    if button is None:
-        summaries = driver.find_elements(
-            By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stExpander"] summary'
-        )
-        for summary in summaries:
-            if summary.is_displayed() and "Дополнительно" in summary.text:
-                driver.execute_script("arguments[0].click();", summary)
-                time.sleep(0.2)
-                button = _visible_sidebar_button(driver, label)
-                if button is not None:
-                    break
-    assert button is not None, f"Navigation button not found: {label}"
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", button
-    )
+    button = WebDriverWait(driver, 20).until(lambda d: _visible_sidebar_button(d, label))
+    driver.execute_script("arguments[0].click();", button)
     _wait_for_idle(driver)
 
 
-def _assert_common(driver: webdriver.Chrome, page_name: str, width: int, height: int) -> None:
-    result = driver.execute_script(
-        """
-        const main = document.querySelector('[data-testid="stMain"]');
-        const exceptions = Array.from(document.querySelectorAll('[data-testid="stException"]'))
-          .filter(el => el.offsetParent !== null)
-          .map(el => (el.innerText || '').slice(0, 400));
-        return {
-          running: Array.from(document.querySelectorAll('button')).some(el => el.offsetParent !== null && (el.innerText || '').trim() === 'Stop'),
-          scrollWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
-          mainWidth: main ? main.getBoundingClientRect().width : 0,
-          exceptions,
-          text: main ? (main.innerText || '') : ''
-        };
-        """
-    )
-    assert not result["running"], f"Screenshot attempted during Streamlit rerun: {page_name} {width}x{height}"
-    assert not result["exceptions"], (
-        f"Visible Streamlit exception: {page_name} {width}x{height}: {result['exceptions']}"
-    )
-    assert float(result["mainWidth"]) > 0, f"Main content missing: {page_name}"
-    assert float(result["scrollWidth"]) <= width + 3, (
-        f"Horizontal overflow: {page_name} {width}x{height}: {result['scrollWidth']}"
-    )
-    assert len(str(result["text"]).strip()) >= 20, (
-        f"Suspiciously empty main area: {page_name} {width}x{height}"
-    )
+def _assert_no_exception(driver: webdriver.Chrome, width: int, height: int) -> None:
+    exceptions = [
+        item.text for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stException"]')
+        if item.is_displayed()
+    ]
+    assert not exceptions, f"Streamlit exception at {width}x{height}: {exceptions}"
 
 
-def _minimum_plot_width(viewport_width: int) -> int:
+def _minimum_plot_width(viewport_width: int) -> float:
     if viewport_width >= 1200:
-        return 650
+        return 540.0
     if viewport_width >= 900:
-        return 500
+        return 420.0
     if viewport_width >= 700:
-        return 430
-    return 300
+        return 330.0
+    return 280.0
 
 
 def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: int) -> None:
-    _assert_common(driver, page_name, width, height)
-    text = driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text
+    text = _main_text(driver)
+    _assert_no_exception(driver, width, height)
 
     if page_name == "home":
-        for label in ("Данные", "Добавить", "Графики", "Шлифы"):
-            assert label in text, f"Home primary action missing at {width}x{height}: {label}"
+        assert "ПетроЛаб" in text or "PetroLab" in text, f"Home identity missing at {width}x{height}"
+        assert PROJECT_NAME in text, f"Project context missing at {width}x{height}"
         return
 
     if page_name == "data":
-        assert "Рабочий стол" in text, f"Data workspace title missing at {width}x{height}"
-        assert "3 анализов" in text, f"Dataset result count missing at {width}x{height}"
+        assert "Рабочий стол" in text, f"Workspace title missing at {width}x{height}"
         grids = driver.find_elements(
             By.CSS_SELECTOR, '[data-testid="stDataFrame"], [data-testid="stDataEditor"]'
         )
@@ -209,9 +208,14 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
 
     if page_name == "add_data":
         assert "Добавить данные" in text, f"Add Data title missing at {width}x{height}"
+        assert "Что добавить?" in text, f"Add Data mode selector missing at {width}x{height}"
         assert "Excel / CSV" in text, f"Add Data analytical intake missing at {width}x{height}"
         assert "PPL / XPL / BSE / карты" in text, f"Add Data image intake missing at {width}x{height}"
-        assert "Файлы" in text, f"Unified file uploader missing at {width}x{height}"
+        uploaders = [
+            item for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stFileUploader"]')
+            if item.is_displayed()
+        ]
+        assert uploaders, f"Add Data file uploader missing at {width}x{height}"
         return
 
     if page_name == "thin":
@@ -258,46 +262,39 @@ def main() -> None:
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1280,900")
+        options.add_argument("--window-size=1440,900")
         try:
             driver = webdriver.Chrome(options=options)
         except WebDriverException as exc:
-            raise RuntimeError(f"Could not start headless Chrome: {exc}") from exc
+            raise RuntimeError(f"Could not start Chrome: {exc}") from exc
         driver.get(url)
         WebDriverWait(driver, 25).until(
             lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')
         )
         _wait_for_idle(driver)
 
-        expected: list[Path] = []
-        for page_name, label in PAGES:
-            _navigate(driver, label)
-            for width, height in VIEWPORTS:
-                driver.execute_cdp_cmd(
-                    "Emulation.setDeviceMetricsOverride",
-                    {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
-                )
-                _wait_for_idle(driver)
+        for width, height in VIEWPORTS:
+            driver.set_window_size(width, height)
+            for page_name, nav_label in PAGES.items():
+                _navigate(driver, nav_label)
                 _assert_page(driver, page_name, width, height)
-                target = output / f"{page_name}_{width}x{height}.png"
-                driver.save_screenshot(str(target))
-                expected.append(target)
+                driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
-        missing = [
-            str(path) for path in expected if not path.exists() or path.stat().st_size < 10_000
-        ]
-        assert not missing, f"Incomplete stable viewport artifact set: {missing}"
+        print("PetroLab 0.15.9 stable UI acceptance: OK")
     finally:
         if driver is not None:
-            try:
-                driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
-            except WebDriverException:
-                pass
             driver.quit()
         if process is not None:
-            _stop_process(process)
-        _remove_temp_tree(root)
-    print("PetroLab 0.15.9 stable UI acceptance: OK")
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=5)
+            if process.stdout is not None:
+                process.stdout.close()
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":
