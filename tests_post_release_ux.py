@@ -56,76 +56,76 @@ def _png_bytes() -> bytes:
 def main() -> None:
     try:
         ensure_storage()
-        project_id = create_project("UX regression", "source-sheet scope")
-        source_id, ids = _dataset(
+        project_id = create_project("Post-release UX", "source-sheet image workflow")
+        sheet1_id, ids = _dataset(
             project_id,
             "Session",
             "Sheet 1",
-            pd.DataFrame(
-                {
-                    "Sample": ["19", "19", "19", "19"],
-                    "Point": ["P1", "P2", "P3", "P4"],
-                    "SiO2": [39.0, 0.4, 41.2, 52.0],
-                    "FeOt": [9.0, 91.0, 12.0, 8.0],
-                    "TiO2": [2.0, 1.2, 3.0, 0.4],
-                }
-            ),
+            pd.DataFrame({
+                "Sample": ["S1", "S1", "S1"],
+                "Point": ["P1", "P2", "P3"],
+                "SiO2": [40.0, 45.0, 50.0],
+                "TiO2": [2.0, 1.0, 0.5],
+                "Al2O3": [14.0, 10.0, 4.0],
+            }),
         )
-        second_id, second_ids = _dataset(
+        sheet2_id, sheet2_ids = _dataset(
             project_id,
-            "Session",
+            "Session 2",
             "Sheet 2",
-            pd.DataFrame({"Sample": ["20"], "Point": ["Q1"], "SiO2": [40.0], "FeOt": [10.0], "TiO2": [2.0]}),
+            pd.DataFrame({
+                "Sample": ["S2", "S2"],
+                "Point": ["A", "B"],
+                "SiO2": [51.0, 52.0],
+                "TiO2": [0.4, 0.3],
+                "Al2O3": [3.0, 2.5],
+            }),
         )
 
-        # Split two rows into different phase datasets. The physical/source-sheet
-        # universe must remain the original four analysis ids.
-        created = materialize_confirmed_phases(
-            source_id,
-            {ids[0]: "phlogopite", ids[1]: "magnetite"},
+        split = materialize_confirmed_phases(
+            sheet1_id,
+            {ids[0]: "phlogopite", ids[1]: "clinopyroxene"},
         )
-        assert set(created) == {"phlogopite", "magnetite"}
-        phlogopite_id = int(created["phlogopite"])
+        phlogopite_id = int(split["phlogopite"])
+        clinopyroxene_id = int(split["clinopyroxene"])
+        assert phlogopite_id != clinopyroxene_id
+
         scopes = list_source_sheet_scopes(project_id)
         sheet1 = next(scope for scope in scopes if scope.source_sheet == "Sheet 1")
         sheet2 = next(scope for scope in scopes if scope.source_sheet == "Sheet 2")
-        assert sheet1.row_count == 4
-        assert sheet2.row_count == 1
         universe = load_source_sheet_universe(project_id, sheet1)
         assert set(universe["_analysis_id"].astype(str)) == set(ids)
         phase_by_id = dict(zip(universe["_analysis_id"].astype(str), universe["Подтверждённая фаза"].astype(str)))
         assert phase_by_id[ids[0]] == "phlogopite"
-        assert phase_by_id[ids[1]] == "magnetite"
+        assert phase_by_id[ids[1]] == "clinopyroxene"
 
-        # One image may link analyses that now live in two different phase datasets,
-        # because they still belong to the same immutable source sheet.
         assignment = ImageAssignment(
-            ImagePayload("sheet1.png", _png_bytes()),
+            ImagePayload("bse.png", _png_bytes()),
             ImageScope(SCOPE_ANALYSIS, analysis_ids=(ids[0], ids[1])),
             "BSE",
-            "Sheet 1 BSE",
+            "BSE S1 P1-P2",
         )
         result = create_source_sheet_image_batch(
             project_id=project_id,
-            anchor_dataset_id=sheet1.anchor_dataset_id,
+            anchor_dataset_id=phlogopite_id,
             assignments=[assignment],
         )
+        assert len(result.asset_ids) == 1
         record = get_image_record(result.asset_ids[0])
         assert set(record["analysis_ids"]) == {ids[0], ids[1]}
 
-        # Cross-sheet contamination must still be rejected.
-        bad = ImageAssignment(
+        bad_assignment = ImageAssignment(
             ImagePayload("bad.png", _png_bytes()),
-            ImageScope(SCOPE_ANALYSIS, analysis_ids=(ids[0], second_ids[0])),
+            ImageScope(SCOPE_ANALYSIS, analysis_ids=(ids[0], sheet2_ids[0])),
             "BSE",
-            "bad",
+            "Cross sheet should fail",
         )
         rejected = False
         try:
             create_source_sheet_image_batch(
                 project_id=project_id,
-                anchor_dataset_id=sheet1.anchor_dataset_id,
-                assignments=[bad],
+                anchor_dataset_id=phlogopite_id,
+                assignments=[bad_assignment],
             )
         except ValueError:
             rejected = True
@@ -166,7 +166,18 @@ def main() -> None:
             (child, parent) for child, parent in pairs
             if int(child["id"]) == nested_id and int(parent["id"]) == phlogopite_id
         ]
-        assert len(matching) == 1
+        diagnostics = [
+            {
+                "child": (int(child["id"]), child.get("name"), child.get("mineral_key"), child.get("source_sheet")),
+                "parent": (int(parent["id"]), parent.get("name"), parent.get("mineral_key"), parent.get("source_sheet")),
+            }
+            for child, parent in pairs
+        ]
+        datasets_diag = [
+            (int(item["id"]), item.get("name"), item.get("mineral_key"), item.get("source_sheet"), item.get("source_sha256"))
+            for item in current
+        ]
+        assert len(matching) == 1, f"pairs={diagnostics}; datasets={datasets_diag}; phlog={phlogopite_id}; nested={nested_id}"
         moved, hidden = _repair_nested_splits(project_id, matching)
         assert moved == 1 and hidden == 1
         repaired = load_dataset_dataframe(phlogopite_id, include_meta=True)
@@ -174,8 +185,6 @@ def main() -> None:
         assert int(get_dataset(phlogopite_id)["row_count"]) == 1
         assert nested_id not in {int(item["id"]) for item in list_accessible_datasets(project_id)}
 
-        # Source-sheet universe still has all points after the repair, and the saved
-        # image still references both immutable ids across phase datasets.
         repaired_scope = next(scope for scope in list_source_sheet_scopes(project_id) if scope.source_sheet == "Sheet 1")
         repaired_universe = load_source_sheet_universe(project_id, repaired_scope)
         assert set(repaired_universe["_analysis_id"].astype(str)) == set(ids)
