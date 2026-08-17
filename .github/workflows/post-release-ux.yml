@@ -7,15 +7,24 @@ on:
       - 'petrolab/services/source_sheet_image_service.py'
       - 'petrolab/ui/source_sheet_image_wizard.py'
       - 'petrolab/ui/intake_workflow.py'
+      - 'petrolab/ui/cluster_plot_handoff.py'
       - 'petrolab/ui/pages/v0160_user_ux_hotfix.py'
       - 'petrolab/ui/pages/v0160_phase_queue_hotfix.py'
       - 'petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py'
       - 'petrolab/ui/pages/v0160_statistics_integrity_hotfix.py'
       - 'petrolab/ui/pages/v0160_quick_image_entry_hotfix.py'
+      - 'petrolab/ui/pages/v0160_cluster_statistics_hotfix.py'
+      - 'petrolab/ui/pages/v0160_cluster_xy_hotfix.py'
+      - 'petrolab/statistics.py'
+      - 'petrolab/minerals/input_validation.py'
+      - 'petrolab/minerals/runtime_fixes.py'
       - 'petrolab/oxide_mineral_recognition.py'
       - 'petrolab/mineral_recognition_extended.py'
       - 'petrolab/ui/pages/__init__.py'
       - 'tests_post_release_ux.py'
+      - 'tests_cluster_xy_handoff.py'
+      - 'tests_statistics.py'
+      - 'tests_formula_input_validation.py'
       - '.github/workflows/post-release-ux.yml'
   workflow_dispatch:
 
@@ -36,23 +45,38 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Compile UX hotfix
+      - name: Compile hotfix
         run: >-
           python -m py_compile
           petrolab/source_sheet_scope.py
           petrolab/services/source_sheet_image_service.py
           petrolab/ui/source_sheet_image_wizard.py
           petrolab/ui/intake_workflow.py
+          petrolab/ui/cluster_plot_handoff.py
           petrolab/ui/pages/v0160_user_ux_hotfix.py
           petrolab/ui/pages/v0160_phase_queue_hotfix.py
           petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py
           petrolab/ui/pages/v0160_statistics_integrity_hotfix.py
           petrolab/ui/pages/v0160_quick_image_entry_hotfix.py
+          petrolab/ui/pages/v0160_cluster_statistics_hotfix.py
+          petrolab/ui/pages/v0160_cluster_xy_hotfix.py
+          petrolab/statistics.py
+          petrolab/minerals/input_validation.py
+          petrolab/minerals/runtime_fixes.py
           petrolab/oxide_mineral_recognition.py
           petrolab/mineral_recognition_extended.py
           tests_post_release_ux.py
+          tests_cluster_xy_handoff.py
+          tests_statistics.py
+          tests_formula_input_validation.py
       - name: Run source-sheet and phase-repair regression
         run: python tests_post_release_ux.py
+      - name: Run cluster to XY regression
+        run: python tests_cluster_xy_handoff.py
+      - name: Run statistics zero-floor regression
+        run: python tests_statistics.py
+      - name: Run formula zero-floor regression
+        run: python tests_formula_input_validation.py
       - name: Run universal staging regression
         run: python tests_staging_import.py
       - name: Run Streamlit smoke
