@@ -26,6 +26,16 @@ EXTENDED_RULESET_VERSION = (
 )
 EXTENDED_REFERENCE_VERSION = f"{MINERAL_REFERENCE_VERSION}+alkaline-{ALKALINE_REFERENCE_VERSION}"
 
+# Stable public vocabulary for UI controls. These are conservative phase/family
+# names supported somewhere in the recognition stack; species-level manual choices
+# may extend this list without changing automatic recognition confidence rules.
+MINERAL_KEYS = (
+    "apatite", "monazite", "xenotime", "baddeleyite", "zircon",
+    "perovskite", "titanite", "rutile", "barite", "celestine",
+    "carbonate", "spinel", "silica", "feldspar", "feldspathoid",
+    "mica", "clinopyroxene", "amphibole", "garnet", "olivine",
+)
+
 
 def score_candidates_extended(row: Mapping[str, Any]) -> dict[str, MineralCandidate]:
     """Merge the general scorer with specialist alkaline and conservative oxide layers."""
