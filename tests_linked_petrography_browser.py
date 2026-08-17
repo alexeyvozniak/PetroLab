@@ -315,7 +315,7 @@ def main() -> None:
         _assert_no_exception(driver)
         _save(driver, "03_back_on_exact_bse.png")
 
-        print("PetroLab browser golden path graph ↔ BSE: OK")
+        print("PetroLab browser golden path graph <-> BSE: OK")
     finally:
         if driver is not None:
             driver.quit()
