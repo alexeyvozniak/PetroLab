@@ -39,3 +39,7 @@ del _install_user_derived_runtime
 from .textural_runtime import install as _install_textural_runtime
 _install_textural_runtime()
 del _install_textural_runtime
+
+from .phase_runtime import install as _install_phase_runtime
+_install_phase_runtime()
+del _install_phase_runtime
