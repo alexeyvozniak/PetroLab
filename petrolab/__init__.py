@@ -43,3 +43,7 @@ del _install_textural_runtime
 from .phase_runtime import install as _install_phase_runtime
 _install_phase_runtime()
 del _install_phase_runtime
+
+from .dataset_membership_runtime import install as _install_dataset_membership_runtime
+_install_dataset_membership_runtime()
+del _install_dataset_membership_runtime
