@@ -21,11 +21,13 @@ def _row_label(dataframe: pd.DataFrame, index: object) -> str:
 
 
 def validate_formula_inputs(dataframe: pd.DataFrame) -> None:
-    """Reject supplied chemistry that has no physical structural-formula interpretation.
+    """Reject inputs that cannot be interpreted numerically by structural formulas.
 
-    Empty cells remain missing analytical values and are handled by row-validity/QC logic.
-    Non-empty nonnumeric tokens, infinities and negative concentrations are different: they
-    must not enter oxygen normalization and yield a plausible-looking APFU result.
+    Small negative analytical concentrations are a legitimate output of background
+    correction near the detection limit. They are therefore not rejected here;
+    the formula runtime floors them to zero only in its calculation copy and keeps
+    the raw source values unchanged. Nonnumeric and infinite values remain hard
+    errors because they have no numerical interpretation at all.
     """
     problems: list[str] = []
     for column in dataframe.columns:
@@ -40,12 +42,10 @@ def validate_formula_inputs(dataframe: pd.DataFrame) -> None:
         nonnumeric = nonempty & numeric.isna()
         finite = pd.Series(np.isfinite(numeric.to_numpy(dtype=float)), index=dataframe.index)
         nonfinite = numeric.notna() & ~finite
-        negative = numeric.lt(0).fillna(False)
 
         for mask, reason in (
             (nonnumeric, "нечисловое значение"),
             (nonfinite, "нефинитное значение"),
-            (negative, "отрицательная концентрация"),
         ):
             for index in dataframe.index[mask]:
                 problems.append(f"{name}, {_row_label(dataframe, index)}: {reason}")
