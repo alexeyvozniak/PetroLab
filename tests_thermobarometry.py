@@ -39,6 +39,32 @@ assert math.isfinite(float(advisory.loc[0, "T (°C)"]))
 assert abs(float(calculated.loc[0, "T (K)"]) - 1462.890265) < 1e-5
 assert abs(float(calculated.loc[0, "T (°C)"]) - 1189.740265) < 1e-5
 
+# Negative analytical Cr cannot be a physical concentration. For Eq. 32d PetroLab
+# floors only the calculation copy to zero, preserves the raw analysis, and warns.
+# P2O5 is not an Eq. 32d input at all and must never block the Cpx thermometer.
+negative_trace = _cpx()
+negative_trace.loc[0, "Cr2O3"] = -0.01
+negative_trace.loc[0, "P2O5"] = -0.04
+negative_trace_before = negative_trace.copy(deep=True)
+negative_trace_result = calculate_putirka_2008_cpx_only_t32d(
+    negative_trace,
+    pressure_kbar=5.0,
+    applicability_confirmed=True,
+)
+zero_cr = _cpx()
+zero_cr.loc[0, "Cr2O3"] = 0.0
+zero_cr_result = calculate_putirka_2008_cpx_only_t32d(
+    zero_cr,
+    pressure_kbar=5.0,
+    applicability_confirmed=True,
+)
+assert negative_trace_result.loc[0, "Thermobarometry status"] == QC_WARNING
+assert math.isfinite(float(negative_trace_result.loc[0, "T (°C)"]))
+assert abs(float(negative_trace_result.loc[0, "T (K)"]) - float(zero_cr_result.loc[0, "T (K)"])) < 1e-12
+assert "Cr2O3=-0.01" in negative_trace_result.loc[0, "Thermobarometry reason"]
+assert "P2O5" not in negative_trace_result.loc[0, "Thermobarometry reason"]
+pd.testing.assert_frame_equal(negative_trace, negative_trace_before)
+
 incomplete = _cpx().drop(columns=["K2O"])
 blocked = calculate_putirka_2008_cpx_only_t32d(incomplete, pressure_kbar=5.0, applicability_confirmed=True)
 assert blocked.loc[0, "Thermobarometry status"] == QC_INSUFFICIENT_INPUT
