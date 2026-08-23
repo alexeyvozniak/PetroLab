@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 from petrolab.dataframe_utils import dataset_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
@@ -224,6 +225,35 @@ def _pick_points(image, *, key: str, count: int, fields: list[dict] | None = Non
     return points
 
 
+def _draw_field_geometry(image, *, fields: list[dict], markers: list[dict], key: str) -> dict | None:
+    """Accept the last rectangle drawn on a real canvas, in preview-relative coordinates."""
+    preview = render_slide_overlay(image, markers, fields)
+    width, height = preview.size
+    scale = min(1.0, 980 / width)
+    canvas_width, canvas_height = max(1, round(width * scale)), max(1, round(height * scale))
+    st.caption("Протяните мышью от одного угла к другому. Удерживайте Shift, чтобы растянуть квадрат.")
+    result = st_canvas(
+        fill_color="rgba(69,214,200,0.12)", stroke_width=2, stroke_color="#45D6C8", background_image=preview,
+        update_streamlit=True, height=canvas_height, width=canvas_width, drawing_mode="rect", key=key,
+    )
+    objects = (result.json_data or {}).get("objects", [])
+    if not objects:
+        return None
+    drawn = objects[-1]
+    if str(drawn.get("type")) != "rect":
+        return None
+    left, top = float(drawn.get("left", 0)), float(drawn.get("top", 0))
+    drawn_width = float(drawn.get("width", 0)) * float(drawn.get("scaleX", 1))
+    drawn_height = float(drawn.get("height", 0)) * float(drawn.get("scaleY", 1))
+    if drawn_width <= 0 or drawn_height <= 0:
+        return None
+    x, y = max(0.0, left / canvas_width), max(0.0, top / canvas_height)
+    right, bottom = min(1.0, (left + drawn_width) / canvas_width), min(1.0, (top + drawn_height) / canvas_height)
+    # Fabric keeps a Shift-drawn rectangle square. Preserve that semantic state in data too.
+    shape = "square" if abs((right - x) - (bottom - y)) <= 0.01 else "rectangle"
+    return field_geometry_from_corners((x, y), (right, bottom), shape=shape)
+
+
 def _add_field(project_id: int, images: list) -> None:
     render_section_header("2. Поле", "Два щелчка по снимку — только прямоугольник или квадрат")
     image = _image_choice(images, "slide_field_image")
@@ -232,19 +262,15 @@ def _add_field(project_id: int, images: list) -> None:
     st.caption("Поле — участок шлифа, к которому затем привязываются точки и малые BSE. Задайте его первым и вторым углом.")
     name = st.text_input("Название поля", placeholder="Поле 1 — флогопит", key="slide_field_name")
     note = st.text_input("Заметка (необязательно)", key="slide_field_note")
-    shape_label = st.radio("Форма", ["Прямоугольник", "Квадрат"], horizontal=True, key="slide_field_shape")
-    shape = "square" if shape_label == "Квадрат" else "rectangle"
-    st.caption("1. Нажмите первый угол. 2. Нажмите противоположный угол. Сетка шага 2 % нужна только для точного выбора; в данных сохраняются относительные координаты.")
-    picked = _pick_points(image, key=f"slide_field_{image.id}", count=2, fields=fields, markers=markers)
-    geometry = None
-    if len(picked) == 2:
-        try:
+    geometry = _draw_field_geometry(image, fields=fields, markers=markers, key=f"slide_field_draw_{image.id}")
+    if geometry is not None:
+        st.success(f"Будет создан {'квадрат' if geometry['kind'] == 'square' else 'прямоугольник'}: {geometry['width'] * 100:.0f} × {geometry['height'] * 100:.0f} % снимка.")
+    with st.expander("Запасной путь: два щелчка или ручные координаты"):
+        shape_label = st.radio("Форма", ["Прямоугольник", "Квадрат"], horizontal=True, key="slide_field_shape")
+        shape = "square" if shape_label == "Квадрат" else "rectangle"
+        picked = _pick_points(image, key=f"slide_field_{image.id}", count=2, fields=fields, markers=markers)
+        if len(picked) == 2:
             geometry = field_geometry_from_corners(picked[0], picked[1], shape=shape)
-        except ValueError as exc:
-            st.warning(str(exc))
-        else:
-            st.success(f"Будет создан {'квадрат' if shape == 'square' else 'прямоугольник'}: {geometry['width'] * 100:.0f} × {geometry['height'] * 100:.0f} % снимка.")
-    with st.expander("Ввести координаты вручную"):
         manual_x, manual_y = _coordinate_inputs("slide_field")
         left, right = st.columns(2)
         with left:
