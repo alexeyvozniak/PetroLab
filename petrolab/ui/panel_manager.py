@@ -279,11 +279,12 @@ def render_panel_manager(
         if str(row.get("Тип")) != "Spider (REE / trace)":
             continue
         defaults_for_spider = list(dict.fromkeys([str(row.get("X")), str(row.get("Y")), str(row.get("Z"))]))
-        spider_variables[int(index)] = st.multiselect(
-            f"Элементы spider · панель {int(row.get('Панель') or index + 1)}",
+        panel_number = int(row.get("Панель") or index + 1)
+        spider_variables[panel_number] = st.multiselect(
+            f"Элементы spider · панель {panel_number}",
             numeric,
             default=[value for value in defaults_for_spider if value in numeric],
-            key=f"{key_prefix}_spider_variables_{int(row.get('Панель') or index + 1)}",
+            key=f"{key_prefix}_spider_variables_{panel_number}",
             help="Выберите последовательность элементов или нормированных содержаний для spider-графика.",
         )
 
@@ -296,7 +297,7 @@ def render_panel_manager(
             problems.append(f"панель {panel_number}: X и Y совпадают")
         if panel_type == "Треугольный (A–B–C)" and len(set(components)) < 3:
             problems.append(f"панель {panel_number}: A, B и C должны быть разными")
-        if panel_type == "Spider (REE / trace)" and len(spider_variables.get(int(index), [])) < 2:
+        if panel_type == "Spider (REE / trace)" and len(spider_variables.get(panel_number, [])) < 2:
             problems.append(f"панель {panel_number}: для spider нужны хотя бы два элемента")
         problems.extend(_panel_range_problems(row, panel_number))
     positions = pd.to_numeric(edited["Порядок"], errors="coerce")
@@ -311,6 +312,7 @@ def render_panel_manager(
     for _, row in prepared.iterrows():
         x, y, z = str(row["X"]), str(row["Y"]), str(row["Z"])
         panel_type = str(row.get("Тип") or "Бинарный (XY)")
+        panel_number = int(row.get("Панель") or 0)
         common = {
             "title": str(row.get("Название") or "").strip(),
             "log_x": bool(row.get("log X")),
@@ -325,7 +327,7 @@ def render_panel_manager(
         elif panel_type == "Spider (REE / trace)":
             panels.append({
                 "kind": "spider",
-                "variables": spider_variables.get(int(index), [x, y, z]),
+                "variables": spider_variables.get(panel_number, [x, y, z]),
                 "x_label": "Элементы",
                 "y_label": "Нормированное содержание",
                 **common,
