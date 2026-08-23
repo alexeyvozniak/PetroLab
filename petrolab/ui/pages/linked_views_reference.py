@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Reference-led linked plotting workspace.
 
-The screen intentionally follows the approved Product Design mockups: one compact
-selection toolbar, a left preselection tray, a clean grid of linked plots, and a
-right encoding panel. The underlying Selection stays non-destructive.
+The layout follows the approved PetroLab Product Design reference: one compact
+selection toolbar, a left preselection tray, a clean grid of linked scientific
+plots and a right encoding panel. Selection remains transient and non-destructive.
 """
 
 import matplotlib.pyplot as plt
@@ -28,7 +28,7 @@ _SYMBOLS = ("circle", "square", "triangle-up", "diamond", "cross", "hexagon")
 
 
 def _categorical_columns(frame: pd.DataFrame) -> list[str]:
-    preferred = ["Generation", "Положение", "Method", "Метод", "Минерал", "Mineral", "Источник", "Набор"]
+    preferred = ["Generation", "Положение", "Textural zone", "Method", "Метод", "Минерал", "Mineral", "Источник", "Набор"]
     return [column for column in preferred if column in frame.columns and 1 < frame[column].nunique(dropna=True) <= 32]
 
 
@@ -40,13 +40,11 @@ def _default_numeric(numeric: list[str], *preferred: str, fallback: int = 0) -> 
         match = lowered.get(name.casefold())
         if match is not None:
             return match
-    if not numeric:
-        return ""
-    return numeric[min(max(fallback, 0), len(numeric) - 1)]
+    return numeric[min(max(fallback, 0), len(numeric) - 1)] if numeric else ""
 
 
 def _point_label(row: pd.Series) -> str:
-    parts = []
+    parts: list[str] = []
     for key in ("Sample", "Образец", "Point", "Точка", "Grain", "Зерно"):
         value = row.get(key)
         if value is not None and str(value).strip() and str(value).lower() != "nan":
@@ -63,6 +61,7 @@ def _scatter(
     color_by: str | None,
     symbol_by: str | None,
     active: set[str],
+    dragmode: str,
 ) -> go.Figure:
     work = frame.copy()
     work[x] = pd.to_numeric(work[x], errors="coerce")
@@ -80,8 +79,7 @@ def _scatter(
             if subset.empty:
                 continue
             custom = [[str(row["_analysis_id"]), _point_label(row)] for _, row in subset.iterrows()]
-            ids = [str(value[0]) for value in custom]
-            selected = [index for index, analysis_id in enumerate(ids) if analysis_id in active]
+            selected = [index for index, item in enumerate(custom) if str(item[0]) in active]
             figure.add_trace(
                 go.Scattergl(
                     x=subset[x],
@@ -94,11 +92,11 @@ def _scatter(
                         "color": color_map[str(color_value)],
                         "symbol": symbol_map[str(symbol_value)],
                         "size": 8,
-                        "opacity": 0.9 if not active else 0.35,
-                        "line": {"width": 0.6, "color": "#ffffff"},
+                        "opacity": 0.86 if not active else 0.32,
+                        "line": {"width": 0.7, "color": "#ffffff"},
                     },
                     selected={"marker": {"size": 11, "opacity": 1.0, "line": {"color": "#0f7f82", "width": 2}}},
-                    unselected={"marker": {"opacity": 0.16}},
+                    unselected={"marker": {"opacity": 0.14}},
                     hovertemplate=f"<b>{x}</b>: %{{x:.5g}}<br><b>{y}</b>: %{{y:.5g}}<br>%{{customdata[1]}}<extra></extra>",
                 )
             )
@@ -108,7 +106,7 @@ def _scatter(
         title={"text": title, "font": {"size": 14}},
         xaxis_title=x,
         yaxis_title=y,
-        dragmode="lasso",
+        dragmode=dragmode,
         clickmode="event+select",
         showlegend=False,
         paper_bgcolor="#ffffff",
@@ -129,7 +127,7 @@ def _ternary(frame: pd.DataFrame, a: str, b: str, c: str, active: set[str]) -> g
         custom = getattr(trace, "customdata", None)
         if custom is None:
             continue
-        selected = []
+        selected: list[int] = []
         for index, item in enumerate(custom):
             candidate = item[0] if isinstance(item, (list, tuple)) else item
             if str(candidate) in active:
@@ -138,7 +136,13 @@ def _ternary(frame: pd.DataFrame, a: str, b: str, c: str, active: set[str]) -> g
             trace.selectedpoints = selected
             trace.selected = {"marker": {"size": 11, "opacity": 1.0, "line": {"color": "#0f7f82", "width": 2}}}
             trace.unselected = {"marker": {"opacity": 0.18}}
-    figure.update_layout(height=330, margin={"l": 18, "r": 18, "t": 42, "b": 28}, showlegend=False, paper_bgcolor="#ffffff")
+    figure.update_layout(
+        height=330,
+        margin={"l": 18, "r": 18, "t": 42, "b": 28},
+        showlegend=False,
+        paper_bgcolor="#ffffff",
+        font={"color": "#26364a", "size": 11},
+    )
     return figure
 
 
@@ -173,12 +177,18 @@ def _spider(frame: pd.DataFrame, active: set[str]) -> None:
 
 
 def _apply_pending(pending: set[str], mode_label: str) -> None:
-    if not pending:
-        return
     mode = {"Заменить": "replace", "Добавить": "add", "Исключить": "subtract"}.get(mode_label, "replace")
     updated = set_selection(sorted(pending), origin="Построение · связанные панели", mode=mode)
     st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
     st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
+
+
+def _panel_defaults(numeric: list[str]) -> tuple[str, str, str, str]:
+    x_a = _default_numeric(numeric, "TiO2", "TiO₂", fallback=0)
+    y_a = _default_numeric([item for item in numeric if item != x_a], "MgO", fallback=0)
+    x_d = _default_numeric(numeric, "SiO2", "SiO₂", fallback=0)
+    y_d = _default_numeric([item for item in numeric if item != x_d], "K2O", "K₂O", fallback=0)
+    return x_a, y_a, x_d, y_d
 
 
 def render_linked_views_reference_page() -> None:
@@ -199,12 +209,13 @@ def render_linked_views_reference_page() -> None:
     if len(numeric) < 2:
         st.info("Нужны как минимум две числовые колонки.")
         return
+
     categories = _categorical_columns(frame)
     context = read_selection()
     available = set(frame["_analysis_id"].astype(str))
     active = set(context.analysis_ids) & available
 
-    toolbar = st.columns([1.7, 1.4, .75, .85, .9])
+    toolbar = st.columns([1.75, 1.55, .72, .86, .9])
     with toolbar[0]:
         interaction = st.segmented_control(
             "Выделение",
@@ -232,38 +243,50 @@ def render_linked_views_reference_page() -> None:
     with toolbar[4]:
         st.caption(f"Выбрано {len(active)} точек")
 
+    x_a, y_a, x_d, y_d = _panel_defaults(numeric)
+    color_by: str | None = None
+    symbol_by: str | None = None
+    ternary_values: tuple[str, str, str] | None = tuple(numeric[:3]) if len(numeric) >= 3 else None
+
     with st.expander("Настроить панели", expanded=False):
         cfg = st.columns(4)
-        x_a = cfg[0].selectbox("A · X", numeric, index=numeric.index(_default_numeric(numeric, "TiO2", "TiO₂", fallback=0)), key="pd_a_x")
-        y_a_default = _default_numeric(numeric, "MgO", fallback=1)
-        y_a = cfg[0].selectbox("A · Y", [item for item in numeric if item != x_a], index=max(0, [item for item in numeric if item != x_a].index(y_a_default) if y_a_default in [item for item in numeric if item != x_a] else 0), key="pd_a_y")
-        x_d = cfg[1].selectbox("D · X", numeric, index=numeric.index(_default_numeric(numeric, "SiO2", "SiO₂", fallback=0)), key="pd_d_x")
-        d_opts = [item for item in numeric if item != x_d]
-        y_d_default = _default_numeric(d_opts, "K2O", "K₂O", fallback=0)
-        y_d = cfg[1].selectbox("D · Y", d_opts, index=d_opts.index(y_d_default) if y_d_default in d_opts else 0, key="pd_d_y")
+        x_a = cfg[0].selectbox("A · X", numeric, index=numeric.index(x_a), key="pd_a_x")
+        a_y_options = [item for item in numeric if item != x_a]
+        y_a = cfg[0].selectbox("A · Y", a_y_options, index=a_y_options.index(y_a) if y_a in a_y_options else 0, key="pd_a_y")
+        x_d = cfg[1].selectbox("D · X", numeric, index=numeric.index(x_d), key="pd_d_x")
+        d_y_options = [item for item in numeric if item != x_d]
+        y_d = cfg[1].selectbox("D · Y", d_y_options, index=d_y_options.index(y_d) if y_d in d_y_options else 0, key="pd_d_y")
         color_choice = cfg[2].selectbox("Цвет", ["Без группировки", *categories], key="pd_linked_color")
         symbol_choice = cfg[3].selectbox("Значок", ["Без группировки", *categories], key="pd_linked_symbol")
         color_by = None if color_choice == "Без группировки" else color_choice
         symbol_by = None if symbol_choice == "Без группировки" else symbol_choice
 
-        ternary_defaults = [_default_numeric(numeric, "F", fallback=0), _default_numeric(numeric, "Cl", fallback=1), _default_numeric(numeric, "OH", fallback=2)]
-        ternary_defaults = list(dict.fromkeys(ternary_defaults))
-        while len(ternary_defaults) < 3:
-            ternary_defaults.append(next(value for value in numeric if value not in ternary_defaults))
-        tcols = st.columns(3)
-        a = tcols[0].selectbox("B · вершина A", numeric, index=numeric.index(ternary_defaults[0]), key="pd_t_a")
-        b_opts = [value for value in numeric if value != a]
-        b = tcols[1].selectbox("B · вершина B", b_opts, index=b_opts.index(ternary_defaults[1]) if ternary_defaults[1] in b_opts else 0, key="pd_t_b")
-        c_opts = [value for value in numeric if value not in {a, b}]
-        c = tcols[2].selectbox("B · вершина C", c_opts, index=c_opts.index(ternary_defaults[2]) if ternary_defaults[2] in c_opts else 0, key="pd_t_c")
-    if "color_by" not in locals():
-        color_by = None
-        symbol_by = None
-        x_a = _default_numeric(numeric, "TiO2", "TiO₂", fallback=0)
-        y_a = _default_numeric([item for item in numeric if item != x_a], "MgO", fallback=0)
-        x_d = _default_numeric(numeric, "SiO2", "SiO₂", fallback=0)
-        y_d = _default_numeric([item for item in numeric if item != x_d], "K2O", "K₂O", fallback=0)
-        a, b, c = numeric[0], numeric[1], numeric[2] if len(numeric) > 2 else numeric[0]
+        if len(numeric) >= 3:
+            defaults = [
+                _default_numeric(numeric, "F", fallback=0),
+                _default_numeric(numeric, "Cl", fallback=1),
+                _default_numeric(numeric, "OH", fallback=2),
+            ]
+            unique_defaults: list[str] = []
+            for value in defaults:
+                if value not in unique_defaults:
+                    unique_defaults.append(value)
+            for value in numeric:
+                if len(unique_defaults) >= 3:
+                    break
+                if value not in unique_defaults:
+                    unique_defaults.append(value)
+            tcols = st.columns(3)
+            a = tcols[0].selectbox("B · вершина A", numeric, index=numeric.index(unique_defaults[0]), key="pd_t_a")
+            b_options = [value for value in numeric if value != a]
+            b_default = unique_defaults[1] if unique_defaults[1] in b_options else b_options[0]
+            b = tcols[1].selectbox("B · вершина B", b_options, index=b_options.index(b_default), key="pd_t_b")
+            c_options = [value for value in numeric if value not in {a, b}]
+            c_default = unique_defaults[2] if unique_defaults[2] in c_options else c_options[0]
+            c = tcols[2].selectbox("B · вершина C", c_options, index=c_options.index(c_default), key="pd_t_c")
+            ternary_values = (a, b, c)
+        else:
+            st.caption("Для тройной диаграммы нужны три числовые колонки. Остальные панели остаются доступными.")
 
     left, center, right = st.columns([1.05, 4.35, 1.18], gap="small")
     with left:
@@ -272,46 +295,68 @@ def render_linked_views_reference_page() -> None:
             st.markdown(f'<div class="pd-big-count">{len(active)}</div><div class="pd-screen-subtitle">точек</div>', unsafe_allow_html=True)
             if context.origin:
                 st.markdown(f'<span class="pd-chip"><span class="pd-dot"></span>{context.origin}</span>', unsafe_allow_html=True)
-            if active:
-                st.caption("Выбор синхронизирован во всех панелях")
-            else:
-                st.caption("Выделите точки на одной из интерактивных панелей")
+            st.caption("Выбор синхронизирован во всех панелях" if active else "Выделите точки на интерактивной панели")
             group_name = st.text_input("Название группы", placeholder="Например, каймы флогопита", key="pd_group_name")
-            if st.button("Сохранить как рабочую группу", type="primary", width="stretch", disabled=not active or not group_name.strip(), key="pd_save_group"):
+            can_save_group = bool(active and group_name.strip() and scope.project_id is not None)
+            if st.button("Сохранить как рабочую группу", type="primary", width="stretch", disabled=not can_save_group, key="pd_save_group"):
                 try:
-                    save_selection(scope.project_id, name=group_name, analysis_ids=sorted(active), context={"origin": "linked_views_reference"})
+                    save_selection(int(scope.project_id), name=group_name, analysis_ids=sorted(active), context={"origin": "linked_views_reference"})
                 except Exception as exc:
                     st.error(str(exc))
                 else:
                     st.success("Рабочая группа сохранена")
+            if scope.project_id is None and active:
+                st.caption("Именованную группу можно сохранить после выбора одного проекта.")
             st.caption("Исходные данные не изменяются")
 
     pending: set[str] = set()
+    dragmode = "lasso" if interaction == "Лассо" else "select"
     selection_modes = ("points", "box", "lasso")
-    dragmode = {"Клик": "select", "Рамка": "select", "Лассо": "lasso"}.get(interaction, "lasso")
 
     with center:
         top = st.columns(2, gap="small")
         with top[0]:
-            fig = _scatter(frame, x_a, y_a, title=f"A  {x_a} vs {y_a}", color_by=color_by, symbol_by=symbol_by, active=active)
-            fig.update_layout(dragmode=dragmode)
-            event = st.plotly_chart(fig, width="stretch", key="pd_linked_a", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False, "scrollZoom": True})
+            event = st.plotly_chart(
+                _scatter(frame, x_a, y_a, title=f"A  {x_a} vs {y_a}", color_by=color_by, symbol_by=symbol_by, active=active, dragmode=dragmode),
+                width="stretch",
+                key="pd_linked_a",
+                on_select="rerun",
+                selection_mode=selection_modes,
+                config={"displaylogo": False, "scrollZoom": True},
+            )
             pending |= set(selected_analysis_ids(event))
         with top[1]:
-            ternary = _ternary(frame, a, b, c, active)
-            if ternary is None:
-                st.info("Для тройной диаграммы нет валидных строк.")
+            if ternary_values is None:
+                with st.container(border=True):
+                    st.markdown("**B  Тройная диаграмма**")
+                    st.caption("Нужны три числовые компоненты.")
             else:
-                event = st.plotly_chart(ternary, width="stretch", key="pd_linked_b", on_select="rerun", selection_mode=("points",), config={"displaylogo": False})
-                pending |= set(selected_analysis_ids(event))
+                ternary = _ternary(frame, *ternary_values, active)
+                if ternary is None:
+                    st.info("Для тройной диаграммы нет валидных строк.")
+                else:
+                    event = st.plotly_chart(
+                        ternary,
+                        width="stretch",
+                        key="pd_linked_b",
+                        on_select="rerun",
+                        selection_mode=("points",),
+                        config={"displaylogo": False},
+                    )
+                    pending |= set(selected_analysis_ids(event))
 
         bottom = st.columns(2, gap="small")
         with bottom[0]:
             _spider(frame, active)
         with bottom[1]:
-            fig = _scatter(frame, x_d, y_d, title=f"D  {x_d} vs {y_d}", color_by=color_by, symbol_by=symbol_by, active=active)
-            fig.update_layout(dragmode=dragmode)
-            event = st.plotly_chart(fig, width="stretch", key="pd_linked_d", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False, "scrollZoom": True})
+            event = st.plotly_chart(
+                _scatter(frame, x_d, y_d, title=f"D  {x_d} vs {y_d}", color_by=color_by, symbol_by=symbol_by, active=active, dragmode=dragmode),
+                width="stretch",
+                key="pd_linked_d",
+                on_select="rerun",
+                selection_mode=selection_modes,
+                config={"displaylogo": False, "scrollZoom": True},
+            )
             pending |= set(selected_analysis_ids(event))
 
         if int(panels) == 6:
@@ -321,11 +366,24 @@ def render_linked_views_reference_page() -> None:
             f_x = _default_numeric(numeric, "Rb", fallback=0)
             f_y = _default_numeric([item for item in numeric if item != f_x], "Sr", fallback=0)
             with extra[0]:
-                event = st.plotly_chart(_scatter(frame, e_x, e_y, title=f"E  {e_x} vs {e_y}", color_by=color_by, symbol_by=symbol_by, active=active), width="stretch", key="pd_linked_e", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False})
+                event = st.plotly_chart(
+                    _scatter(frame, e_x, e_y, title=f"E  {e_x} vs {e_y}", color_by=color_by, symbol_by=symbol_by, active=active, dragmode=dragmode),
+                    width="stretch", key="pd_linked_e", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False},
+                )
                 pending |= set(selected_analysis_ids(event))
             with extra[1]:
-                event = st.plotly_chart(_scatter(frame, f_x, f_y, title=f"F  {f_x} vs {f_y}", color_by=color_by, symbol_by=symbol_by, active=active), width="stretch", key="pd_linked_f", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False})
+                event = st.plotly_chart(
+                    _scatter(frame, f_x, f_y, title=f"F  {f_x} vs {f_y}", color_by=color_by, symbol_by=symbol_by, active=active, dragmode=dragmode),
+                    width="stretch", key="pd_linked_f", on_select="rerun", selection_mode=selection_modes, config={"displaylogo": False},
+                )
                 pending |= set(selected_analysis_ids(event))
+
+        if pending:
+            apply_cols = st.columns([2.6, 1.15])
+            apply_cols[0].caption(f"На графиках выделено {len(pending)} точек. Действие: {mode_label.lower()} текущую рабочую выборку.")
+            if apply_cols[1].button(f"{mode_label} выборку", type="primary", width="stretch", key="pd_linked_apply"):
+                _apply_pending(pending, mode_label)
+                st.rerun()
 
     with right:
         with st.container(border=True):
@@ -343,7 +401,3 @@ def render_linked_views_reference_page() -> None:
             st.markdown('<div class="pd-panel-title">Связанный выбор</div>', unsafe_allow_html=True)
             st.markdown(f"**{len(active)} точек выделено**")
             st.caption("во всех панелях")
-
-    if pending:
-        _apply_pending(pending, mode_label)
-        st.rerun()
