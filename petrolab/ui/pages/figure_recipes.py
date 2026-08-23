@@ -5,10 +5,52 @@ import json
 import streamlit as st
 
 from petrolab.db import list_plot_recipes
+from petrolab.figure_composer import compose_figure, image_bytes
 from petrolab.figure_recipes import LAYOUTS, PANEL_TYPES, delete_figure_recipe, list_figure_recipes, save_figure_recipe
 from petrolab.publication_manifest import manifest_json_bytes
 from petrolab.ui.layout import render_page_header, render_section_header
 from petrolab.ui.project_context import active_project
+
+
+def _render_composer(record: dict) -> None:
+    """Turn the reproducible recipe into a reviewable mixed publication image."""
+    with st.expander("Собрать PNG/PDF из готовых панелей", expanded=False):
+        st.caption(
+            "Загрузите экспортированные PNG/JPG/WebP панели. PetroLab сохранит их пропорции, поставит подписи "
+            "A–F и отдаст один PNG, PDF и тот же manifest. Исходные SVG остаются самостоятельными векторными файлами."
+        )
+        panels: dict[str, bytes] = {}
+        filenames: dict[str, str] = {}
+        for cell in record["cells"]:
+            position = str(cell["position"])
+            upload = st.file_uploader(
+                f"Панель {position} · {cell['type']} · {cell['reference'] or 'внешний файл'}",
+                type=["png", "jpg", "jpeg", "webp"], key=f"figure_compose_{record['id']}_{position}",
+            )
+            if upload is not None:
+                panels[position] = upload.getvalue()
+                filenames[position] = upload.name
+        if len(panels) != len(record["cells"]):
+            st.caption(f"Загружено панелей: {len(panels)} из {len(record['cells'])}.")
+            return
+        try:
+            composed = compose_figure(layout_name=str(record["layout_name"]), cells=record["cells"], panels=panels)
+            png = image_bytes(composed, "png")
+            pdf = image_bytes(composed, "pdf")
+        except Exception as exc:
+            st.error(f"Не удалось собрать Figure Recipe: {exc}")
+            return
+        st.image(png, caption=f"{record['name']} · preview", width="stretch")
+        composed_manifest = {
+            "schema": "petrolab-figure-composite/v1", "recipe_id": record["id"], "name": record["name"],
+            "layout": record["layout_name"], "cells": record["cells"], "panel_files": filenames,
+            "note": record["note"], "updated_at": record["updated_at"],
+        }
+        base_name = str(record["name"]).replace("/", "_").replace("\\", "_")
+        left, middle, right = st.columns(3)
+        left.download_button("PNG composite", png, file_name=f"{base_name}.png", mime="image/png", key=f"figure_png_{record['id']}")
+        middle.download_button("PDF composite", pdf, file_name=f"{base_name}.pdf", mime="application/pdf", key=f"figure_pdf_{record['id']}")
+        right.download_button("Composite manifest", manifest_json_bytes(composed_manifest), file_name=f"{base_name}_composite_manifest.json", mime="application/json", key=f"figure_composite_manifest_{record['id']}")
 
 
 def _chart_type(config: dict) -> str:
@@ -72,3 +114,4 @@ def render_figure_recipes_page() -> None:
         if right.button("Удалить", key=f"figure_recipe_delete_{record['id']}"):
             delete_figure_recipe(int(record["id"]))
             st.rerun()
+        _render_composer(record)
