@@ -34,7 +34,7 @@ NAV_SECTIONS = {
     ],
     "Исследование": [
         ("plots", "XY-диаграммы"), ("ternary", "Треугольные"),
-        ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
+        ("linked_views", "Связанные представления"), ("science_plots", "Научные диаграммы"), ("statistics", "Статистика"),
         ("equilibrium", "Равновесные пары"), ("distribution", "Распределение элементов"),
         ("thermobarometry", "Термобарометрия"), ("rocks", "Породы"),
     ],
