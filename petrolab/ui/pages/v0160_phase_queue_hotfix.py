@@ -6,7 +6,7 @@ from typing import Any
 import streamlit as st
 
 from petrolab.analytical_sessions import set_annotations
-from petrolab.db import connect, list_accessible_datasets, unlink_dataset_from_project
+from petrolab.db import connect, list_accessible_datasets
 import petrolab.phase_suggestions as _phase_suggestions
 from petrolab.phase_suggestions import _move_rows_to_dataset, _reindex_dataset_rows
 from petrolab.ui.layout import render_badges, render_section_header
@@ -147,9 +147,17 @@ def _repair_nested_splits(project_id: int, pairs: list[tuple[dict[str, Any], dic
             source="manual_repair",
         )
 
-    for child_id in repaired_children:
-        unlink_dataset_from_project(int(project_id), int(child_id))
-        hidden += 1
+    # A dataset can be shared by another project. Keep its empty provenance
+    # record, but hide this redundant child only in the current working context
+    # rather than deleting a scientific source record globally.
+    with connect() as con:
+        for child_id in repaired_children:
+            con.execute(
+                "UPDATE project_dataset_links SET purpose='hidden' WHERE project_id=? AND dataset_id=?",
+                (int(project_id), int(child_id)),
+            )
+            hidden += 1
+        con.commit()
     return moved, hidden
 
 

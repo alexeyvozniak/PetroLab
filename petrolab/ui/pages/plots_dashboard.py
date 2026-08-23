@@ -31,12 +31,15 @@ def _quick_workspace(project_id: int) -> None:
         st.info("В активном проекте нет данных для графика.")
         return
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
-    requested_ids = [int(value) for value in st.session_state.pop("workflow_plot_dataset_ids", [])]
+    # Keep the requested membership stable across ordinary Streamlit reruns.
+    # It is cleared when the researcher changes project/context, rather than
+    # disappearing after the first paint of the chart.
+    requested_ids = [int(value) for value in st.session_state.get("workflow_plot_dataset_ids", [])]
     requested_analysis_ids = {
-        str(value) for value in st.session_state.pop("workflow_plot_analysis_ids", [])
+        str(value) for value in st.session_state.get("workflow_plot_analysis_ids", [])
     }
-    requested_analysis_ids.update(str(value) for value in st.session_state.pop("selection_analysis_ids", []))
-    requested_context = st.session_state.pop("workflow_plot_context", {})
+    requested_analysis_ids.update(str(value) for value in st.session_state.get("selection_analysis_ids", []))
+    requested_context = st.session_state.get("workflow_plot_context", {})
     requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_ids]
     default_labels = requested_labels or list(labels)
     notice = st.session_state.pop("workflow_plot_notice", "")

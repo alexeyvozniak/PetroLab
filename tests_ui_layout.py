@@ -197,7 +197,7 @@ for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive
     assert marker in DESTRUCTIVE_ACTIONS, marker
 rocks = (PAGES / "rocks.py").read_text(encoding="utf-8")
 for marker in [
-    "confirm_then(\"rock_links\"", "confirm_then(\"rock_image\"", "render_pending(",
+    "action_key = f\"rock_links_", "confirm_then(action_key", "confirm_then(\"rock_image\"", "render_pending(",
     "set_mineral_links as _set_mineral_links", "delete_rock_image as _delete_rock_image",
 ]:
     assert marker in rocks, marker

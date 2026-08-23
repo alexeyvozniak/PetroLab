@@ -440,6 +440,27 @@ def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int
         con.commit()
 
 
+def is_bse_image_type(image_type: str) -> bool:
+    """Return whether an image is eligible as a field-specific BSE view."""
+    return str(image_type or "").strip().casefold() == "bse"
+
+
+def link_bse_image_to_field(
+    project_id: int,
+    *,
+    field_id: int,
+    slide_image_id: int,
+    move: bool = True,
+) -> None:
+    """Compatibility entry point for an explicit, single-field BSE attachment."""
+    attach_image_to_slide_field(
+        project_id,
+        field_id=int(field_id),
+        image_id=int(slide_image_id),
+        move=bool(move),
+    )
+
+
 def detach_image_from_slide_field(field_id: int, image_id: int) -> None:
     ensure_slide_schema()
     with connect() as con:
@@ -456,6 +477,11 @@ def list_field_images(project_id: int, *, field_id: int) -> list[SlideImage]:
                ORDER BY i.created_at DESC,i.id DESC""", (int(field_id), int(project_id))
         ).fetchall()
     return [_record_from_row(row) for row in rows]
+
+
+def list_field_bse_images(project_id: int, *, field_id: int) -> list[SlideImage]:
+    """List only BSE records attached to one specific rectangular field."""
+    return [image for image in list_field_images(project_id, field_id=int(field_id)) if is_bse_image_type(image.image_type)]
 
 
 def list_image_fields(project_id: int, *, image_id: int) -> list[dict]:

@@ -23,3 +23,11 @@ del _install_formula_policy
 from .rock_runtime import install as _install_rock_runtime
 _install_rock_runtime()
 del _install_rock_runtime
+
+from .amphibole_runtime import install as _install_amphibole_runtime
+_install_amphibole_runtime()
+del _install_amphibole_runtime
+
+from .user_derived_runtime import install as _install_user_derived_runtime
+_install_user_derived_runtime()
+del _install_user_derived_runtime

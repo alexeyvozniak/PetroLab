@@ -99,7 +99,7 @@ class ProductGuidanceTests(unittest.TestCase):
             "Дополнительные инструменты", "Требует внимания", "Массовые действия",
         ]:
             self.assertIn(marker, navigation)
-        for marker in ["Мои анализы", "Статья / коллега", "Полевые Sample", "pending_study_id"]:
+        for marker in ["Excel / CSV", "PPL / XPL / BSE / карты", "render_intake_workflow", "Добавить данные"]:
             self.assertIn(marker, add_data)
 
 
