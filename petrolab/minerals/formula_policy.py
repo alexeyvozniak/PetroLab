@@ -18,6 +18,12 @@ def _numeric(series: pd.Series) -> pd.Series:
 
 
 def _validate_inputs(df: pd.DataFrame, formulae) -> None:
+    """Reject chemistry that has no numerical interpretation.
+
+    Finite negative concentrations are not rejected: background correction near a
+    detection limit may yield small negative analytical numbers. They are floored to
+    zero later in the calculation copy while source values stay untouched.
+    """
     scientific = set(formulae.OXIDES) | set(getattr(formulae, "HALOGENS", ()))
     for column in [name for name in df.columns if str(name) in scientific]:
         raw = df[column]
@@ -37,10 +43,21 @@ def _validate_inputs(df: pd.DataFrame, formulae) -> None:
         if nonfinite.any():
             row = int(np.flatnonzero(nonfinite.to_numpy())[0]) + 1
             raise ValueError(f"{column}, строка {row}: бесконечное значение недопустимо")
-        negative = numeric.notna() & (numeric < 0)
-        if negative.any():
-            row = int(np.flatnonzero(negative.to_numpy())[0]) + 1
-            raise ValueError(f"{column}, строка {row}: отрицательная концентрация недопустима")
+
+
+def _floor_negative_inputs(df: pd.DataFrame, formulae) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Apply the physical zero floor to chemistry only in a calculation copy."""
+    work = df.copy()
+    scientific = set(formulae.OXIDES) | set(getattr(formulae, "HALOGENS", ()))
+    changed: dict[str, int] = {}
+    for column in [name for name in work.columns if str(name) in scientific]:
+        values = _numeric(work[column])
+        negative = values.notna() & values.lt(0)
+        count = int(negative.sum())
+        if count:
+            work.loc[negative, column] = 0.0
+            changed[str(column)] = count
+    return work, changed
 
 
 def _factor_fe2o3_to_feo(formulae) -> float:
@@ -115,8 +132,14 @@ def install() -> None:
 
     def run(mineral_key: str, df: pd.DataFrame, method_id: str):
         _validate_inputs(df, formulae)
-        work = df.copy()
+        work, floored = _floor_negative_inputs(df, formulae)
         notes: list[str] = []
+        if floored:
+            summary = ", ".join(f"{name}: {count}" for name, count in sorted(floored.items()))
+            notes.append(
+                "Отрицательные аналитические концентрации приняты равными 0 только для расчёта "
+                f"({summary}). Исходные значения сохранены без изменения."
+            )
 
         if method_id in _DROOP and "Fe2O3" in work and _numeric(work["Fe2O3"]).notna().any():
             raise ValueError("Метод Droop нельзя применять, когда Fe³⁺ уже отдельно задан через Fe2O3")
