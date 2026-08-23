@@ -11,18 +11,15 @@ from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-# Nine task-oriented entries are the normal navigation. Implementation pages
-# remain addressable for old recipes/internal links, but they are not menu items.
+# Six daily actions keep the first-level navigation calm. Specialist routes
+# remain addressable through “Дополнительно”, old recipes and internal links.
 PRIMARY_NAV = [
-    ("home", "Главная"),
-    ("workspace", "Данные"),
-    ("plots", "Графики"),
-    ("statistics", "Статистика"),
-    ("thin_section", "Шлифы и изображения"),
-    ("calculate", "Расчёты"),
-    ("publish", "Публикация"),
+    ("home", "Обзор"),
+    ("workspace", "Образцы"),
     ("search", "Поиск"),
-    ("settings", "Настройки"),
+    ("thin_section", "Шлифы"),
+    ("analyses", "Анализы"),
+    ("add_data", "Добавить"),
 ]
 DAILY_NAV = PRIMARY_NAV
 
@@ -69,7 +66,7 @@ _HIDDEN_ROUTE_LABELS = {
     "compare": "Сравнить данные",
     "quick_import": "Быстрый импорт",
     "workflow": "Рабочий процесс",
-    "analyses": "База анализов",
+    "analyses": "Анализы",
     "sources": "Новые анализы",
     "intake": "Источники и литература",
     "images": "Изображения",
