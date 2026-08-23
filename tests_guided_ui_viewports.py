@@ -65,6 +65,14 @@ def _seed(root: Path) -> None:
     replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, 2 + len(frame))))
 
 
+def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str) -> list:
+    """Return visible sidebar buttons with one exact user-facing label."""
+    return [
+        button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
+        if button.is_displayed() and button.text.strip() == label
+    ]
+
+
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
     driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
     driver.set_window_size(1280, 900)
@@ -75,14 +83,14 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) 
         # Secondary routes are intentionally collapsed to keep the everyday
         # navigation short. Open the disclosure only when the requested test
         # route lives there, just as a researcher would.
-        if not any(button.text.strip() == label for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')):
+        if not _visible_sidebar_buttons(driver, label):
             sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
             for details in sidebar.find_elements(By.CSS_SELECTOR, "details"):
                 if "Дополнительные инструменты" in details.text and details.get_attribute("open") is None:
                     details.find_element(By.CSS_SELECTOR, "summary").click()
                     break
             wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
-        buttons = [button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button') if button.is_displayed() and button.text.strip() == label]
+        buttons = _visible_sidebar_buttons(driver, label)
         assert buttons, f"Sidebar button not found: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()

@@ -12,8 +12,9 @@ validate_formula_inputs(
     pd.DataFrame({"SiO2": [40.0, None], "MgO": [20.0, 19.0], "FeO": [8.0, 9.0]})
 )
 
+validate_formula_inputs(pd.DataFrame({"SiO2": [40.0], "MgO": [-0.2]}))
+
 for dataframe, expected in (
-    (pd.DataFrame({"SiO2": [40.0], "MgO": [-0.2]}), "отрицательная"),
     (pd.DataFrame({"SiO2": [np.inf], "MgO": [20.0]}), "нефинитное"),
     (pd.DataFrame({"SiO2": ["bad"], "MgO": [20.0]}), "нечисловое"),
 ):

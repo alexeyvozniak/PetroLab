@@ -233,10 +233,26 @@ def _draw_field_geometry(image, *, fields: list[dict], markers: list[dict], key:
     scale = min(1.0, 980 / width)
     canvas_width, canvas_height = max(1, round(width * scale)), max(1, round(height * scale))
     st.caption("Протяните мышью от одного угла к другому. Удерживайте Shift, чтобы растянуть квадрат.")
-    result = st_canvas(
-        fill_color="rgba(69,214,200,0.12)", stroke_width=2, stroke_color="#45D6C8", background_image=preview,
-        update_streamlit=True, height=canvas_height, width=canvas_width, drawing_mode="rect", key=key,
-    )
+    try:
+        result = st_canvas(
+            fill_color="rgba(69,214,200,0.12)", stroke_width=2, stroke_color="#45D6C8", background_image=preview,
+            update_streamlit=True, height=canvas_height, width=canvas_width, drawing_mode="rect", key=key,
+        )
+    except (AttributeError, TypeError) as exc:
+        # streamlit-drawable-canvas still relies on a removed Streamlit image
+        # helper in some environments. Keep the field workflow usable rather
+        # than leaving the whole Slide screen broken: two precise clicks remain
+        # an explicit fallback for the same rectangle.
+        st.warning(f"Режим растягивания временно недоступен ({exc}). Укажите два угла на изображении.")
+        points = _pick_points(image, key=f"{key}_fallback", count=2, fields=fields, markers=markers)
+        if len(points) != 2:
+            return None
+        (x1, y1), (x2, y2) = points
+        left, right = sorted((x1, x2))
+        top, bottom = sorted((y1, y2))
+        if right <= left or bottom <= top:
+            return None
+        return {"kind": "rectangle", "x": left, "y": top, "width": right - left, "height": bottom - top}
     objects = (result.json_data or {}).get("objects", [])
     if not objects:
         return None

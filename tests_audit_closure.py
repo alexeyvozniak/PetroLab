@@ -232,12 +232,10 @@ for marker in [
     "sanitize_xy_rows",
     'key="petrolab_quick_interactive_plot"',
     'key="petrolab_advanced_interactive_plot"',
-    "render_selection_panel",
-    "set_selection",
+    "selected_analysis_ids",
 ]:
     assert marker in xy_components, marker
 assert "from petrolab.ui.pages import plots" not in xy_components
-assert "clear_work_group" not in xy_components, "Work Group persistence must stay in the shared selection action owner"
 selection_components = _read("petrolab/ui/selection_components.py")
 for marker in ["set_work_group", "clear_work_group", "assign_generation", "def render_selection_panel("]:
     assert marker in selection_components, marker

@@ -61,6 +61,10 @@ def _prepare(
             frame, column_map, _ = apply_measurement_overrides(
                 frame, column_map, (measurement_maps or {}).get(sheet, {})
             )
+            # The runtime importer must preserve the same WDS/EDS provenance
+            # marker as the standard import path, otherwise a browser upload
+            # silently loses its analytical-method context.
+            frame, column_map = svc._attach_detected_method(frame, column_map)
             frame = svc._calculate_mineral(frame, mineral)
         except Exception as exc:
             raise ValueError(f"Лист «{sheet or 'CSV'}» не прошёл preflight: {exc}") from exc
@@ -96,6 +100,7 @@ def _prepare_blocks(
             frame, column_map, _ = apply_measurement_overrides(
                 frame, column_map, (measurement_maps or {}).get(block_id, {})
             )
+            frame, column_map = svc._attach_detected_method(frame, column_map)
             frame = svc._calculate_mineral(frame, mineral)
         except Exception as exc:
             raise ValueError(f"Блок «{title}» не прошёл preflight: {exc}") from exc

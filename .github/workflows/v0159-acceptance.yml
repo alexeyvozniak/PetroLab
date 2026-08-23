@@ -1,4 +1,4 @@
-name: v0.15.9 acceptance audit
+name: v0.16.0 acceptance audit
 
 on:
   push:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Verify installed-client update visibility
         shell: cmd
-        run: python -c "from petrolab import __version__; from petrolab.update_checker import is_newer; assert __version__ == '0.15.9', __version__; assert is_newer(__version__, '0.15.8'); print('0.15.8 clients can detect 0.15.9')"
+        run: python -c "from petrolab import __version__; from petrolab.update_checker import is_newer; assert __version__ == '0.16.0', __version__; assert is_newer(__version__, '0.15.9'); print('0.15.9 clients can detect 0.16.0')"
 
       - name: Guard verified update channel
         shell: cmd
