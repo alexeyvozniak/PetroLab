@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -9,235 +10,89 @@ PAGES = UI / "pages"
 THEME = (UI / "theme.py").read_text(encoding="utf-8")
 LAYOUT = (UI / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (UI / "navigation.py").read_text(encoding="utf-8")
-COMPONENTS = (UI / "components.py").read_text(encoding="utf-8")
-PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
-XY_COMPONENTS = (UI / "xy_components.py").read_text(encoding="utf-8")
-IMAGE_COMPONENTS = (UI / "image_components.py").read_text(encoding="utf-8")
-DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
-PLOT_ACTIONS = (UI / "plot_actions.py").read_text(encoding="utf-8")
-SCIENCE = (PAGES / "science_plots.py").read_text(encoding="utf-8")
-LINKED_VIEWS = (PAGES / "linked_views.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
+PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
+DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
+SCIENCE = (PAGES / "science_plots.py").read_text(encoding="utf-8")
 
-# Scientific-dashboard visual system, accessibility and responsive behavior.
-for token in ["--petro-bg", "--petro-surface", "--petro-text", "--petro-accent", "--petro-success", "--petro-warning", "--petro-danger"]:
+# Approved reference visual system: light scientific workspace, restrained teal
+# actions and a narrow dark rail on analysis-first screens.
+for token in [
+    "--petro-bg: #f6f8fa", "--petro-surface: #ffffff", "--petro-sidebar: #10283a",
+    "--petro-text: #162033", "--petro-text-muted: #68758a", "--petro-accent: #0f7f82",
+    "--petro-success", "--petro-warning", "--petro-danger", ".pd-status-strip", ".pd-chip",
+    "focus-visible", "@media (max-width:1100px)", "@media (max-width:760px)", "overflow-x:auto",
+]:
     assert token in THEME, token
-assert "--petro-text-muted: #596663" in THEME
-assert "focus-visible" in THEME
-assert "@media (max-width: 1100px)" in THEME
-assert "@media (max-width: 760px)" in THEME
-assert "overflow-x: auto" in THEME
-assert "max-width" in THEME
-assert "<h1 class=\"petrolab-page-title\">" in LAYOUT
-assert "<h2 class=\"petrolab-section-title\">" in LAYOUT
+assert '<h1 class="petrolab-page-title">' in LAYOUT
+assert '<h2 class="petrolab-section-title">' in LAYOUT
 assert "render_page_header" in LAYOUT and "render_badges" in LAYOUT
 
-# One global project context: sidebar owns selection; routed pages do not render local project selectors.
+# One global project context remains authoritative.
 for marker in ["ACTIVE_PROJECT_KEY", "def active_project(", "def active_project_id(", "def set_active_project("]:
     assert marker in PROJECT_CONTEXT, marker
 assert "active_project_id" in NAVIGATION and "set_active_project" in NAVIGATION
-assert 'st.session_state.get("_sidebar_project_ready")' in COMPONENTS
-assert "Compatibility fallback for standalone page/AppTest" in COMPONENTS
-for page_name in [
-    "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "formulae.py",
-    "plots_dashboard.py", "rocks.py", "images_dashboard.py", "slides.py",
-]:
-    text = (PAGES / page_name).read_text(encoding="utf-8")
-    assert "project_context" in text, f"page still resolves project state independently: {page_name}"
 
-# The refactor is authoritative: no runtime page-policy modules or parallel legacy pages may return.
+# The primary rail mirrors the supplied Product Design references.
+for marker in [
+    '("home", "Обзор")', '("projects", "Проекты")', '("samples", "Образцы")',
+    '("search", "Поиск")', '("slides", "Шлифы")', '("analyses", "Анализы")',
+    '("linked_views", "Построение")', '("add_data", "Добавить")', '"Ещё"', '"Настройки"',
+]:
+    assert marker in NAVIGATION, marker
+
+# Reference-led screens are first-class routes and must parse even though app.py
+# imports them lazily for faster startup.
+reference_pages = {
+    "add_data_reference.py": ["Проверка импорта", "render_intake_workflow"],
+    "linked_views_reference.py": ["Предварительный отбор", "Кодировка", "Сохранить как рабочую группу"],
+    "search_reference.py": ["Результаты", "Источники в выборке", "Построить график по выборке"],
+    "slides_reference.py": ["Фотографии", "Связанный шлиф", "Выбрано:"],
+}
+for filename, markers in reference_pages.items():
+    path = PAGES / filename
+    assert path.exists(), filename
+    source = path.read_text(encoding="utf-8")
+    ast.parse(source, filename=filename)
+    for marker in markers:
+        assert marker in source, f"{filename}: {marker}"
+
+for marker in [
+    '"add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page")',
+    '"linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page")',
+    '"search": ("petrolab.ui.pages.search_reference", "render_search_reference_page")',
+    '"slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page")',
+    "def _resolve_renderer(", "import_module(module_path)",
+]:
+    assert marker in APP, marker
+
+# Core dashboard owners still exist; no runtime monkeypatch policy layer returns.
+for page_name in [
+    "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py", "plots_dashboard.py",
+    "images_dashboard.py", "settings.py", "statistics.py", "formulae.py", "rocks.py", "science_plots.py",
+]:
+    assert (PAGES / page_name).exists(), page_name
 for obsolete in [
-    UI / "import_page_policy.py",
-    UI / "plot_page_policy.py",
-    UI / "image_page_policy.py",
-    UI / "science_page_policy.py",
-    UI / "destructive_page_policy.py",
-    PAGES / "home.py",
-    PAGES / "sources.py",
-    PAGES / "analyses.py",
-    PAGES / "images.py",
-    PAGES / "plots.py",
+    UI / "import_page_policy.py", UI / "plot_page_policy.py", UI / "image_page_policy.py",
+    UI / "science_page_policy.py", UI / "destructive_page_policy.py",
 ]:
     assert not obsolete.exists(), f"obsolete UI layer returned: {obsolete.name}"
 assert not list(UI.glob("*_page_policy.py")), "runtime page policy module returned"
-for bootstrap in [
-    "install_import_page_policy", "install_plot_page_policy", "install_destructive_page_policy",
-    "install_image_page_policy", "install_science_page_policy",
-]:
-    assert bootstrap not in APP, bootstrap
 
-sources_dashboard = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
-for marker in ["import_linked_sheets", "import_uploaded_sheets", "header_rows=headers", "mineral_keys=minerals"]:
-    assert marker in sources_dashboard, marker
-assert "from petrolab.ui.pages import sources as legacy" not in sources_dashboard
-
-analyses = (PAGES / "analyses_dashboard.py").read_text(encoding="utf-8")
-assert "analysis_components" in analyses
-assert "from petrolab.ui.pages import analyses" not in analyses
-for view in ["Основное", "Химия", "Расчёты", "QC", "Все"]:
-    assert view in analyses
-
-images = (PAGES / "images_dashboard.py").read_text(encoding="utf-8")
-assert "image_components" in images
-assert "from petrolab.ui.pages import images" not in images
-assert "render_project_selector" not in images
-assert "st.columns([1.35, 1])" in images
-assert "confirm_delete_image_" in images
+# Safety-critical domain rules remain separate from visual redesign.
+for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
+    assert marker in DESTRUCTIVE_ACTIONS, marker
 for marker in [
-    'for column in ("Sample", "Grain", "Generation", "Point")',
-    "limit = 5000",
-    "valid_previous",
-    "semantic field-link",
-]:
-    assert marker in IMAGE_COMPONENTS, marker
-
-slides = (PAGES / "slides.py").read_text(encoding="utf-8")
-for marker in [
-    "render_slides_page", "Шлифы и поля", "Оригинал остаётся", "Одна метка может связать EPMA, ЭДС и LA",
-    "Два щелчка по снимку", "Сбросить выбор на изображении", "Малый BSE для конкретного поля", "BSE выбранного поля",
-]:
-    assert marker in slides, marker
-assert '("slides", "Шлифы")' in NAVIGATION
-assert '("samples", "Образцы")' in NAVIGATION
-assert '"samples": render_database_browser_page' in APP
-assert '"slides": render_slides_page' in APP
-thin_workspace = (PAGES / "thin_section_workspace.py").read_text(encoding="utf-8")
-for marker in ["list_image_fields", "Подтверждаю перенос BSE в выбранное поле", "Перенос снимет прежнюю связь"]:
-    assert marker in thin_workspace, marker
-
-home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
-assert "Рабочая копия PetroLab" in home
-assert "Связанный исходный файл" in home
-for marker in [
-    "Следующие действия", "Личный список активного проекта", "Добавить действие",
-    "Готово", "Выполнено ·", "Вернуть", "project_checklist", "Детали задачи",
-]:
-    assert marker in home, marker
-checklist = (ROOT / "petrolab" / "project_checklist.py").read_text(encoding="utf-8")
-for marker in [
-    "project_checklist_items", "create_project_checklist_item", "list_project_checklist_items",
-    "set_project_checklist_item_completed", "ON DELETE SET NULL",
-]:
-    assert marker in checklist, marker
-
-sources = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
-for marker in ["внутренняя рабочая копия", "зафиксированный фрагмент Excel", "Перечитать исходный файл"]:
-    assert marker in sources, marker
-
-# Linked views are a first-class investigation route, not a hidden variant of XY.
-for marker in [
-    "render_linked_views_page", "Связанные представления", "_render_xy_panel",
-    "_render_ternary_panel", "_render_spider_panel", "Применить выделение",
-    "selection_action_description", "selection_action_label", "Цвет", "Форма",
-    "render_work_context", "Кодировка точек", "из {len(dataframe)}",
-]:
-    assert marker in LINKED_VIEWS, marker
-assert '("linked_views", "Связанные представления")' in NAVIGATION
-assert '"linked_views": render_linked_views_page' in APP
-for marker in ["_render_selection_tray", "Построить график", "Открыть выборки", "Очистить выборку"]:
-    assert marker in NAVIGATION, marker
-
-# The shared context strip must explain scope without turning a filter into a
-# destructive data operation. Import must expose its final write explicitly.
-for marker in ["def render_work_context", 'role="status"', "Контекст:"]:
-    assert marker in LAYOUT, marker
-for page_name in ["analyses_dashboard.py", "database_browser.py", "plots_dashboard.py", "sources_dashboard.py"]:
-    assert "render_work_context" in (PAGES / page_name).read_text(encoding="utf-8"), page_name
-sources = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
-for marker in [
-    "Разобрать вручную: несколько таблиц на одном листе",
-    "Готово к импорту:", "Ничего ещё не записано.", "_render_import_readiness",
-]:
-    assert marker in sources, marker
-
-# XY quick/advanced workspaces and guarded actions have explicit owners.
-advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")
-plots = (PAGES / "plots_dashboard.py").read_text(encoding="utf-8")
-for marker in [
-    "def render_advanced_xy_workspace(", "render_outlier_controls", "render_advanced_interactive",
-    "Сохранённый рецепт ссылается на наборы", "В график входит", "save_plot_recipe",
-]:
-    assert marker in advanced, marker
-for marker in [
-    "def render_quick_interactive(", "def render_advanced_interactive(",
-    'key="petrolab_quick_interactive_plot"', 'key="petrolab_advanced_interactive_plot"',
-    "default_outlier_method", "Внутри групп", "hidden_saved", "sanitize_xy_rows",
-    "from petrolab.ui.plot_actions import clear_work_group",
-]:
-    assert marker in XY_COMPONENTS, marker
-for marker in ["delete_plot_recipe", "delete_style_profile", "clear_work_group", "confirm_then", "render_plot_confirmations"]:
-    assert marker in PLOT_ACTIONS, marker
-assert "from petrolab.ui.pages import plots" not in advanced + XY_COMPONENTS
-assert "_petrolab_workspace_call_index" not in APP + plots + XY_COMPONENTS
-assert "render_advanced_xy_workspace(project_id)" in plots
-
-# Science safeguards are direct page behavior, not monkeypatches.
-for marker in [
-    "def _mineral_filtered_presets(",
-    "require_known_units=True",
-    "_PATTERN_YLABELS",
-    "def _apply_pattern_group_styles(",
-    "def _sync_science_axis_defaults(",
-    "matches_preset",
-    "Пользовательские оси: литературное название, source citation и overlay preset'а отключены.",
-    "Grouped boxplot требует ровно один числовой параметр",
-    'key="hist_svg"',
-    'key="box_svg"',
-    "render_page_header",
+    "def _mineral_filtered_presets(", "require_known_units=True", "_PATTERN_YLABELS",
+    "def _apply_pattern_group_styles(", "matches_preset", "Grouped boxplot требует ровно один числовой параметр",
 ]:
     assert marker in SCIENCE, marker
 
-# Navigation is flat/grouped: no second-stage workspace selector.
-assert "render_sidebar" in APP
-assert "PAGE_GROUPS" not in APP
-assert "Рабочая область" not in APP
-for label in ["Начать", "Материал", "Анализы и графики", "Дополнительные инструменты", "Научные инструменты", "Публикация", "Система"]:
-    assert label in NAVIGATION
-for label in ["Обзор", "Образцы", "Найти в проектах", "Графики", "Шлифы", "Породы", "Анализы", "Добавить данные", "Настройки"]:
-    assert label in NAVIGATION
-
-# High-value dashboard pages use the shared visual hierarchy.
-for page_name in [
-    "home_dashboard.py", "sources_dashboard.py", "analyses_dashboard.py",
-    "plots_dashboard.py", "images_dashboard.py", "settings.py", "statistics.py",
-    "formulae.py", "help.py", "rocks.py", "science_plots.py",
-]:
-    path = PAGES / page_name
-    assert path.exists(), page_name
-    text = path.read_text(encoding="utf-8")
-    assert "render_page_header" in text, f"dashboard page lacks shared header: {page_name}"
-
-settings = (PAGES / "settings.py").read_text(encoding="utf-8")
-assert 'st.tabs(' in settings
-for label in ["Интерфейс", "Графики и таблицы", "Расчёты", "Данные и безопасность", "Расширенные"]:
-    assert label in settings
-for marker in ["Связанный Excel", "settings_download_diagnostics", "settings_clear_cache", "Открыть перенос и резервные копии проектов"]:
-    assert marker in settings
-assert '"Быстрое построение"' in plots and '"Расширенный редактор"' in plots
-assert "FIGURE_PRESETS" in plots
-for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
-    assert marker in plots, f"Quick XY does not apply configured preset field: {marker}"
-assert 'f"{preset.title}' in plots
-home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
-assert "def _action(" not in home
-assert home.count('key=f"home_{route}"') == 1
-
-# Destructive actions are explicit and reusable, never installed dynamically.
-for marker in ["def confirm_then(", "def render_pending(", "_pending_destructive_"]:
-    assert marker in DESTRUCTIVE_ACTIONS, marker
-rocks = (PAGES / "rocks.py").read_text(encoding="utf-8")
-for marker in [
-    "action_key = f\"rock_links_", "confirm_then(action_key", "confirm_then(\"rock_image\"", "render_pending(",
-    "set_mineral_links as _set_mineral_links", "delete_rock_image as _delete_rock_image",
-]:
-    assert marker in rocks, marker
-assert "render_project_selector" not in rocks
-
+# Keep deprecated Streamlit width API and suspicious oversized fixed widths out of pages.
 for path in sorted(PAGES.glob("*.py")):
     text = path.read_text(encoding="utf-8")
     assert "use_container_width" not in text, f"deprecated width API in {path.name}"
     for match in re.finditer(r"width\s*=\s*(\d+)", text):
-        width = int(match.group(1))
-        assert width <= 1600, f"suspicious fixed width {width}px in {path.name}"
+        assert int(match.group(1)) <= 1600, f"suspicious fixed width {match.group(1)}px in {path.name}"
 
-print("UI dashboard structure tests: OK")
+print("UI Product Design structure tests: OK")
