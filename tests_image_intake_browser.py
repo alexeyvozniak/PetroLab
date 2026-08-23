@@ -168,7 +168,7 @@ def _navigate_sidebar(driver: webdriver.Chrome, label: str) -> None:
                     break
     assert candidates, f"Sidebar route not found: {label}"
     driver.execute_script("arguments[0].click();", candidates[0])
-    _wait_for_main_text(driver, "Рабочий стол")
+    _wait_for_main_text(driver, "Образцы")
 
 
 def _assert_no_exception(driver: webdriver.Chrome) -> None:

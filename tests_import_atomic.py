@@ -4,13 +4,17 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import time
+import gc
 from pathlib import Path
 
 import pandas as pd
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_import_atomic_") as tmp:
+    temporary = tempfile.TemporaryDirectory(prefix="petrolab_import_atomic_")
+    try:
+        tmp = temporary.name
         os.environ["PETROLAB_DATA_DIR"] = str(Path(tmp) / "data")
         from petrolab.db import list_datasets, create_project
         from petrolab.services import import_runtime, import_service
@@ -49,6 +53,19 @@ def main() -> None:
         assert list_datasets(project_id) == [], "partial datasets survived a failed multi-sheet import"
         source_dir = Path(os.environ["PETROLAB_DATA_DIR"]) / "projects" / str(project_id)
         assert not list(source_dir.rglob("two-sheets.xlsx")) if source_dir.exists() else True
+    finally:
+        # SQLite can release its final handle asynchronously on Windows.  This
+        # keeps the portable test focused on atomic import semantics, not an OS
+        # timing artefact during temporary-directory removal.
+        gc.collect()
+        for attempt in range(20):
+            try:
+                temporary.cleanup()
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.1)
     print("atomic import tests: OK")
 
 

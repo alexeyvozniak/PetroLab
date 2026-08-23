@@ -300,7 +300,7 @@ def main() -> None:
         _navigate_sidebar(driver, "Шлифы")
         _save(driver, "00_thin_initial.png")
         text = _main_text(driver)
-        assert "Работать со шлифом" in text, text[:2000]
+        assert "Шлифы и поля" in text, text[:2000]
         # Selected values live inside Streamlit select inputs and are not guaranteed to
         # appear in main.innerText. These visible badges prove the seeded physical
         # section/image/markers are the active workspace instead of a blank project.
@@ -331,7 +331,7 @@ def main() -> None:
         _click_button(driver, "На шлифе")
         _wait_for_route_top(driver)
         text = _main_text(driver)
-        assert "Работать со шлифом" in text
+        assert "Шлифы и поля" in text
         assert "Selection · 2" in text, text[:2500]
         assert "на этом снимке · 1 точ." in text
         assert "Selection здесь · 1" in text

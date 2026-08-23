@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-from petrolab.ui.navigation import PRIMARY_NAV, ROUTE_LABELS, TOOL_SECTIONS
+from petrolab.ui.navigation import PRIMARY_NAVIGATION, PRIMARY_NAV_SECTIONS, ROUTE_LABELS, SECONDARY_NAV_SECTIONS
 
 
 def main() -> None:
-    assert PRIMARY_NAV == [
+    assert PRIMARY_NAVIGATION == [
         ("home", "Обзор"),
-        ("workspace", "Образцы"),
-        ("rock_workspace", "Породы"),
-        ("search", "Поиск"),
-        ("thin_section", "Шлифы"),
+        ("add_data", "Добавить данные"),
+        ("search", "Найти в проектах"),
+        ("samples", "Образцы"),
+        ("slides", "Шлифы"),
+        ("rocks", "Породы"),
         ("analyses", "Анализы"),
-        ("add_data", "Добавить"),
+        ("plots", "Графики"),
     ]
-    assert ROUTE_LABELS["rock_workspace"] == "Породы"
+    assert list(PRIMARY_NAV_SECTIONS) == ["Начать", "Материал", "Анализы и графики"]
+    assert ROUTE_LABELS["rocks"] == "Породы"
     assert ROUTE_LABELS["plots"] == "Графики"
     assert ROUTE_LABELS["statistics"] == "Статистика"
-    assert ROUTE_LABELS["publish"] == "Публикация"
-    assert any(route == "plots" for entries in TOOL_SECTIONS.values() for route, _ in entries)
+    assert ROUTE_LABELS["figure_recipes"] == "Figure Recipe"
+    assert any(route == "figure_recipes" for entries in SECONDARY_NAV_SECTIONS.values() for route, _ in entries)
     print("PetroLab v0.16 task-first navigation: OK")
 
 

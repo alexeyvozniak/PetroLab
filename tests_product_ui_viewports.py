@@ -97,9 +97,9 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     # Independent screenshot helpers hard-refresh; Back must be tested inside one
     # live Streamlit websocket session instead.
     _click_primary_without_refresh(driver, "Образцы", output, "back_samples")
-    _wait_for_page_content(driver, ("Рабочий стол",), "back_samples", output)
+    _wait_for_page_content(driver, ("Образцы",), "back_samples", output)
     _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
-    _wait_for_page_content(driver, ("Работать со шлифом",), "back_thin_section", output)
+    _wait_for_page_content(driver, ("Шлифы и поля",), "back_thin_section", output)
 
     wait = WebDriverWait(driver, 20)
     wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
@@ -108,7 +108,7 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     back.click()
     deadline = time.time() + 20.0
     while time.time() < deadline:
-        if "Рабочий стол" in driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text:
+        if "Образцы" in driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text:
             return
         time.sleep(0.25)
     output.mkdir(parents=True, exist_ok=True)

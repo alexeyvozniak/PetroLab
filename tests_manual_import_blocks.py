@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import time
+import gc
 from pathlib import Path
 
 import pandas as pd
@@ -81,4 +83,15 @@ try:
     run()
     print("manual import block tests: OK")
 finally:
-    _tmp.cleanup()
+    # Windows can retain SQLite's file handle for a fraction of a second after
+    # the final context manager exits.  The import assertions have already run;
+    # retry only cleanup so a transient OS lock does not hide their result.
+    gc.collect()
+    for attempt in range(20):
+        try:
+            _tmp.cleanup()
+            break
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.1)

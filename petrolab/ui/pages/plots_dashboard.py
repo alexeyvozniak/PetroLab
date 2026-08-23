@@ -25,6 +25,25 @@ from petrolab.ui.xy_components import (
 from petrolab.visualization_presets import FIGURE_PRESETS
 
 
+def _analysis_universe_ids(dataframe: pd.DataFrame) -> tuple[str, ...]:
+    """Return the stable scientific membership of a quick-plot workspace.
+
+    The dataframe may later be narrowed for presentation (mineral picker, text
+    search or selected axes).  The exported recipe still records the exact
+    eligible analysis universe so that hiding a series is never confused with
+    removing a measurement from the scientific question.
+    """
+    if "_analysis_id" not in dataframe.columns:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            value
+            for value in dataframe["_analysis_id"].dropna().astype(str).str.strip()
+            if value
+        )
+    )
+
+
 def _quick_workspace(project_id: int) -> None:
     datasets = list_accessible_datasets(project_id)
     if not datasets:
@@ -81,6 +100,7 @@ def _quick_workspace(project_id: int) -> None:
                     f"исключены по автоматическому правилу — {int(auto_blocked.sum())}. "
                     "Поставьте «Включить» в QC решении, если точка должна попасть на график вопреки предупреждению."
                 )
+        universe_analysis_ids = _analysis_universe_ids(dataframe)
         minerals = sorted(dataframe["Минерал"].dropna().astype(str).unique())
         selected_minerals = st.multiselect(
             "Минералы",
@@ -194,6 +214,7 @@ def _quick_workspace(project_id: int) -> None:
         dataset_ids=selected_ids,
         filters={
             "database_selection": requested_context,
+            "analysis_universe_ids": universe_analysis_ids,
             "minerals": selected_minerals,
             "search": query,
             "qc_policy": "manual exclude and automatic QC exclusions omitted",
