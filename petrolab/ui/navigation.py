@@ -33,6 +33,8 @@ TOOL_SECTIONS = {
         ("generations", "Поколения"),
     ],
     "Исследование": [
+        ("plots", "Графики"),
+        ("statistics", "Статистика"),
         ("multi_panel", "Сравнить на нескольких диаграммах"),
         ("grain_profile", "Профиль по зерну"),
         ("whole_rock_compare", "Породы + литература"),
@@ -66,6 +68,9 @@ _HIDDEN_ROUTE_LABELS = {
     "compare": "Сравнить данные",
     "quick_import": "Быстрый импорт",
     "workflow": "Рабочий процесс",
+    "calculate": "Расчёты",
+    "publish": "Публикация",
+    "settings": "Настройки",
     "analyses": "Анализы",
     "sources": "Новые анализы",
     "intake": "Источники и литература",
