@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from contextlib import contextmanager
 from typing import Iterable
 
 from petrolab.analytical_sessions import annotation_table, ensure_session_schema, set_annotations
@@ -67,6 +68,45 @@ def record_operation(
         )
         con.commit()
         return int(cur.lastrowid)
+
+
+@contextmanager
+def journaled_operation(
+    operation_kind: str,
+    *,
+    target_ids: Iterable[str],
+    label: str,
+    metadata: dict | None = None,
+):
+    """Audit a reversible UI edit without coupling service code to Streamlit.
+
+    Cell edits currently cannot be reconstructed from a generic UI payload, so
+    they are recorded as an auditable (rather than automatically undoable)
+    operation after the enclosed database write succeeds.
+    """
+    ids = _ids(target_ids)
+    yield
+    if not ids:
+        return
+    marks = ",".join("?" for _ in ids)
+    with connect() as con:
+        row = con.execute(
+            f"""SELECT link.project_id FROM analysis_rows analysis
+                JOIN project_dataset_links link ON link.dataset_id=analysis.dataset_id
+                WHERE analysis.analysis_id IN ({marks})
+                ORDER BY link.project_id LIMIT 1""",
+            ids,
+        ).fetchone()
+    if row:
+        record_operation(
+            int(row["project_id"]),
+            operation_kind=str(operation_kind),
+            label=str(label),
+            affected_count=len(ids),
+            payload={"analysis_ids": ids, **(dict(metadata or {}))},
+            inverse={},
+            can_undo=False,
+        )
 
 
 def list_operations(project_id: int, limit: int = 200) -> list[dict]:

@@ -6,14 +6,14 @@ import tempfile
 from pathlib import Path
 
 
-def test_new_install_defaults_to_compact_density() -> None:
+def test_new_install_defaults_to_comfortable_density() -> None:
     with tempfile.TemporaryDirectory(prefix="petrolab_density_") as tmp:
         os.environ["PETROLAB_DATA_DIR"] = str(Path(tmp) / "data")
         from petrolab.settings_service import DEFAULT_SETTINGS, SETTINGS_PATH, load_settings
 
-        assert DEFAULT_SETTINGS["ui_density"] == "compact"
+        assert DEFAULT_SETTINGS["ui_density"] == "comfortable"
         assert not SETTINGS_PATH.exists()
-        assert load_settings()["ui_density"] == "compact"
+        assert load_settings()["ui_density"] == "comfortable"
 
 
 def test_explicit_comfortable_preference_is_preserved() -> None:
@@ -27,9 +27,9 @@ def test_explicit_comfortable_preference_is_preserved() -> None:
 
 
 def main() -> None:
-    test_new_install_defaults_to_compact_density()
+    test_new_install_defaults_to_comfortable_density()
     test_explicit_comfortable_preference_is_preserved()
-    print("v0.15.8 compact density default: OK")
+    print("v0.16 comfortable density default: OK")
 
 
 if __name__ == "__main__":

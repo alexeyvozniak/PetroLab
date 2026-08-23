@@ -333,7 +333,7 @@ def list_accessible_datasets(project_id: int) -> list[dict]:
             FROM project_dataset_links l
             JOIN datasets d ON d.id=l.dataset_id
             JOIN projects p ON p.id=d.project_id
-            WHERE l.project_id=?
+            WHERE l.project_id=? AND COALESCE(l.purpose, 'working') <> 'hidden'
             ORDER BY imported_at DESC
             """,
             (int(project_id), int(project_id)),

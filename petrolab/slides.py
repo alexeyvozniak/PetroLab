@@ -118,16 +118,14 @@ def ensure_slide_schema() -> None:
         )
         con.execute("CREATE INDEX IF NOT EXISTS idx_slide_marker_analysis ON slide_marker_analysis_links(analysis_id)")
         con.execute(
-            """CREATE TABLE IF NOT EXISTS slide_field_bse_images (
+            """CREATE TABLE IF NOT EXISTS slide_field_image_links (
                 field_id INTEGER NOT NULL,
-                slide_image_id INTEGER NOT NULL UNIQUE,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(field_id, slide_image_id),
+                image_id INTEGER NOT NULL,
+                PRIMARY KEY(field_id, image_id),
                 FOREIGN KEY(field_id) REFERENCES slide_fields(id) ON DELETE CASCADE,
-                FOREIGN KEY(slide_image_id) REFERENCES slide_images(id) ON DELETE CASCADE
+                FOREIGN KEY(image_id) REFERENCES slide_images(id) ON DELETE CASCADE
             )"""
         )
-        con.execute("CREATE INDEX IF NOT EXISTS idx_slide_field_bse_field ON slide_field_bse_images(field_id)")
         con.commit()
 
 
@@ -316,29 +314,72 @@ def _valid_norm(value: float, name: str) -> float:
     return numeric
 
 
-def is_bse_image_type(image_type: str) -> bool:
-    """Return True only for a BSE image that may be attached to one field."""
-    return str(image_type or "").strip().casefold() == "bse"
+FIELD_SHAPES = ("rectangle", "square")
 
 
-def _normalise_rectangle_geometry(geometry: dict | None) -> dict:
-    """Accept only axis-aligned rectangular or square field geometry."""
+def field_geometry_from_corners(
+    first: tuple[float, float], second: tuple[float, float], *, shape: str = "rectangle",
+) -> dict[str, float | str]:
+    """Build the only supported field geometry from two image-relative corners.
+
+    A square is anchored at the first corner and grows toward the second one.
+    Its side is shortened at the image boundary rather than overflowing the
+    preview.  Coordinates are normalized to the [0, 1] image area.
+    """
+    if shape not in FIELD_SHAPES:
+        raise ValueError("Для поля доступны только прямоугольник или квадрат")
+    first_x, first_y = _valid_norm(first[0], "X первого угла"), _valid_norm(first[1], "Y первого угла")
+    second_x, second_y = _valid_norm(second[0], "X второго угла"), _valid_norm(second[1], "Y второго угла")
+    delta_x, delta_y = second_x - first_x, second_y - first_y
+    if abs(delta_x) < 1e-9 or abs(delta_y) < 1e-9:
+        raise ValueError("Укажите два разных угла поля")
+    if shape == "rectangle":
+        return {
+            "kind": "rectangle",
+            "x": min(first_x, second_x),
+            "y": min(first_y, second_y),
+            "width": abs(delta_x),
+            "height": abs(delta_y),
+        }
+    horizontal_room = (1 - first_x) if delta_x > 0 else first_x
+    vertical_room = (1 - first_y) if delta_y > 0 else first_y
+    side = min(max(abs(delta_x), abs(delta_y)), horizontal_room, vertical_room)
+    if side < 1e-9:
+        raise ValueError("Квадрат не помещается в границы снимка")
+    end_x = first_x + (side if delta_x > 0 else -side)
+    end_y = first_y + (side if delta_y > 0 else -side)
+    return {
+        "kind": "square",
+        "x": min(first_x, end_x),
+        "y": min(first_y, end_y),
+        "width": side,
+        "height": side,
+    }
+
+
+def validate_field_geometry(geometry: dict | None) -> dict[str, float | str]:
+    """Normalize legacy rectangles and reject arbitrary contours or overflow."""
     if not geometry:
         return {}
-    if "vertices" in geometry:
-        raise ValueError("Поле может быть только прямоугольником или квадратом; контуры не поддерживаются.")
-    required = ("x", "y", "width", "height")
-    if not all(key in geometry for key in required):
-        raise ValueError("Для поля нужны X, Y, ширина и высота прямоугольника.")
-    x = _valid_norm(geometry["x"], "X")
-    y = _valid_norm(geometry["y"], "Y")
-    width = _valid_norm(geometry["width"], "Ширина")
-    height = _valid_norm(geometry["height"], "Высота")
-    if width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
-        raise ValueError("Прямоугольник поля должен целиком помещаться в границы снимка.")
+    if not isinstance(geometry, dict):
+        raise ValueError("Границы поля должны быть прямоугольником или квадратом")
+    unsupported = set(geometry) - {"kind", "x", "y", "width", "height"}
+    if unsupported:
+        raise ValueError("Сложные контуры не поддерживаются: используйте прямоугольник или квадрат")
+    required = {"x", "y", "width", "height"}
+    if not required.issubset(geometry):
+        raise ValueError("Для поля укажите оба угла или X, Y, ширину и высоту")
     kind = str(geometry.get("kind") or "rectangle")
-    if kind not in {"rectangle", "square"}:
-        raise ValueError("Тип поля может быть только «Прямоугольник» или «Квадрат».")
+    if kind not in FIELD_SHAPES:
+        raise ValueError("Для поля доступны только прямоугольник или квадрат")
+    x, y = _valid_norm(geometry["x"], "X"), _valid_norm(geometry["y"], "Y")
+    width, height = float(geometry["width"]), float(geometry["height"])
+    if width <= 0 or height <= 0 or width > 1 or height > 1:
+        raise ValueError("Ширина и высота поля должны быть больше нуля и не больше снимка")
+    if x + width > 1 + 1e-9 or y + height > 1 + 1e-9:
+        raise ValueError("Поле выходит за границы снимка")
+    if kind == "square" and abs(width - height) > 1e-6:
+        raise ValueError("У квадрата ширина и высота должны совпадать")
     return {"kind": kind, "x": x, "y": y, "width": width, "height": height}
 
 
@@ -347,7 +388,7 @@ def create_slide_field(project_id: int, *, slide_image_id: int, name: str, descr
     name = str(name).strip()
     if not name:
         raise ValueError("Назовите поле")
-    payload = _normalise_rectangle_geometry(geometry)
+    payload = validate_field_geometry(geometry)
     with connect() as con:
         row = con.execute("SELECT project_id FROM slide_images WHERE id=?", (int(slide_image_id),)).fetchone()
         if not row or int(row["project_id"]) != int(project_id):
@@ -381,54 +422,78 @@ def list_slide_fields(project_id: int, *, slide_image_id: int | None = None) -> 
     return result
 
 
-def link_bse_image_to_field(project_id: int, *, field_id: int, slide_image_id: int) -> None:
-    """Attach one BSE image to one exact rectangular/square field.
-
-    Repeating this action for the same BSE deliberately moves it to the newly
-    selected field instead of creating an ambiguous many-to-many attachment.
-    """
+def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int, move: bool = False) -> None:
+    """Attach one small BSE to a field, optionally moving it from every old field."""
     ensure_slide_schema()
     with connect() as con:
-        field = con.execute(
-            """SELECT f.project_id, i.thin_section_id
-               FROM slide_fields f JOIN slide_images i ON i.id=f.slide_image_id
-               WHERE f.id=?""",
-            (int(field_id),),
-        ).fetchone()
-        image = con.execute(
-            "SELECT project_id, thin_section_id, image_type FROM slide_images WHERE id=?",
-            (int(slide_image_id),),
-        ).fetchone()
+        field = con.execute("SELECT project_id FROM slide_fields WHERE id=?", (int(field_id),)).fetchone()
+        image = con.execute("SELECT project_id,image_type FROM slide_images WHERE id=?", (int(image_id),)).fetchone()
         if not field or int(field["project_id"]) != int(project_id):
-            raise ValueError("Выбранное поле не относится к этому проекту.")
+            raise ValueError("Поле не относится к этому проекту")
         if not image or int(image["project_id"]) != int(project_id):
-            raise ValueError("BSE-снимок не относится к этому проекту.")
-        if not is_bse_image_type(str(image["image_type"])):
-            raise ValueError("К полю можно привязать только снимок типа BSE.")
-        if field["thin_section_id"] is None or image["thin_section_id"] is None or int(field["thin_section_id"]) != int(image["thin_section_id"]):
-            raise ValueError("BSE и поле должны принадлежать одному шлифу.")
-        con.execute(
-            """INSERT INTO slide_field_bse_images(field_id, slide_image_id) VALUES(?,?)
-               ON CONFLICT(slide_image_id) DO UPDATE SET field_id=excluded.field_id,
-               created_at=CURRENT_TIMESTAMP""",
-            (int(field_id), int(slide_image_id)),
-        )
+            raise ValueError("Снимок не относится к этому проекту")
+        if str(image["image_type"]) != "BSE":
+            raise ValueError("К полю можно привязать только отдельный BSE-снимок")
+        if move:
+            con.execute("DELETE FROM slide_field_image_links WHERE image_id=?", (int(image_id),))
+        con.execute("INSERT OR IGNORE INTO slide_field_image_links(field_id,image_id) VALUES(?,?)", (int(field_id), int(image_id)))
         con.commit()
 
 
-def list_field_bse_images(project_id: int, *, field_id: int) -> list[SlideImage]:
-    """Return only the BSE images explicitly attached to this field."""
+def is_bse_image_type(image_type: str) -> bool:
+    """Return whether an image is eligible as a field-specific BSE view."""
+    return str(image_type or "").strip().casefold() == "bse"
+
+
+def link_bse_image_to_field(
+    project_id: int,
+    *,
+    field_id: int,
+    slide_image_id: int,
+    move: bool = True,
+) -> None:
+    """Compatibility entry point for an explicit, single-field BSE attachment."""
+    attach_image_to_slide_field(
+        project_id,
+        field_id=int(field_id),
+        image_id=int(slide_image_id),
+        move=bool(move),
+    )
+
+
+def detach_image_from_slide_field(field_id: int, image_id: int) -> None:
+    ensure_slide_schema()
+    with connect() as con:
+        con.execute("DELETE FROM slide_field_image_links WHERE field_id=? AND image_id=?", (int(field_id), int(image_id)))
+        con.commit()
+
+
+def list_field_images(project_id: int, *, field_id: int) -> list[SlideImage]:
     ensure_slide_schema()
     with connect() as con:
         rows = con.execute(
-            """SELECT i.* FROM slide_field_bse_images l
-               JOIN slide_fields f ON f.id=l.field_id
-               JOIN slide_images i ON i.id=l.slide_image_id
-               WHERE l.field_id=? AND f.project_id=? AND i.project_id=?
-               ORDER BY l.created_at DESC, i.id DESC""",
-            (int(field_id), int(project_id), int(project_id)),
+            """SELECT i.* FROM slide_field_image_links link JOIN slide_images i ON i.id=link.image_id
+               JOIN slide_fields f ON f.id=link.field_id WHERE link.field_id=? AND f.project_id=?
+               ORDER BY i.created_at DESC,i.id DESC""", (int(field_id), int(project_id))
         ).fetchall()
     return [_record_from_row(row) for row in rows]
+
+
+def list_field_bse_images(project_id: int, *, field_id: int) -> list[SlideImage]:
+    """List only BSE records attached to one specific rectangular field."""
+    return [image for image in list_field_images(project_id, field_id=int(field_id)) if is_bse_image_type(image.image_type)]
+
+
+def list_image_fields(project_id: int, *, image_id: int) -> list[dict]:
+    """Return the exact fields currently using a small BSE image."""
+    ensure_slide_schema()
+    with connect() as con:
+        rows = con.execute(
+            """SELECT f.* FROM slide_field_image_links link JOIN slide_fields f ON f.id=link.field_id
+               WHERE link.image_id=? AND f.project_id=? ORDER BY f.name COLLATE NOCASE,f.id""",
+            (int(image_id), int(project_id)),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _validate_analysis_ids(con, project_id: int, analysis_ids: tuple[str, ...]) -> None:

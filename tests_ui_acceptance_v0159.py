@@ -23,15 +23,15 @@ PAGES = {
     "home": "Обзор",
     "data": "Образцы",
     "graphs": "Графики",
-    "add_data": "Добавить",
+    "add_data": "Добавить данные",
     "thin": "Шлифы",
 }
 PAGE_DESTINATIONS = {
     "home": PROJECT_NAME,
-    "data": "Рабочий стол",
+    "data": "Образцы",
     "graphs": "XY-диаграммы",
     "add_data": "Добавить данные",
-    "thin": "Работать со шлифом",
+    "thin": "Шлифы и поля",
 }
 
 
@@ -197,7 +197,7 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
         return
 
     if page_name == "data":
-        assert "Рабочий стол" in text, f"Workspace title missing at {width}x{height}"
+        assert "Образцы" in text, f"Sample catalogue title missing at {width}x{height}"
         grids = driver.find_elements(
             By.CSS_SELECTOR, '[data-testid="stDataFrame"], [data-testid="stDataEditor"]'
         )
@@ -243,7 +243,7 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
         return
 
     if page_name == "thin":
-        assert "Работать со шлифом" in text, f"Thin-section workspace title missing at {width}x{height}"
+        assert "Шлифы и поля" in text, f"Thin-section workspace title missing at {width}x{height}"
         assert ("Шлиф" in text or "Создайте первый шлиф" in text), (
             f"Thin-section physical context missing at {width}x{height}"
         )
@@ -308,7 +308,7 @@ def main() -> None:
                 _assert_page(driver, page_name, width, height)
                 driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
-        print("PetroLab 0.15.9 stable UI acceptance: OK")
+        print("PetroLab 0.16.0 stable UI acceptance: OK")
     finally:
         if driver is not None:
             driver.quit()

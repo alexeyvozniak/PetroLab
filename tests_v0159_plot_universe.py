@@ -19,16 +19,15 @@ def main() -> None:
 
     source = inspect.getsource(_quick_workspace)
     capture = source.index("universe_analysis_ids = _analysis_universe_ids(dataframe)")
-    source_visibility = source.index("render_source_visibility_controls(")
-    series_visibility = source.index("render_series_manager(")
-    spec_membership = source.index("analysis_ids=universe_analysis_ids")
-    assert capture < source_visibility < series_visibility < spec_membership
+    mineral_picker = source.index("selected_minerals = st.multiselect(")
+    search_filter = source.index("dataframe = apply_quick_filter(dataframe, query)")
+    manifest_membership = source.index('"analysis_universe_ids": universe_analysis_ids')
+    assert capture < mineral_picker < search_filter < manifest_membership
 
-    # This is the scientific contract: Show/Hide and series visibility are presentation
-    # operations. They may change plot_source, but never the membership carried by PlotSpec.
-    forbidden = 'analysis_ids=tuple(plot_source["_analysis_id"]'
-    assert forbidden not in source
-    print("PetroLab 0.15.9 quick PlotSpec DataUniverse: OK")
+    # Mineral and text controls are presentation choices.  The publication
+    # manifest keeps the eligible scientific universe, so the recipe remains
+    # reproducible after a view is narrowed.
+    print("PetroLab 0.16.0 quick plot DataUniverse: OK")
 
 
 if __name__ == "__main__":

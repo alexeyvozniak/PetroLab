@@ -2,113 +2,95 @@ from __future__ import annotations
 
 import streamlit as st
 
-from petrolab.dataset_visibility import visible_working_datasets
 from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.settings_service import load_settings
-from petrolab.ui.navigation_state import can_go_back, go_back as restore_previous_route, push_current
 from petrolab.ui.project_context import active_project_id, set_active_project
-from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-# Six daily actions keep the first-level navigation calm. Specialist routes
-# remain addressable through “Дополнительно”, old recipes and internal links.
-PRIMARY_NAV = [
-    ("home", "Обзор"),
-    ("workspace", "Образцы"),
-    ("rock_workspace", "Породы"),
-    ("search", "Поиск"),
-    ("thin_section", "Шлифы"),
-    ("analyses", "Анализы"),
-    ("add_data", "Добавить"),
-]
-DAILY_NAV = PRIMARY_NAV
-
-TOOL_SECTIONS = {
-    "Данные": [
+# The daily menu is grouped by the question that a researcher has at the moment.
+# This prevents "find" from looking like a second version of the analyses table.
+PRIMARY_NAV_SECTIONS = {
+    "Начать": [
+        ("home", "Обзор"),
         ("add_data", "Добавить данные"),
-        ("sessions", "Аналитические сессии"),
-        ("measurements", "Образцы и измерения"),
-        ("mixed_minerals", "Фазы и выбросы"),
-        ("batch_edit", "Массовые действия"),
-        ("generations", "Поколения"),
+        ("search", "Найти в проектах"),
     ],
-    "Исследование": [
+    "Материал": [
+        ("samples", "Образцы"),
+        ("slides", "Шлифы"),
+        ("rocks", "Породы"),
+    ],
+    "Анализы и графики": [
+        ("analyses", "Анализы"),
         ("plots", "Графики"),
-        ("statistics", "Статистика"),
-        ("multi_panel", "Сравнить на нескольких диаграммах"),
-        ("grain_profile", "Профиль по зерну"),
-        ("whole_rock_compare", "Породы + литература"),
-        ("thermobarometry", "Термодинамика"),
+    ],
+}
+PRIMARY_NAVIGATION = [entry for entries in PRIMARY_NAV_SECTIONS.values() for entry in entries]
+
+SECONDARY_NAV_SECTIONS = {
+    "Выборки и файлы": [
+        ("selections", "Рабочие выборки"),
+        ("images", "Изображения"),
+        ("database", "Вся база"),
+        ("measurements", "Объекты и измерения"),
+        ("attention", "Требует внимания"),
+        ("workflow", "Рабочий процесс"),
+    ],
+    "Научные инструменты": [
         ("ternary", "Треугольные диаграммы"),
+        ("linked_views", "Связанные представления"),
         ("science_plots", "Научные диаграммы"),
+        ("statistics", "Статистика"),
         ("equilibrium", "Равновесные пары"),
         ("distribution", "Распределение элементов"),
-        ("composite_points", "Совместить EDS / EPMA / LA"),
+        ("thermobarometry", "Термобарометрия"),
+        ("mixed_minerals", "Фазы и выбросы"),
+        ("batch_edit", "Массовые действия"),
+        ("formulae", "Расчёты"),
+        ("generations", "Поколения"),
     ],
     "Публикация": [
+        ("figure_recipes", "Figure Recipe"),
         ("article_tables", "Таблицы для статьи"),
-        ("publication_composer", "Собрать рисунок A/B/C"),
         ("export", "Экспорт"),
     ],
-    "Система": [
+    "Администрирование": [
+        ("sources", "Новые анализы"),
+        ("sessions", "Аналитические сессии"),
+        ("intake", "Источники и литература"),
+        ("minerals", "Минералогические модули"),
         ("projects", "Проекты"),
         ("collaboration", "Совместная работа"),
         ("change_log", "История правок данных"),
-        ("attention", "Требует внимания"),
         ("help", "Справка"),
         ("updates", "Что нового"),
     ],
 }
-
-# Compatibility-only routes. They stay routable because old recipes, deep links,
-# and internal actions may still target them, but they are deliberately absent
-# from the normal sidebar.
-_HIDDEN_ROUTE_LABELS = {
-    "database": "Вся база",
-    "compare": "Сравнить данные",
-    "quick_import": "Быстрый импорт",
-    "workflow": "Рабочий процесс",
-    "calculate": "Расчёты",
-    "publish": "Публикация",
-    "settings": "Настройки",
-    "analyses": "Анализы",
-    "sources": "Новые анализы",
-    "intake": "Источники и литература",
-    "images": "Изображения",
-    "slides": "Шлифы и поля",
-    "formulae": "Формулы / APFU",
-    "minerals": "Минералогические модули",
-    "rocks": "Редактор пород",
+SYSTEM_NAVIGATION = [("settings", "Настройки")]
+ROUTE_LABELS = {
+    route: label
+    for entries in [PRIMARY_NAVIGATION, *SECONDARY_NAV_SECTIONS.values(), SYSTEM_NAVIGATION]
+    for route, label in entries
+}
+NAV_HELP = {
+    "home": "Состояние активного проекта и следующий разумный шаг.",
+    "samples": "Физические Sample: паспорт, местность и связанные с ними данные.",
+    "search": "Когда известен хотя бы фрагмент названия: найти Sample, минерал, точку, породу или изображение во всех проектах.",
+    "plots": "Построить график по текущей выборке или набору анализов.",
+    "slides": "Фотографии шлифов, прямоугольные поля, точки и привязанные BSE.",
+    "rocks": "Валовая химия, изотопия, фотографии и связи с Sample.",
+    "analyses": "Рабочая таблица импортированных анализов: фильтр, QC, расчёты и правки.",
+    "add_data": "Добавить анализы, фотографии, источник или полевые Sample.",
+    "measurements": "Физические зёрна и точки с отдельными результатами разных методов.",
+    "database": "Полный каталог данных активного проекта или всех проектов.",
 }
 
-_ALL_VISIBLE_ENTRIES = PRIMARY_NAV + [item for entries in TOOL_SECTIONS.values() for item in entries]
-ROUTE_LABELS = {route: label for route, label in _ALL_VISIBLE_ENTRIES}
-ROUTE_LABELS.update(_HIDDEN_ROUTE_LABELS)
 
-
-def navigate(route: str, *, record_history: bool = True) -> None:
-    if route not in ROUTE_LABELS:
-        return
-    current = str(st.session_state.get("nav_route", "home"))
-    if record_history and current in ROUTE_LABELS and current != route:
-        push_current(st.session_state, current_route=current)
-    if current != route:
-        # Route changes start at the top; intra-page state keeps its own scroll.
+def navigate(route: str) -> None:
+    if route in ROUTE_LABELS:
+        st.session_state["nav_route"] = route
         st.session_state["_scroll_to_top_pending"] = True
-    st.session_state["nav_route"] = route
-
-
-def go_back() -> str | None:
-    current = str(st.session_state.get("nav_route", "home"))
-    restored = restore_previous_route(
-        st.session_state,
-        current_route=current,
-        valid_routes=set(ROUTE_LABELS),
-    )
-    if restored is not None and restored != current:
-        st.session_state["_scroll_to_top_pending"] = True
-    return restored
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
@@ -130,38 +112,12 @@ def _render_update_notice(installed_version: str) -> None:
         st.rerun()
 
 
-def _nav_button(route: str, label: str, current: str, *, prefix: str = "nav") -> None:
-    if st.button(
-        label,
-        key=f"{prefix}_{route}",
-        type="primary" if route == current else "secondary",
-        width="stretch",
-    ):
-        navigate(route)
-        st.rerun()
-
-
 def render_sidebar(version: str) -> str:
-    st.markdown(
-        '<div class="petrolab-sidebar-brand-block">'
-        '<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>'
-        f'<div class="petrolab-sidebar-version">v{version} | локальные данные</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    current = str(st.session_state.get("nav_route", "home"))
-    if current not in ROUTE_LABELS:
-        current = "home"
-        st.session_state["nav_route"] = current
-
-    if can_go_back(st.session_state):
-        if st.button("← Назад", key="sidebar_go_back", width="stretch", help="Вернуться в предыдущий рабочий контекст"):
-            if go_back() is not None:
-                st.rerun()
+    st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
 
     projects = list_projects()
-    st.markdown('<div class="petrolab-nav-section">Проект</div>', unsafe_allow_html=True)
+    st.markdown('<div class="petrolab-nav-section">Активный проект</div>', unsafe_allow_html=True)
     if projects:
         by_id = {int(row["id"]): row for row in projects}
         ids = list(by_id)
@@ -170,37 +126,15 @@ def render_sidebar(version: str) -> str:
         if st.session_state.get("sidebar_project") != active_id:
             st.session_state["sidebar_project"] = active_id
         selected = st.selectbox(
-            "Проект", ids,
+            "Активный проект", ids,
             format_func=lambda value: str(by_id[int(value)]["name"]),
-            key="sidebar_project", label_visibility="collapsed",
+            key="sidebar_project",
         )
         set_active_project(int(selected))
-        datasets = visible_working_datasets(list_accessible_datasets(int(selected)))
+        datasets = list_accessible_datasets(int(selected))
         rows = sum(int(item.get("row_count") or 0) for item in datasets)
         st.caption(f"{len(datasets)} наборов · {rows:,} анализов".replace(",", " "))
         st.session_state["_sidebar_project_ready"] = True
-
-        context = get_work_context(int(selected))
-        if context:
-            context_col, clear_col = st.columns([5, 1])
-            with context_col:
-                st.caption(f"Сейчас: {context.get('label', '')}")
-            with clear_col:
-                if st.button("×", key="sidebar_clear_context", help="Сбросить текущий контекст"):
-                    clear_work_context()
-                    st.rerun()
-
-        search = st.text_input(
-            "Найти везде",
-            key="sidebar_object_search",
-            label_visibility="collapsed",
-            placeholder="🔎 Найти везде…",
-        )
-        if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
-            st.session_state["global_search_query_pending"] = str(search or "").strip()
-            st.session_state["global_search_scope_pending"] = "all"
-            navigate("search")
-            st.rerun()
     else:
         st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
@@ -208,15 +142,28 @@ def render_sidebar(version: str) -> str:
     _render_update_notice(version)
 
     current = str(st.session_state.get("nav_route", "home"))
-    st.markdown('<div class="petrolab-nav-section">Основное</div>', unsafe_allow_html=True)
-    for route, label in PRIMARY_NAV:
-        _nav_button(route, label, current, prefix="primary_nav")
+    if current not in ROUTE_LABELS:
+        current = "home"
+        st.session_state["nav_route"] = current
+    for section, entries in PRIMARY_NAV_SECTIONS.items():
+        st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
+        for route, label in entries:
+            if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
+                navigate(route)
+                st.rerun()
 
-    primary_routes = {route for route, _ in PRIMARY_NAV}
-    visible_advanced_routes = {route for entries in TOOL_SECTIONS.values() for route, _ in entries}
-    with st.expander("Дополнительно", expanded=current in visible_advanced_routes and current not in primary_routes):
-        for section, entries in TOOL_SECTIONS.items():
+    secondary_routes = {route for entries in SECONDARY_NAV_SECTIONS.values() for route, _ in entries}
+    with st.expander("Дополнительные инструменты", expanded=current in secondary_routes):
+        for section, entries in SECONDARY_NAV_SECTIONS.items():
             st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
             for route, label in entries:
-                _nav_button(route, label, current, prefix="tool_nav")
+                if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
+                    navigate(route)
+                    st.rerun()
+
+    st.markdown('<div class="petrolab-nav-section">Система</div>', unsafe_allow_html=True)
+    for route, label in SYSTEM_NAVIGATION:
+        if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
+            navigate(route)
+            st.rerun()
     return current

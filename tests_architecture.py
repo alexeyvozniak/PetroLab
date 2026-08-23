@@ -160,10 +160,12 @@ assert "from petrolab.ui.pages import plots" not in plots_advanced
 xy_components = (ui_dir / "xy_components.py").read_text(encoding="utf-8")
 for marker in [
     "robust_outliers", "manual_outlier_exclusions", "build_interactive_scatter", "selected_analysis_ids",
-    "render_selection_panel", "render_selection_mode", "st.plotly_chart", "set_selection",
+    "st.plotly_chart",
 ]:
     assert marker in xy_components, marker
-assert "set_work_group" not in xy_components, "group persistence belongs in shared selection actions"
+# XY may create a working group from its interactive selection; it must not
+# duplicate the unrelated interpretation action for Generation.
+assert "set_work_group" in xy_components
 assert "assign_generation" not in xy_components, "Generation persistence belongs in shared selection actions"
 assert "from petrolab.ui.pages import plots" not in xy_components
 selection_components = (ui_dir / "selection_components.py").read_text(encoding="utf-8")

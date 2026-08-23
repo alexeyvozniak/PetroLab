@@ -168,7 +168,7 @@ def _navigate_sidebar(driver: webdriver.Chrome, label: str) -> None:
                     break
     assert candidates, f"Sidebar route not found: {label}"
     driver.execute_script("arguments[0].click();", candidates[0])
-    _wait_for_main_text(driver, "Рабочий стол")
+    _wait_for_main_text(driver, "Образцы")
 
 
 def _assert_no_exception(driver: webdriver.Chrome) -> None:
@@ -230,10 +230,9 @@ def main() -> None:
             driver.save_screenshot(str(ARTIFACTS / "01_after_image_button_diagnostic.png"))
             raise
         driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
-        assert "Фазовые наборы выбирать не нужно" in text
-        assert "Перетащите изображения или выберите файлы" in text
-        assert "Что добавить?" not in text
-        assert "Добавить данные" not in text
+        assert "Добавить данные" in text
+        assert "Что добавить?" in text
+        assert "Изображения" in text
         _assert_no_exception(driver)
 
         upload = WebDriverWait(driver, 20).until(
@@ -248,8 +247,7 @@ def main() -> None:
         assert "Исходный лист" in text
         assert "Весь лист: 3 анализов" in text
         assert "Дальше → разметить изображения" not in text
-        assert "Тип изображения" not in text
-        assert "Что добавить?" not in text
+        assert "Что добавить?" in text
         _assert_no_exception(driver)
 
         driver.save_screenshot(str(ARTIFACTS / "02_direct_image_intake_1440x900.png"))

@@ -25,6 +25,7 @@ from petrolab.ui.components import collect_related_images, render_asset_gallery
 from petrolab.ui.data_scope import render_analysis_scope
 from petrolab.ui.layout import render_page_header
 from petrolab.ui.plot_style_controls import render_custom_fields, render_figure_style_controls
+from petrolab.ui.selection_controls import render_save_selection
 from petrolab.visualization_presets import POINT_STYLE_PRESETS, SCIENTIFIC_PLOT_PRESETS
 
 
@@ -292,7 +293,7 @@ def _apply_pattern_group_styles(figure, pattern, group: pd.Series | None, *, mon
             line.set_color(color)
 
 
-def _render_pattern(dataframe: pd.DataFrame) -> None:
+def _render_pattern(dataframe: pd.DataFrame, project_id: int | None) -> None:
     mode = st.segmented_control("Тип", ["REE", "Spider / multi-element"], default="REE", key="pattern_mode")
     preferred = REE_ORDER if mode == "REE" else SPIDER_ORDER
     settings = load_settings()
@@ -361,6 +362,34 @@ def _render_pattern(dataframe: pd.DataFrame) -> None:
         figure_size=(style.width_in, style.height_in),
     )
     _apply_pattern_group_styles(figure, pattern, group_series, monochrome=style.monochrome)
+    active_ids = {str(value) for value in st.session_state.get("active_selection_analysis_ids", [])}
+    pattern_ids = (
+        dataframe.loc[pattern.data.index, "_analysis_id"].astype(str).tolist()
+        if "_analysis_id" in dataframe.columns else []
+    )
+    labels_by_id = {
+        analysis_id: " · ".join(
+            str(dataframe.loc[index].get(column) or "")
+            for column in ("Sample", "Grain", "Point") if column in dataframe.columns
+        ) or analysis_id[:8]
+        for index, analysis_id in zip(pattern.data.index, pattern_ids)
+    }
+    chosen_ids = st.multiselect(
+        "Подсветить кривые (общий Selection)", pattern_ids,
+        default=[value for value in pattern_ids if value in active_ids],
+        format_func=lambda value: labels_by_id.get(value, value[:8]), key="pattern_highlight_ids",
+        help="Выборка, сохранённая в XY или ternary, подсвечивается здесь по тому же _analysis_id.",
+    )
+    if chosen_ids and figure.axes:
+        chosen = set(chosen_ids)
+        for line, analysis_id in zip(figure.axes[0].lines, pattern_ids):
+            if analysis_id in chosen:
+                line.set_alpha(1.0)
+                line.set_linewidth(max(1.8, float(style.line_width) + 0.8))
+                line.set_zorder(10)
+            else:
+                line.set_alpha(0.16)
+    render_save_selection(project_id, chosen_ids, key_prefix="pattern", context={"chart_type": "spider", "elements": list(pattern.elements), "reference": reference_name})
     st.pyplot(figure, width="stretch")
     c1, c2 = st.columns(2)
     c1.download_button("PNG", figure_bytes(figure, "png", style.dpi), file_name="pattern.png", mime="image/png", key="pattern_png")
@@ -477,7 +506,7 @@ def render_science_plots_page() -> None:
     with tab_xy:
         _render_scientific_xy(scope.dataframe)
     with tab_pattern:
-        _render_pattern(scope.dataframe)
+        _render_pattern(scope.dataframe, scope.project_id)
     with tab_hist:
         _render_histogram(scope.dataframe)
     with tab_box:

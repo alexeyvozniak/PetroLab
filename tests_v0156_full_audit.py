@@ -165,20 +165,20 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("confirm_then", source)
         self.assertIn("render_pending", source)
 
-    def test_audit_wrappers_are_last_in_page_stack(self) -> None:
+    def test_canonical_pages_replace_audit_wrapper_stack(self) -> None:
         source = (ROOT / "petrolab/ui/pages/__init__.py").read_text(encoding="utf-8")
-        audit_pos = source.rfind("from .v0156_audit_wrappers import")
-        rock_pos = source.rfind("from .v0154_rock_workspace_wrappers import")
-        self.assertGreater(audit_pos, rock_pos)
+        # v0.16 kept the data-safety helpers but removed the old chain of page
+        # wrappers. Canonical dashboard modules now own their own routes.
+        self.assertNotIn("v0156_audit_wrappers", source)
         for renderer in (
             "render_analyses_page",
             "render_article_tables_page",
-            "render_global_search_page",
+            "render_search_page",
             "render_images_page",
-            "render_multi_panel_page",
-            "render_thin_section_workspace_page",
+            "render_linked_views_page",
+            "render_slides_page",
         ):
-            self.assertIn(renderer, source[audit_pos:])
+            self.assertIn(renderer, source)
 
 
 if __name__ == "__main__":

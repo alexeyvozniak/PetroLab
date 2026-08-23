@@ -91,11 +91,11 @@ def mineral_key_for_phase(phase_label: str) -> str:
     if clean in _EXACT_STORAGE_KEYS:
         return _EXACT_STORAGE_KEYS[clean]
     lowered = clean.casefold()
-    if "mica" in lowered or "слюд" in lowered:
+    if any(token in lowered for token in ("mica", "phlog", "biot", "annite", "muscov", "слюд", "флогоп", "биот")):
         return "mica"
-    if "amphibol" in lowered or "амфиб" in lowered:
+    if any(token in lowered for token in ("amphibol", "kaersut", "richter", "hornblend", "arfved", "амфиб")):
         return "amphibole"
-    if "clinopyrox" in lowered or "клинопирокс" in lowered:
+    if any(token in lowered for token in ("clinopyrox", "diop", "augite", "aegir", "hedenberg", "клинопирокс")):
         return "clinopyroxene"
     if "orthopyrox" in lowered or "ортопирокс" in lowered:
         return "orthopyroxene"

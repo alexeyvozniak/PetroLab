@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from petrolab.ui import universal_intake_extensions
+from petrolab.ui.source_sheet_image_wizard import render_source_sheet_image_wizard
 from petrolab.ui.intake_workflow import render_intake_workflow
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
@@ -34,4 +36,11 @@ def render_add_data_page() -> None:
         "при необходимости добавить изображения и связать их с теми же точками. "
         "Статья или данные коллеги отличаются только provenance, а не отдельной системой импорта."
     )
-    render_intake_workflow(int(project["id"]))
+    # Keep image-only intake on the full source sheet even when its analyses
+    # were later separated into phase datasets.
+    original_image_wizard = universal_intake_extensions.render_image_wizard_multi_dataset
+    universal_intake_extensions.render_image_wizard_multi_dataset = render_source_sheet_image_wizard
+    try:
+        render_intake_workflow(int(project["id"]))
+    finally:
+        universal_intake_extensions.render_image_wizard_multi_dataset = original_image_wizard

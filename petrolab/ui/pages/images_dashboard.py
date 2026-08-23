@@ -9,6 +9,7 @@ import streamlit as st
 from petrolab.dataframe_utils import apply_quick_filter, dataset_label
 from petrolab.db import list_accessible_datasets, load_dataset_dataframe
 from petrolab.services.image_relink_service import relink_image_asset
+from petrolab.image_inbox import add_to_inbox, assign_inbox_item, assign_inbox_items, discard_inbox_item, list_inbox_items
 from petrolab.services.image_service import (
     ImageAssignment,
     ImagePayload,
@@ -201,13 +202,18 @@ def _repair_detached(asset: dict, dataframe: pd.DataFrame) -> None:
                 st.error(f"Не удалось восстановить привязку: {exc}")
 
 
-def _gallery(dataset_id: int, dataframe: pd.DataFrame) -> None:
+def _gallery(dataset_id: int, dataframe: pd.DataFrame, *, focus_asset_id: int | None = None) -> None:
     assets = list_dataset_images(dataset_id)
     render_section_header("Галерея", f"{len(assets)} изображений")
     if not assets:
         st.caption("Изображений пока нет.")
         return
-    shown = assets[:120]
+    focus_asset_id = int(focus_asset_id) if focus_asset_id is not None else None
+    focused = [asset for asset in assets if int(asset["id"]) == focus_asset_id]
+    shown = focused + [asset for asset in assets if int(asset["id"]) != focus_asset_id]
+    shown = shown[:120]
+    if focused:
+        st.success("Открыт результат глобального поиска.")
     if len(assets) > len(shown):
         st.caption(f"Показано {len(shown)} из {len(assets)}. Для больших архивов используйте фильтрацию по набору.")
     columns = st.columns(3)
@@ -233,6 +239,105 @@ def _gallery(dataset_id: int, dataframe: pd.DataFrame) -> None:
                     st.rerun()
 
 
+def _inbox(project_id: int, datasets: list[dict]) -> None:
+    """Accept files first, then make their scientific connection explicitly."""
+    st.caption("Inbox нужен, когда вы сначала добавляете много BSE/фото, а точки и поля будете разбирать позже. Файлы не попадают в графики и не получают догадочную привязку.")
+    uploads = st.file_uploader(
+        "Добавить в Inbox", type=["png", "jpg", "jpeg", "webp", "tif", "tiff"],
+        accept_multiple_files=True, key="image_inbox_upload",
+    )
+    if st.button("Принять в Inbox", type="primary", disabled=not uploads, key="image_inbox_accept"):
+        try:
+            added = add_to_inbox(project_id, [ImagePayload(file.name, file.getvalue()) for file in uploads or []])
+        except Exception as exc:
+            st.error(f"Inbox не изменён: {exc}")
+        else:
+            st.success(f"В Inbox добавлено: {len(added)}.")
+            st.rerun()
+    items = list_inbox_items(project_id)
+    if not items:
+        st.caption("Inbox пуст.")
+        return
+    mapping = {dataset_label(item): item for item in datasets}
+    if len(items) > 1:
+        with st.expander("Назначить несколько изображений одинаково", expanded=False):
+            st.caption("Подходит, когда серия BSE относится к одному набору, полю или одному набору точек.")
+            selected_ids = st.multiselect(
+                "Изображения Inbox", [int(item.id) for item in items],
+                format_func=lambda value: next(item.filename for item in items if int(item.id) == int(value)),
+                key="inbox_bulk_ids",
+            )
+            selected_label = st.selectbox("Набор", list(mapping), key="inbox_bulk_dataset")
+            dataset = mapping[selected_label]
+            frame = load_dataset_dataframe(int(dataset["id"]), include_meta=True)
+            prefix = "inbox_bulk"
+            st.selectbox("Тип", IMAGE_KINDS, key=f"{prefix}_kind")
+            st.text_input("Общая подпись (необязательно)", key=f"{prefix}_title")
+            scope_label = st.radio("Связать с", list(SCOPE_LABELS), key=f"{prefix}_scope")
+            scope_type = SCOPE_LABELS[scope_label]
+            if scope_type == SCOPE_ANALYSIS:
+                render_multi_point_controls(prefix, frame)
+            elif scope_type == SCOPE_FIELD:
+                render_field_controls(prefix, frame)
+            elif scope_type == SCOPE_DATASET:
+                st.caption("Все выбранные изображения относятся ко всему набору.")
+            else:
+                st.caption("Выберите точку, поле или набор перед сохранением.")
+            if st.button("Привязать выбранные", type="primary", disabled=not selected_ids, key="inbox_bulk_assign"):
+                try:
+                    template = _assignment(prefix, "inbox.png", b"placeholder")
+                    if template is None:
+                        raise ValueError("Выберите научный контекст вместо пропуска")
+                    result = assign_inbox_items(
+                        project_id, selected_ids, dataset_id=int(dataset["id"]), scope=template.scope,
+                        kind=template.kind, title=template.title,
+                    )
+                except Exception as exc:
+                    st.error(f"Не удалось привязать изображения: {exc}")
+                else:
+                    st.success(f"Изображений получило общую привязку: {len(result)}.")
+                    st.rerun()
+    for item in items:
+        with st.expander(f"{item.filename} · ожидает привязки", expanded=False):
+            left, right = st.columns([1.25, 1])
+            with left:
+                try:
+                    st.image(item.stored_path, caption=item.filename, width="stretch")
+                except Exception:
+                    st.caption("Предпросмотр недоступен, но исходный файл сохранён.")
+            with right:
+                selected_label = st.selectbox("Набор", list(mapping), key=f"inbox_dataset_{item.id}")
+                dataset = mapping[selected_label]
+                frame = load_dataset_dataframe(int(dataset["id"]), include_meta=True)
+                prefix = f"inbox_{item.id}"
+                st.selectbox("Тип", IMAGE_KINDS, key=f"{prefix}_kind")
+                st.text_input("Подпись", value=Path(item.filename).stem, key=f"{prefix}_title")
+                scope_label = st.radio("Связать с", list(SCOPE_LABELS), key=f"{prefix}_scope")
+                scope_type = SCOPE_LABELS[scope_label]
+                if scope_type == SCOPE_ANALYSIS:
+                    render_multi_point_controls(prefix, frame)
+                elif scope_type == SCOPE_FIELD:
+                    render_field_controls(prefix, frame)
+                elif scope_type == SCOPE_DATASET:
+                    st.caption("Изображение относится ко всему набору.")
+                else:
+                    st.caption("Выберите точку, поле или набор перед сохранением.")
+                if st.button("Привязать", type="primary", key=f"inbox_assign_{item.id}"):
+                    try:
+                        assignment = _assignment(prefix, item.filename, Path(item.stored_path).read_bytes())
+                        if assignment is None:
+                            raise ValueError("Выберите научный контекст вместо пропуска")
+                        assign_inbox_item(project_id, item.id, dataset_id=int(dataset["id"]), assignment=assignment)
+                    except Exception as exc:
+                        st.error(f"Не удалось привязать: {exc}")
+                    else:
+                        st.success("Изображение получило привязку и ушло из Inbox.")
+                        st.rerun()
+                if st.button("Удалить из Inbox", key=f"inbox_discard_{item.id}"):
+                    discard_inbox_item(project_id, item.id)
+                    st.rerun()
+
+
 def render_images_dashboard_page() -> None:
     render_page_header(
         "Изображения",
@@ -251,6 +356,7 @@ def render_images_dashboard_page() -> None:
     mapping = {dataset_label(item): item for item in datasets}
     labels = list(mapping)
     requested = st.session_state.pop("workflow_image_dataset_id", None)
+    focus_asset_id = st.session_state.pop("workflow_image_asset_id", None)
     default_index = 0
     if requested is not None:
         for index, label in enumerate(labels):
@@ -260,8 +366,10 @@ def render_images_dashboard_page() -> None:
     selected_label = st.selectbox("Набор данных", labels, index=default_index, key="img_dataset")
     dataset = mapping[selected_label]
     dataframe = load_dataset_dataframe(int(dataset["id"]), include_meta=True)
-    wizard_tab, gallery_tab = st.tabs(["Добавить изображения", "Галерея"])
+    wizard_tab, inbox_tab, gallery_tab = st.tabs(["Добавить изображения", "Inbox", "Галерея"])
     with wizard_tab:
         _wizard(project_id, dataset, dataframe)
+    with inbox_tab:
+        _inbox(project_id, datasets)
     with gallery_tab:
-        _gallery(int(dataset["id"]), dataframe)
+        _gallery(int(dataset["id"]), dataframe, focus_asset_id=focus_asset_id)

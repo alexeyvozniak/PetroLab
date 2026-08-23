@@ -848,6 +848,53 @@ def read_tabular_path(
     return read_tabular_with_map(source_path.read_bytes(), source_path.name, sheet_name, header_row)
 
 
+def read_tabular_block_with_map(
+    file_bytes: bytes,
+    filename: str,
+    sheet_name: str | None,
+    header_row: int,
+    last_row: int,
+) -> tuple[pd.DataFrame, dict[str, dict], list[int]]:
+    """Read one user-marked rectangular table from an otherwise unstructured sheet.
+
+    ``header_row`` and ``last_row`` are Excel's 1-based row numbers.  This path
+    intentionally skips format-specific report adapters: once a researcher has
+    marked a block by hand, its boundary must be honoured exactly instead of
+    being expanded by a heuristic elsewhere in the sheet.
+    """
+    header_row = int(header_row)
+    last_row = int(last_row)
+    if header_row < 1:
+        raise ValueError("Строка заголовков должна быть не меньше 1.")
+    if last_row <= header_row:
+        raise ValueError("Последняя строка блока должна идти после строки заголовков.")
+
+    suffix = Path(filename).suffix.lower()
+    header = header_row - 1
+    row_count = last_row - header_row
+    source = io.BytesIO(file_bytes)
+    if suffix in {".xlsx", ".xlsm", ".xls"}:
+        dataframe = pd.read_excel(source, sheet_name=sheet_name or 0, header=header, nrows=row_count)
+    elif suffix == ".csv":
+        try:
+            dataframe = pd.read_csv(source, sep=None, engine="python", header=header, nrows=row_count)
+        except UnicodeDecodeError:
+            source.seek(0)
+            dataframe = pd.read_csv(source, sep=None, engine="python", encoding="cp1251", header=header, nrows=row_count)
+    else:
+        raise ValueError("Поддерживаются файлы XLSX, XLSM, XLS и CSV")
+
+    dataframe, source_rows = _drop_fully_empty_rows(dataframe, header_row)
+    dataframe, mapping = normalize_columns_with_map(dataframe)
+    dataframe = add_qc_columns(dataframe)
+    mapping["__schema__"] = {
+        "adapter": "manual_block",
+        "adapter_note": f"Пользовательский блок Excel: строки {header_row}–{last_row}.",
+        "import_block": {"header_row": header_row, "last_row": last_row},
+    }
+    return dataframe, mapping, source_rows
+
+
 def numeric_candidates(df: pd.DataFrame, min_valid: int = 2, ratio: float = 0.65) -> list[str]:
     result: list[str] = []
     for column in df.columns:

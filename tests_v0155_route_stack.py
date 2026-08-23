@@ -10,46 +10,33 @@ def main() -> None:
     package = Path("petrolab/__init__.py").read_text(encoding="utf-8")
 
     for marker in [
-        '"publication_composer": render_publication_composer_page',
-        '"grain_profile": render_grain_profile_page',
-        '"rock_workspace": render_rock_workspace_page',
-        '"multi_panel": render_multi_panel_page',
+        '"figure_recipes": render_figure_recipes_page',
+        '"linked_views": render_linked_views_page',
+        '"rocks": render_rocks_page',
     ]:
         assert marker in app, marker
 
-    # User-facing research/publication tools stay in the visible task navigation.
+    # Product Design exposes everyday material work first and groups specialised
+    # publication/scientific tools under an explicit secondary disclosure.
     for marker in [
-        '("publication_composer", "Собрать рисунок A/B/C")',
-        '("multi_panel", "Сравнить на нескольких диаграммах")',
-        '("grain_profile", "Профиль по зерну")',
+        '("rocks", "Породы")',
+        '("linked_views", "Связанные представления")',
+        '("figure_recipes", "Figure Recipe")',
+        '"Дополнительные инструменты"',
     ]:
         assert marker in navigation, marker
 
-    # Product Design makes the whole-rock workspace a first-level daily action;
-    # the low-level editor remains routable only for old links and internal actions.
     for marker in [
-        '("rock_workspace", "Породы")',
-        '"rocks": "Редактор пород"',
-    ]:
-        assert marker in navigation, marker
-    assert '("rocks", "Редактор пород")' not in navigation
-
-    for marker in [
-        "from .publication_composer import render_publication_composer_page",
-        "from .grain_profile import render_grain_profile_page",
-        "from .multi_panel import render_multi_panel_page",
-        "from .rock_workspace import render_rock_workspace_page",
-        "from .v0153_grain_profile_wrappers import render_global_search_page",
-        "from .v0154_rock_workspace_wrappers import render_rocks_page",
+        "from .figure_recipes import render_figure_recipes_page",
+        "from .linked_views import render_linked_views_page",
+        "from .rocks import render_rocks_page",
     ]:
         assert marker in pages, marker
-    assert "from .v0152_publication_wrappers import render_multi_panel_page" not in pages
-    assert "render_multi_panel_page_v0154_bridge as render_multi_panel_page" not in pages
 
     # Release keeps earlier non-UI scientific/runtime safety hooks until each is
     # explicitly replaced. UI wrapper accumulation is no longer a requirement.
     for marker in [
-        "_install_import_runtime", "_install_physical_point_safety", "_install_amphibole_runtime",
+        "_install_import_runtime", "_install_amphibole_runtime", "_install_user_derived_runtime",
     ]:
         assert marker in package, marker
 

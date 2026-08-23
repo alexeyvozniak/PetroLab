@@ -8,8 +8,14 @@ from uuid import uuid4
 import pandas as pd
 
 from petrolab.column_schema import apply_semantic_mapping
-from petrolab.db import connect
-from petrolab.io_utils import read_tabular_path, read_tabular_with_map, sha256_bytes, sha256_file
+from petrolab.db import connect, list_datasets
+from petrolab.io_utils import (
+    read_tabular_block_with_map,
+    read_tabular_path,
+    read_tabular_with_map,
+    sha256_bytes,
+    sha256_file,
+)
 from petrolab.measurement_semantics import apply_measurement_overrides
 
 
@@ -55,14 +61,59 @@ def _prepare(
             frame, column_map, _ = apply_measurement_overrides(
                 frame, column_map, (measurement_maps or {}).get(sheet, {})
             )
-            # Import service knows how to infer WDS/EDS provenance from a protocol.
-            # The runtime path must keep that field too; otherwise preview and persisted
-            # data disagree and Method filters silently miss freshly imported rows.
+            # The runtime importer must preserve the same WDS/EDS provenance
+            # marker as the standard import path, otherwise a browser upload
+            # silently loses its analytical-method context.
             frame, column_map = svc._attach_detected_method(frame, column_map)
             frame = svc._calculate_mineral(frame, mineral)
         except Exception as exc:
             raise ValueError(f"Лист «{sheet or 'CSV'}» не прошёл preflight: {exc}") from exc
         prepared.append(_Prepared(sheet, frame, column_map, source_rows, mineral, header))
+    return prepared
+
+
+def _prepare_blocks(
+    svc,
+    *,
+    reader,
+    blocks: list[Mapping],
+    default_mineral: str,
+    semantic_maps: Mapping[str, Mapping[str, str]] | None,
+    measurement_maps: Mapping[str, Mapping[str, str]] | None,
+) -> list[_Prepared]:
+    """Prepare manually marked tables without guessing the rest of a worksheet."""
+    prepared: list[_Prepared] = []
+    for index, raw in enumerate(blocks, start=1):
+        block_id = str(raw.get("id") or f"block_{index}")
+        sheet = str(raw.get("sheet") or "")
+        title = str(raw.get("title") or f"Таблица {index}").strip() or f"Таблица {index}"
+        header = int(raw.get("header_row") or 1)
+        last_row = int(raw.get("last_row") or 0)
+        mineral = str(raw.get("mineral_key") or default_mineral)
+        if mineral not in svc.MINERALS:
+            raise ValueError(f"Блок «{title}»: неизвестный минерал {mineral}")
+        try:
+            frame, column_map, source_rows = reader(sheet, header, last_row)
+            frame, column_map, _ = apply_semantic_mapping(
+                frame, column_map, (semantic_maps or {}).get(block_id, {})
+            )
+            frame, column_map, _ = apply_measurement_overrides(
+                frame, column_map, (measurement_maps or {}).get(block_id, {})
+            )
+            frame, column_map = svc._attach_detected_method(frame, column_map)
+            frame = svc._calculate_mineral(frame, mineral)
+        except Exception as exc:
+            raise ValueError(f"Блок «{title}» не прошёл preflight: {exc}") from exc
+        schema = dict(column_map.get("__schema__") or {})
+        schema["import_block"] = {
+            "id": block_id, "title": title, "sheet": sheet,
+            "header_row": header, "last_row": last_row,
+        }
+        column_map = {**column_map, "__schema__": schema}
+        # The visible source label makes the origin intelligible in the database;
+        # exact Excel rows remain in _source_row for every saved analysis.
+        label = f"{sheet or 'CSV'} · {title} ({header}–{last_row})"
+        prepared.append(_Prepared(label, frame, column_map, source_rows, mineral, header))
     return prepared
 
 
@@ -123,6 +174,19 @@ def _rollback(created: list[tuple[int, Path]]) -> None:
             csv_path.unlink(missing_ok=True)
 
 
+def _rollback_unreported(project_id: int, baseline_ids: set[int]) -> None:
+    """Clean a dataset persisted just before an unexpected caller-side failure."""
+    with connect() as con:
+        rows = con.execute("SELECT id,csv_path FROM datasets WHERE project_id=?", (int(project_id),)).fetchall()
+    for row in rows:
+        dataset_id = int(row["id"])
+        if dataset_id in baseline_ids:
+            continue
+        csv_path = Path(str(row["csv_path"] or ""))
+        _delete_dataset(dataset_id)
+        csv_path.unlink(missing_ok=True)
+
+
 def install() -> None:
     from petrolab.services import import_service as svc
 
@@ -130,23 +194,27 @@ def install() -> None:
         *, project_id: int, path, sheet_names: list[str], mineral_key: str,
         dataset_name: str, header_row: int,
         semantic_maps=None, measurement_maps=None,
-        header_rows=None, mineral_keys=None,
+        header_rows=None, mineral_keys=None, blocks=None,
     ):
         source = svc.validate_source_path(path)
-        if not sheet_names:
-            raise ValueError("Не выбран ни один лист для импорта")
-        prepared = _prepare(
+        if not sheet_names and not blocks:
+            raise ValueError("Не выбран лист или блок для импорта")
+        prepared = _prepare_blocks(
+            svc,
+            reader=lambda sheet, header, last: read_tabular_block_with_map(
+                source.read_bytes(), source.name, sheet or None, header, last
+            ),
+            blocks=list(blocks or []), default_mineral=mineral_key,
+            semantic_maps=semantic_maps, measurement_maps=measurement_maps,
+        ) if blocks else _prepare(
             svc,
             reader=lambda sheet, header: read_tabular_path(source, sheet or None, header),
-            sheet_names=sheet_names,
-            default_header=int(header_row),
-            default_mineral=mineral_key,
-            header_rows=header_rows,
-            mineral_keys=mineral_keys,
-            semantic_maps=semantic_maps,
-            measurement_maps=measurement_maps,
+            sheet_names=sheet_names, default_header=int(header_row), default_mineral=mineral_key,
+            header_rows=header_rows, mineral_keys=mineral_keys,
+            semantic_maps=semantic_maps, measurement_maps=measurement_maps,
         )
         source_hash = sha256_file(source)
+        baseline_ids = {int(row["id"]) for row in list_datasets(project_id)}
         created: list[tuple[int, Path]] = []
         try:
             for item in prepared:
@@ -155,10 +223,13 @@ def install() -> None:
                     svc, project_id=project_id, item=item, dataset_name=name,
                     source_filename=source.name, source_hash=source_hash,
                     source_path=str(source), source_kind="linked",
-                    sync_enabled=source.suffix.lower() in svc.SYNCABLE_SUFFIXES,
+                    # A user-marked block is a fixed snapshot.  Automatic refresh
+                    # would be unsafe if notes or rows are inserted in the workbook.
+                    sync_enabled=not blocks and source.suffix.lower() in svc.SYNCABLE_SUFFIXES,
                 ))
         except Exception:
             _rollback(created)
+            _rollback_unreported(project_id, baseline_ids)
             raise
         return svc.ImportBatchResult(tuple(item[0] for item in created), source)
 
@@ -166,26 +237,28 @@ def install() -> None:
         *, project_id: int, file_bytes: bytes, filename: str,
         sheet_names: list[str], mineral_key: str, dataset_name: str,
         header_row: int, semantic_maps=None, measurement_maps=None,
-        header_rows=None, mineral_keys=None,
+        header_rows=None, mineral_keys=None, blocks=None,
     ):
-        if not sheet_names:
-            raise ValueError("Не выбран ни один лист для импорта")
+        if not sheet_names and not blocks:
+            raise ValueError("Не выбран лист или блок для импорта")
         svc.list_uploaded_sheets(file_bytes, filename)
-        prepared = _prepare(
+        prepared = _prepare_blocks(
             svc,
-            reader=lambda sheet, header: read_tabular_with_map(
-                file_bytes, filename, sheet or None, header
+            reader=lambda sheet, header, last: read_tabular_block_with_map(
+                file_bytes, filename, sheet or None, header, last
             ),
-            sheet_names=sheet_names,
-            default_header=int(header_row),
-            default_mineral=mineral_key,
-            header_rows=header_rows,
-            mineral_keys=mineral_keys,
-            semantic_maps=semantic_maps,
-            measurement_maps=measurement_maps,
+            blocks=list(blocks or []), default_mineral=mineral_key,
+            semantic_maps=semantic_maps, measurement_maps=measurement_maps,
+        ) if blocks else _prepare(
+            svc,
+            reader=lambda sheet, header: read_tabular_with_map(file_bytes, filename, sheet or None, header),
+            sheet_names=sheet_names, default_header=int(header_row), default_mineral=mineral_key,
+            header_rows=header_rows, mineral_keys=mineral_keys,
+            semantic_maps=semantic_maps, measurement_maps=measurement_maps,
         )
         managed_path = svc._store_managed_source(project_id, filename, file_bytes)
         source_hash = sha256_bytes(file_bytes)
+        baseline_ids = {int(row["id"]) for row in list_datasets(project_id)}
         created: list[tuple[int, Path]] = []
         try:
             for item in prepared:
@@ -200,6 +273,7 @@ def install() -> None:
                 ))
         except Exception:
             _rollback(created)
+            _rollback_unreported(project_id, baseline_ids)
             managed_path.unlink(missing_ok=True)
             raise
         return svc.ImportBatchResult(tuple(item[0] for item in created), managed_path)

@@ -18,15 +18,23 @@ from tests_guided_ui_viewports import _assert_viewport, _seed, _select_page, _vi
 
 PORT = 8522
 PAGES = (
-    ("add_data", "Добавить", ("Добавить данные", "Excel / CSV")),
+    ("add_data", "Добавить данные", ("Добавить данные", "Excel / CSV")),
     ("attention", "Требует внимания", ("Сначала проверить", "Неразобранные фазы / mixed")),
     ("batch", "Массовые действия", ("Наборы", "Фильтр")),
     ("history", "История правок данных", ("История действий", "Интерпретации", "Значения и Excel")),
 )
 PRIMARY_NAV = (
-    "Обзор", "Образцы", "Породы", "Поиск", "Шлифы", "Анализы", "Добавить",
+    "Обзор", "Добавить данные", "Найти в проектах", "Образцы", "Шлифы", "Породы", "Анализы", "Графики",
 )
-PLOT_TOOLS = ("Точка", "Прямоугольник", "Лассо", "Панорама")
+# The dashboard opens in its deliberately compact daily-work view.  Point,
+# box and lasso controls belong to the separate linked-panels workspace;
+# asserting them here falsely couples two different user journeys.
+PLOT_WORKSPACE_MARKERS = (
+    "Быстрое построение",
+    "Расширенный редактор",
+    "Интерактивный график",
+    "Публикационный экспорт",
+)
 VIEWPORTS = ((1440, 900), (390, 844))
 
 
@@ -94,37 +102,23 @@ def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output:
 
 
 def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
-    # Independent screenshot helpers hard-refresh; Back must be tested inside one
-    # live Streamlit websocket session instead.
+    # Task-first navigation is direct: move from a Sample catalogue to thin
+    # sections without relying on an artificial browser-history control.
     _click_primary_without_refresh(driver, "Образцы", output, "back_samples")
-    _wait_for_page_content(driver, ("Рабочий стол",), "back_samples", output)
+    _wait_for_page_content(driver, ("Образцы",), "back_samples", output)
     _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
-    _wait_for_page_content(driver, ("Работать со шлифом",), "back_thin_section", output)
-
-    wait = WebDriverWait(driver, 20)
-    wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
-    back = _visible_sidebar_buttons(driver, "← Назад")[0]
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", back)
-    back.click()
-    deadline = time.time() + 20.0
-    while time.time() < deadline:
-        if "Рабочий стол" in driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text:
-            return
-        time.sleep(0.25)
-    output.mkdir(parents=True, exist_ok=True)
-    driver.save_screenshot(str(output / "back_navigation_failure.png"))
-    raise AssertionError("Browser Back action did not restore the previous Data workspace route")
+    _wait_for_page_content(driver, ("Шлифы и поля",), "back_thin_section", output)
 
 
 def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> None:
-    """Real browser gate for the visible JMP/Origin-like plot workspace.
+    """Real browser gate for the daily plotting workspace.
 
-    Streamlit does not promise that segmented-control options are HTML buttons.
-    Their visible labels are the stable user contract; deterministic linked-selection
-    semantics are covered separately by tests_v0157_linked_selection.py.
+    The compact XY workspace exposes fast plotting and publication output.
+    Linked point/box/lasso selection is intentionally verified in its own
+    multi-panel journey, rather than being asserted on this separate screen.
     """
     _select_page(driver, "Графики", output, "plot_workspace")
-    _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_TOOLS), "plot_workspace", output)
+    _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_WORKSPACE_MARKERS), "plot_workspace", output)
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')))
     chart = driver.find_element(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')
