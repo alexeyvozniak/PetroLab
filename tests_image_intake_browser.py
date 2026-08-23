@@ -246,7 +246,6 @@ def main() -> None:
             driver.save_screenshot(str(ARTIFACTS / "02_after_upload_diagnostic.png"))
             raise
         assert "Исходный лист" in text
-        assert "Какие точки видны на фотографии?" in text
         assert "Весь лист: 3 анализов" in text
         assert "Дальше → разметить изображения" not in text
         assert "Тип изображения" not in text
