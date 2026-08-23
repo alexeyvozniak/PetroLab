@@ -104,7 +104,7 @@ class ProductGuidanceTests(unittest.TestCase):
             '"Дополнительно"',
         ]:
             self.assertIn(marker, navigation)
-        for obsolete in ["Все инструменты", "Рабочая область", '"Главная"', '"Данные"']:
+        for obsolete in ["Все инструменты", "Рабочая область", '"Главная"', '"Шлифы и изображения"']:
             self.assertNotIn(obsolete, navigation)
 
         for marker in [
