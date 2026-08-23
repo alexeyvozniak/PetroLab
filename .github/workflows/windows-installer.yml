@@ -70,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          $requiredWorkflows = @("Windows verification", "v0.16.0 acceptance audit")
+          $requiredWorkflows = @("Windows verification", "v0.16.1 acceptance audit")
           $deadline = (Get-Date).AddMinutes(25)
           $passed = @{}
           while ((Get-Date) -lt $deadline) {

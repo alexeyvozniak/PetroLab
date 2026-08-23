@@ -308,7 +308,7 @@ def main() -> None:
                 _assert_page(driver, page_name, width, height)
                 driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
-        print("PetroLab 0.16.0 stable UI acceptance: OK")
+        print("PetroLab 0.16.1 stable UI acceptance: OK")
     finally:
         if driver is not None:
             driver.quit()

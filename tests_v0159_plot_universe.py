@@ -27,7 +27,7 @@ def main() -> None:
     # Mineral and text controls are presentation choices.  The publication
     # manifest keeps the eligible scientific universe, so the recipe remains
     # reproducible after a view is narrowed.
-    print("PetroLab 0.16.0 quick plot DataUniverse: OK")
+    print("PetroLab 0.16.1 quick plot DataUniverse: OK")
 
 
 if __name__ == "__main__":
