@@ -93,16 +93,22 @@ def navigate(route: str, *, record_history: bool = True) -> None:
     current = str(st.session_state.get("nav_route", "home"))
     if record_history and current in ROUTE_LABELS and current != route:
         push_current(st.session_state, current_route=current)
+    if current != route:
+        # Route changes start at the top; intra-page state keeps its own scroll.
+        st.session_state["_scroll_to_top_pending"] = True
     st.session_state["nav_route"] = route
 
 
 def go_back() -> str | None:
     current = str(st.session_state.get("nav_route", "home"))
-    return restore_previous_route(
+    restored = restore_previous_route(
         st.session_state,
         current_route=current,
         valid_routes=set(ROUTE_LABELS),
     )
+    if restored is not None and restored != current:
+        st.session_state["_scroll_to_top_pending"] = True
+    return restored
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
