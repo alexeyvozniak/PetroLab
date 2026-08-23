@@ -18,9 +18,11 @@ from petrolab.multi_panel_plotting import build_multi_panel_scatter, panel_axis_
 from petrolab.plotting import figure_png_bytes, figure_svg_bytes
 from petrolab.source_registry import SOURCE_LABEL_COLUMN, attach_study_metadata
 from petrolab.ui.layout import render_badges, render_page_header, render_section_header
-from petrolab.ui.linked_panels import render_linked_panel_selection
+from petrolab.ui.navigation import navigate
+from petrolab.ui.linked_panels import build_linked_panel_figure, render_linked_panel_selection
 from petrolab.ui.panel_manager import render_panel_manager
 from petrolab.ui.plot_manager import render_series_manager
+from petrolab.ui.publication_bridge import add_publication_image_source, plotly_figure_png
 from petrolab.ui.plot_spec import PlotSpec, clear_multi_panel_inbox, peek_multi_panel_inbox
 from petrolab.ui.project_context import active_project
 from petrolab.ui.selection_components import render_selection_panel
@@ -388,10 +390,55 @@ def render_multi_panel_page() -> None:
     render_section_header("Публикационный вид", "SVG/PNG для бинарных панелей; mixed view остаётся интерактивным")
     visible_columns = [column for column in dataframe.columns if not str(column).startswith("_")]
     if not all_binary:
-        st.info("Треугольные и spider-панели уже работают в linked-интерфейсе выше. Публикационный SVG/PNG для mixed layout будет следующим шагом.")
-        st.download_button(
-            "XLSX данных", _xlsx_bytes(dataframe[visible_columns]), file_name="petrolab_multi_panel_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+        st.caption(
+            "Mixed-компоновку можно передать в редактор публикации как одну точную панель: "
+            "в ней остаются бинарные, треугольные и spider-графики текущего отбора."
+        )
+        p1, p2 = st.columns(2)
+        if p1.button(
+            "Добавить mixed-компоновку в публикацию",
+            type="primary",
+            width="stretch",
+            key=f"multi_panel_send_mixed_to_publication_{project_id}",
+        ):
+            color_choice = str(st.session_state.get(f"mineral_multi_{project_id}_color_column") or "Как в общей группировке")
+            marker_choice = str(st.session_state.get(f"mineral_multi_{project_id}_marker_column") or "Одинаковый маркер")
+            color_column = group_col if color_choice == "Как в общей группировке" else color_choice
+            marker_column = None if marker_choice == "Одинаковый маркер" else marker_choice
+            try:
+                publication_figure = build_linked_panel_figure(
+                    plot_dataframe,
+                    panels,
+                    id_column="_analysis_id",
+                    selected_ids=read_selection().analysis_ids,
+                    group_column=group_col,
+                    color_column=color_column,
+                    marker_column=marker_column,
+                    columns=int(columns),
+                    axis_limits=axis_limits,
+                    labelled_ids=read_row_states().labelled,
+                    excluded_ids=read_row_states().excluded,
+                    display_color=read_row_states().display_color,
+                    display_marker=read_row_states().display_marker,
+                )
+                image_bytes = plotly_figure_png(publication_figure, scale=3)
+                add_publication_image_source(
+                    st.session_state,
+                    name="Linked binary + ternary + spider",
+                    image_bytes=image_bytes,
+                    note="Точный mixed-набор из Plot Studio PetroLab.",
+                )
+            except Exception as exc:
+                st.error(f"Не удалось подготовить mixed-компоновку для публикации: {exc}")
+            else:
+                navigate("publication_composer")
+                st.rerun()
+        p2.download_button(
+            "XLSX данных",
+            _xlsx_bytes(dataframe[visible_columns]),
+            file_name="petrolab_multi_panel_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
         )
         return
     try:
