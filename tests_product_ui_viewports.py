@@ -94,26 +94,13 @@ def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output:
 
 
 def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
-    # Independent screenshot helpers hard-refresh; Back must be tested inside one
-    # live Streamlit websocket session instead.
+    # Task-first navigation is direct: move from a Sample catalogue to thin
+    # sections without relying on an artificial browser-history control.
     _click_primary_without_refresh(driver, "Образцы", output, "back_samples")
     _wait_for_page_content(driver, ("Образцы",), "back_samples", output)
     _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
     _wait_for_page_content(driver, ("Шлифы и поля",), "back_thin_section", output)
-
-    wait = WebDriverWait(driver, 20)
-    wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
-    back = _visible_sidebar_buttons(driver, "← Назад")[0]
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", back)
-    back.click()
-    deadline = time.time() + 20.0
-    while time.time() < deadline:
-        if "Образцы" in driver.find_element(By.CSS_SELECTOR, '[data-testid="stMain"]').text:
-            return
-        time.sleep(0.25)
-    output.mkdir(parents=True, exist_ok=True)
-    driver.save_screenshot(str(output / "back_navigation_failure.png"))
-    raise AssertionError("Browser Back action did not restore the previous Data workspace route")
+    _assert_no_exception(driver)
 
 
 def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> None:

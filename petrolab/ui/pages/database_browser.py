@@ -337,6 +337,13 @@ def render_database_browser_page() -> None:
         return
     project_id = int(project_id)
 
+    if sample_catalog:
+        st.caption("Есть фотографии или BSE к этим Sample? Добавьте их сразу к исходному листу аналитической сессии.")
+        if st.button("+ Добавить изображения", type="primary", key="samples_add_images"):
+            st.session_state["intake_entry_mode"] = "Изображения"
+            navigate("add_data")
+            st.rerun()
+
     c1, c2 = st.columns(2)
     scope = c1.segmented_control("Область", ["Активный проект", "Все проекты"], default="Активный проект", key="db_browser_scope")
     query = c2.text_input("Поиск", key="db_browser_search", placeholder="образец, зерно, точка, минерал, местность…")

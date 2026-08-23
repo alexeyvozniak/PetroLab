@@ -14,6 +14,7 @@ from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes, workbook_with_manifest
 from petrolab.settings_service import load_settings
 from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
 from petrolab.ui.project_context import active_project_id
 from petrolab.ui.xy_components import (
@@ -64,11 +65,17 @@ def _quick_workspace(project_id: int) -> None:
     notice = st.session_state.pop("workflow_plot_notice", "")
     if notice:
         st.success(notice)
+    if requested_analysis_ids:
+        st.caption(f"Выбрано: {len(requested_analysis_ids)} · точный отбор передан из предыдущего рабочего контекста.")
+    if isinstance(requested_context, dict) and requested_context.get("origin") == "thin_section":
+        if st.button("На шлифе", key="plots_back_to_thin_section"):
+            navigate("slides")
+            st.rerun()
     settings = load_settings()
     preset_name = str(settings.get("default_figure_preset", "Lithos"))
     preset = FIGURE_PRESETS.get(preset_name, FIGURE_PRESETS["Lithos"])
 
-    left, right = st.columns([1, 2.2], gap="large")
+    left, right = st.columns([0.8, 3.2], gap="large")
     with left:
         st.markdown("### Данные")
         selected_labels = st.multiselect(

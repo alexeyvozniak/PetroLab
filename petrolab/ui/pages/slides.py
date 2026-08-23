@@ -33,6 +33,7 @@ from petrolab.slides import (
     render_slide_overlay,
 )
 from petrolab.ui.layout import render_badges, render_hint, render_page_header, render_section_header
+from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
 
 
@@ -475,6 +476,42 @@ def _map_and_manage(project_id: int, images: list) -> None:
                 detach_image_from_slide_field(int(field_id), int(linked_image.id))
                 st.rerun()
     if markers:
+        marker_analysis_ids = tuple(dict.fromkeys(
+            str(analysis_id)
+            for marker in markers
+            for analysis_id in marker.get("analysis_ids") or []
+            if str(analysis_id)
+        ))
+        active_selection = {
+            str(analysis_id)
+            for analysis_id in st.session_state.get("selection_analysis_ids", [])
+            if str(analysis_id)
+        }
+        selected_here = active_selection & set(marker_analysis_ids)
+        if active_selection:
+            render_badges([
+                (f"Selection · {len(active_selection)}", "accent"),
+                (f"Selection здесь · {len(selected_here)}", "neutral"),
+            ])
+        if marker_analysis_ids:
+            st.caption(
+                f"В метках этого снимка: {len(marker_analysis_ids)} строк анализов. "
+                "Откройте их в графиках — точный отбор сохранится при переходе."
+            )
+            if st.button("Открыть в графиках", type="primary", key=f"slide_markers_to_plots_{image.id}"):
+                st.session_state["workflow_plot_analysis_ids"] = list(marker_analysis_ids)
+                st.session_state["selection_analysis_ids"] = list(marker_analysis_ids)
+                st.session_state["active_selection_analysis_ids"] = list(marker_analysis_ids)
+                st.session_state["workflow_plot_context"] = {
+                    "origin": "thin_section",
+                    "slide_image_id": int(image.id),
+                    "label": f"Шлиф · {image.title}",
+                }
+                st.session_state["workflow_plot_notice"] = (
+                    f"В график переданы {len(marker_analysis_ids)} строк анализов с этого снимка."
+                )
+                navigate("plots")
+                st.rerun()
         st.markdown("#### Метки")
         table = pd.DataFrame([
             {

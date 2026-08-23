@@ -4,6 +4,8 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import time
+import gc
 from pathlib import Path
 
 import pandas as pd
@@ -87,4 +89,12 @@ if __name__ == "__main__":
     try:
         main()
     finally:
-        _tmp.cleanup()
+        gc.collect()
+        for attempt in range(20):
+            try:
+                _tmp.cleanup()
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.1)

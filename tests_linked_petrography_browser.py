@@ -301,24 +301,21 @@ def main() -> None:
         _save(driver, "00_thin_initial.png")
         text = _main_text(driver)
         assert "Шлифы и поля" in text, text[:2000]
-        # Selected values live inside Streamlit select inputs and are not guaranteed to
-        # appear in main.innerText. These visible badges prove the seeded physical
-        # section/image/markers are the active workspace instead of a blank project.
-        for expected in ("снимков · 1", "точек · 2", "связанных анализов · 3"):
+        for expected in ("1 · Снимок", "2 · Поле", "3 · Метки", "Карта и BSE"):
             assert expected in text, f"Missing {expected!r}: {text[:2500]}"
         _assert_no_exception(driver)
 
-        _click_tab(driver, "Связи")
+        _click_tab(driver, "Карта и BSE")
         text = _main_text(driver)
-        assert "точек · 2" in text
-        assert "связанных анализов · 3" in text
+        assert "2 меток" in text
+        assert "Открыть в графиках" in text
         _save(driver, "01_thin_links.png")
 
         _click_button(driver, "Открыть в графиках")
         _wait_for_route_top(driver)
         text = _main_text(driver)
         assert "XY-диаграммы" in text
-        assert "Выбрано: 2" in text, text[:2500]
+        assert "Выбрано: 3" in text, text[:2500]
         assert "На шлифе" in text
         charts = [
             chart for chart in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"], .js-plotly-plot')
@@ -332,9 +329,8 @@ def main() -> None:
         _wait_for_route_top(driver)
         text = _main_text(driver)
         assert "Шлифы и поля" in text
-        assert "Selection · 2" in text, text[:2500]
-        assert "на этом снимке · 1 точ." in text
-        assert "Selection здесь · 1" in text
+        assert "Selection · 3" in text, text[:2500]
+        assert "Selection здесь · 3" in text
         _assert_no_exception(driver)
         _save(driver, "03_back_on_exact_bse.png")
 

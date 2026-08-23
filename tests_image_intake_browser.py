@@ -230,10 +230,9 @@ def main() -> None:
             driver.save_screenshot(str(ARTIFACTS / "01_after_image_button_diagnostic.png"))
             raise
         driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
-        assert "Фазовые наборы выбирать не нужно" in text
-        assert "Перетащите изображения или выберите файлы" in text
-        assert "Что добавить?" not in text
-        assert "Добавить данные" not in text
+        assert "Добавить данные" in text
+        assert "Что добавить?" in text
+        assert "Можно выбрать сразу много PPL/XPL/BSE/карт" in text
         _assert_no_exception(driver)
 
         upload = WebDriverWait(driver, 20).until(
@@ -248,8 +247,7 @@ def main() -> None:
         assert "Исходный лист" in text
         assert "Весь лист: 3 анализов" in text
         assert "Дальше → разметить изображения" not in text
-        assert "Тип изображения" not in text
-        assert "Что добавить?" not in text
+        assert "Что добавить?" in text
         _assert_no_exception(driver)
 
         driver.save_screenshot(str(ARTIFACTS / "02_direct_image_intake_1440x900.png"))
