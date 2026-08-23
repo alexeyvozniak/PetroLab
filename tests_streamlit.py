@@ -86,7 +86,7 @@ def assert_primary_navigation(app) -> None:
 
 def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
     """The primary Data task must never be blank while working datasets exist."""
-    open_page(app, "Данные", "workspace")
+    open_page(app, "Образцы", "workspace")
     assert str(app.session_state["workspace_mode"]) == "Массив данных", app.session_state["workspace_mode"]
     selectors = [widget for widget in app.selectbox if widget.label == "Массив данных"]
     assert selectors, "Data workspace did not expose the existing dataset selector"
