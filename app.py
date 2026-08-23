@@ -58,13 +58,11 @@ route_fresh_import_to_workflow()
 apply_smart_plot_defaults()
 
 
-# Pages are intentionally imported only when opened. Previously importing
-# petrolab.ui.pages pulled every scientific module into memory before the first
-# screen could render, including statistics, plotting and publication tooling.
+# Keep the first paint lean. Heavy scientific pages load only when opened.
 ROUTE_TARGETS: dict[str, tuple[str, str]] = {
     "home": ("petrolab.ui.pages.home_dashboard", "render_home_dashboard_page"),
     "workflow": ("petrolab.ui.pages.guided_workflow", "render_guided_workflow_page"),
-    "add_data": ("petrolab.ui.pages.add_data", "render_add_data_page"),
+    "add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page"),
     "attention": ("petrolab.ui.pages.attention", "render_attention_page"),
     "batch_edit": ("petrolab.ui.pages.batch_edit", "render_batch_edit_page"),
     "intake": ("petrolab.ui.pages.data_intake", "render_data_intake_page"),
@@ -78,7 +76,7 @@ ROUTE_TARGETS: dict[str, tuple[str, str]] = {
     "formulae": ("petrolab.ui.pages.formulae", "render_formulae_page"),
     "plots": ("petrolab.ui.pages.plots_dashboard", "render_plots_dashboard_page"),
     "ternary": ("petrolab.ui.pages.ternary", "render_ternary_page"),
-    "linked_views": ("petrolab.ui.pages.linked_views", "render_linked_views_page"),
+    "linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page"),
     "thermobarometry": ("petrolab.ui.pages.thermobarometry", "render_thermobarometry_page"),
     "equilibrium": ("petrolab.ui.pages.equilibrium", "render_equilibrium_page"),
     "distribution": ("petrolab.ui.pages.distribution", "render_distribution_page"),
@@ -86,9 +84,9 @@ ROUTE_TARGETS: dict[str, tuple[str, str]] = {
     "statistics": ("petrolab.ui.pages.v0160_cluster_statistics_hotfix", "render_statistics_page"),
     "generations": ("petrolab.ui.pages.generations", "render_generations_page"),
     "rocks": ("petrolab.ui.pages.rocks", "render_rocks_page"),
-    "search": ("petrolab.ui.pages.search", "render_search_page"),
+    "search": ("petrolab.ui.pages.search_reference", "render_search_reference_page"),
     "selections": ("petrolab.ui.pages.selections", "render_selections_page"),
-    "slides": ("petrolab.ui.pages.slides", "render_slides_page"),
+    "slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page"),
     "images": ("petrolab.ui.pages.images_dashboard", "render_images_dashboard_page"),
     "minerals": ("petrolab.ui.pages.minerals", "render_minerals_page"),
     "article_tables": ("petrolab.ui.pages.article_tables", "render_article_tables_page"),
@@ -118,12 +116,11 @@ def _render_route(route: str) -> None:
     if cold_load:
         placeholder.markdown(
             f"""
-            <div style="max-width:640px;margin:1.1rem auto;padding:1.15rem 1.25rem;border:1px solid var(--petro-border);border-radius:8px;background:var(--petro-surface);">
-              <div style="font-weight:750;font-size:1.05rem;margin-bottom:.22rem;">◈ ПетроЛаб</div>
-              <div style="font-weight:700;margin-bottom:.2rem;">Открываем «{label}»…</div>
-              <div style="color:var(--petro-text-muted);font-size:.8rem;line-height:1.4;">
-                Подключаем только нужный модуль. Данные остаются локально.
-              </div>
+            <div class="petrolab-loading-card">
+              <div class="petrolab-loading-brand">PetroLab</div>
+              <div class="petrolab-loading-title">Открываем «{label}»…</div>
+              <div class="petrolab-loading-copy">Подключаем только нужный модуль. Данные остаются локально.</div>
+              <div class="petrolab-loading-line"></div>
             </div>
             """,
             unsafe_allow_html=True,
