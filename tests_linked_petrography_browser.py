@@ -297,7 +297,7 @@ def main() -> None:
         WebDriverWait(driver, 25).until(lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]'))
         _wait_for_idle(driver)
 
-        _navigate_sidebar(driver, "Шлифы и изображения")
+        _navigate_sidebar(driver, "Шлифы")
         _save(driver, "00_thin_initial.png")
         text = _main_text(driver)
         assert "Работать со шлифом" in text, text[:2000]
