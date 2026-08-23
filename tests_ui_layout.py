@@ -179,7 +179,10 @@ for page_name in [
 
 settings = (PAGES / "settings.py").read_text(encoding="utf-8")
 assert 'st.tabs(' in settings
-assert '"Интерфейс"' in settings and '"Рисунки"' in settings and '"Таблицы"' in settings and '"Анализ"' in settings
+for label in ["Интерфейс", "Графики и таблицы", "Расчёты", "Данные и безопасность", "Расширенные"]:
+    assert label in settings
+for marker in ["Связанный Excel", "settings_download_diagnostics", "settings_clear_cache", "Открыть перенос и резервные копии проектов"]:
+    assert marker in settings
 assert '"Быстрое построение"' in plots and '"Расширенный редактор"' in plots
 assert "FIGURE_PRESETS" in plots
 for marker in ["preset.width_in", "preset.height_in", "preset.font_family", "preset.font_size", "preset.tick_size", "preset.spine_width", "preset.dpi"]:
