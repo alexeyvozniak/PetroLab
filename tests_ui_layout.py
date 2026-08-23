@@ -105,6 +105,17 @@ assert '"slides": render_slides_page' in APP
 home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
 assert "Рабочая копия PetroLab" in home
 assert "Связанный исходный файл" in home
+for marker in [
+    "Следующие действия", "Личный список по активному проекту", "Добавить в список",
+    "Готово", "Выполнено ·", "Вернуть", "project_checklist",
+]:
+    assert marker in home, marker
+checklist = (ROOT / "petrolab" / "project_checklist.py").read_text(encoding="utf-8")
+for marker in [
+    "project_checklist_items", "create_project_checklist_item", "list_project_checklist_items",
+    "set_project_checklist_item_completed", "ON DELETE SET NULL",
+]:
+    assert marker in checklist, marker
 
 sources = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
 for marker in ["внутренняя рабочая копия", "зафиксированный фрагмент Excel", "Перечитать исходный файл"]:
