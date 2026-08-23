@@ -1,4 +1,4 @@
-"""Связанные интерактивные XY-панели с единым отбором по analysis_id."""
+"""Связанные бинарные, треугольные и spider-панели по analysis_id."""
 from __future__ import annotations
 
 import math
@@ -116,6 +116,98 @@ def _plotly_axis_range(limits: tuple[float, float] | list[float] | None, *, log:
     return [lower, upper]
 
 
+
+def _panel_kind(panel: Mapping[str, object]) -> str:
+    kind = str(panel.get("kind") or panel.get("type") or "xy").strip().casefold()
+    return {"binary": "xy", "scatter": "xy", "triangle": "ternary", "triangular": "ternary", "ree": "spider"}.get(kind, kind)
+
+
+def _panel_components(panel: Mapping[str, object], key: str) -> list[str]:
+    raw = panel.get(key) or panel.get("elements" if key == "variables" else key)
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return [str(value) for value in raw if str(value).strip()]
+    return []
+
+
+def _is_valid_panel(dataframe: pd.DataFrame, panel: Mapping[str, object]) -> bool:
+    kind = _panel_kind(panel)
+    if kind == "xy":
+        return panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns
+    if kind == "ternary":
+        values = [str(panel.get(key) or "") for key in ("a", "b", "c")]
+        values = values if all(values) else _panel_components(panel, "components")
+        return len(values) == 3 and all(value in dataframe.columns for value in values)
+    if kind == "spider":
+        values = _panel_components(panel, "variables")
+        return len(values) >= 2 and all(value in dataframe.columns for value in values)
+    return False
+
+
+def _panel_title(panel: Mapping[str, object]) -> str:
+    if str(panel.get("title") or "").strip():
+        return str(panel["title"])
+    kind = _panel_kind(panel)
+    if kind == "ternary":
+        values = [str(panel.get(key) or "") for key in ("a", "b", "c")]
+        return " · ".join(values if all(values) else _panel_components(panel, "components"))
+    if kind == "spider":
+        return str(panel.get("y_label") or "Spider")
+    return f"{panel['y']} vs {panel['x']}"
+
+
+def _subplot_type(panel: Mapping[str, object]) -> str:
+    return "ternary" if _panel_kind(panel) == "ternary" else "xy"
+
+
+def _visual_encoding(frame: pd.DataFrame, *, color_column: str | None, marker_column: str | None, group_column: str | None):
+    color_field = color_column if color_column and color_column in frame.columns else (
+        group_column if group_column and group_column in frame.columns else None
+    )
+    if color_field:
+        colors = frame[color_field].astype("string").fillna("Без группы").replace("", "Без группы")
+        color_names = [str(value) for value in colors.unique().tolist()]
+    else:
+        colors, color_names = pd.Series(["Данные"] * len(frame), index=frame.index, dtype="string"), ["Данные"]
+    color_map = {name: qualitative.Plotly[index % len(qualitative.Plotly)] for index, name in enumerate(color_names)}
+    marker_field = marker_column if marker_column and marker_column in frame.columns else None
+    if marker_field:
+        markers = frame[marker_field].astype("string").fillna("Без значения").replace("", "Без значения")
+        marker_names = [str(value) for value in markers.unique().tolist()]
+    else:
+        markers, marker_names = pd.Series(["Данные"] * len(frame), index=frame.index, dtype="string"), ["Данные"]
+    symbols = ("circle", "square", "triangle-up", "diamond", "cross", "x", "pentagon", "star")
+    marker_map = {name: symbols[index % len(symbols)] for index, name in enumerate(marker_names)}
+    return colors, color_names, color_map, markers, marker_names, marker_map
+
+
+def _material_scope_label(dataframe: pd.DataFrame) -> str:
+    def populated(columns: tuple[str, ...]) -> bool:
+        return any(column in dataframe.columns and dataframe[column].notna().any() for column in columns)
+    mineral = populated(("Минерал", "Mineral", "Mineral phase", "Фаза"))
+    rock = populated(("Rock", "Порода", "Lithology", "Литология", "Massif", "Массив", "Массив/комплекс", "Рабочий класс породы"))
+    for column in ("Материал", "Material", "Тип материала", "Material type"):
+        if column not in dataframe.columns:
+            continue
+        values = [str(value).casefold() for value in dataframe[column].dropna().unique().tolist()]
+        mineral = mineral or any("минерал" in value or "mineral" in value for value in values)
+        rock = rock or any("пород" in value or "rock" in value or "литолог" in value or "litholog" in value for value in values)
+    if mineral and rock:
+        return "минералы и породы"
+    if rock:
+        return "породы"
+    if mineral:
+        return "минералы"
+    return "анализы"
+
+
+def _ternary_components(panel: Mapping[str, object]) -> tuple[str, str, str]:
+    values = [str(panel.get(key) or "") for key in ("a", "b", "c")]
+    values = values if all(values) else _panel_components(panel, "components")
+    return values[0], values[1], values[2]
+
+
 def build_linked_panel_figure(
     dataframe: pd.DataFrame,
     panels: list[dict],
@@ -134,95 +226,125 @@ def build_linked_panel_figure(
     display_color: Mapping[str, str] | None = None,
     display_marker: Mapping[str, str] | None = None,
 ) -> go.Figure:
+    """Build binary, ternary and spider panels over one immutable analysis ID space."""
     if id_column not in dataframe.columns:
         raise ValueError(f"Нет устойчивого идентификатора {id_column}")
-    valid = [dict(panel) for panel in panels if panel.get("x") in dataframe.columns and panel.get("y") in dataframe.columns]
+    valid = [dict(panel) for panel in panels if _is_valid_panel(dataframe, panel)][:10]
     if not valid:
         raise ValueError("Нет валидных панелей")
-    valid = valid[:10]
     limits = axis_limits or [{"x": None, "y": None} for _ in valid]
     ncols = max(1, min(int(columns), 4, len(valid)))
     nrows = int(math.ceil(len(valid) / ncols))
-    titles = [str(panel.get("title") or f"{panel['y']} vs {panel['x']}") for panel in valid]
-    figure = make_subplots(rows=nrows, cols=ncols, subplot_titles=titles)
-
+    specs = [
+        [{"type": _subplot_type(valid[index])} if index < len(valid) else {"type": "xy"} for index in range(row * ncols, (row + 1) * ncols)]
+        for row in range(nrows)
+    ]
+    figure = make_subplots(rows=nrows, cols=ncols, subplot_titles=[_panel_title(panel) for panel in valid], specs=specs)
     selected = {_clean_id(value) for value in selected_ids if _clean_id(value)} & _available_ids(dataframe, id_column)
-    colors = _group_colors(dataframe, group_column)
     legend_seen: set[str] = set()
 
     for panel_index, panel in enumerate(valid):
-        row = panel_index // ncols + 1
-        col = panel_index % ncols + 1
-        x = str(panel["x"])
-        y = str(panel["y"])
-        log_x = bool(panel.get("log_x", False))
-        log_y = bool(panel.get("log_y", False))
-        work = _panel_frame(dataframe, x, y, log_x, log_y)
-        if work.empty:
+        row, col = panel_index // ncols + 1, panel_index % ncols + 1
+        kind = _panel_kind(panel)
+        panel_limits = limits[panel_index] if panel_index < len(limits) and isinstance(limits[panel_index], dict) else {}
+
+        if kind == "xy":
+            x, y = str(panel["x"]), str(panel["y"])
+            log_x, log_y = bool(panel.get("log_x", False)), bool(panel.get("log_y", False))
+            work = _panel_frame(dataframe, x, y, log_x, log_y)
+            if work.empty:
+                continue
+            color_labels, color_names, color_map, marker_labels, marker_names, marker_map = _visual_encoding(work, color_column=color_column, marker_column=marker_column, group_column=group_column)
+            for color_name in color_names:
+                for marker_name in marker_names:
+                    part = work.loc[(color_labels == color_name) & (marker_labels == marker_name)]
+                    if part.empty:
+                        continue
+                    ids = [_clean_id(value) for value in part[id_column].tolist()]
+                    showlegend = color_name not in legend_seen
+                    figure.add_trace(go.Scattergl(
+                        x=part[x], y=part[y], mode="markers", name=color_name, legendgroup=color_name, showlegend=showlegend,
+                        customdata=[[value] for value in ids], text=_hover_text(part),
+                        hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
+                        selectedpoints=[i for i, value in enumerate(ids) if value in selected] if selected else None,
+                        marker={"size": 8, "opacity": 0.88, "color": color_map[color_name], "symbol": marker_map[marker_name]},
+                        selected={"marker": {"size": 13, "opacity": 1.0, "color": color_map[color_name]}},
+                        unselected={"marker": {"opacity": 0.18}} if selected else None,
+                        meta={"panel_kind": "xy"},
+                    ), row=row, col=col)
+                    if showlegend:
+                        legend_seen.add(color_name)
+            add_row_display_overlay(figure, work, x, y, labelled_ids=labelled_ids, excluded_ids=excluded_ids, display_color=display_color, display_marker=display_marker, row=row, col=col)
+            figure.update_xaxes(title_text=str(panel.get("x_label") or x), type="log" if log_x else "linear", range=_plotly_axis_range(panel_limits.get("x"), log=log_x), row=row, col=col)
+            figure.update_yaxes(title_text=str(panel.get("y_label") or y), type="log" if log_y else "linear", range=_plotly_axis_range(panel_limits.get("y"), log=log_y), row=row, col=col)
             continue
 
-        color_field = color_column if color_column and color_column in work.columns else group_column if group_column in work.columns else None
-        marker_field = marker_column if marker_column and marker_column in work.columns else None
-        if color_field:
-            color_labels = work[color_field].astype("string").fillna("Без группы").replace("", "Без группы")
-            color_names = [str(value) for value in color_labels.unique().tolist()]
-        else:
-            color_labels = pd.Series(["Данные"] * len(work), index=work.index, dtype="string")
-            color_names = ["Данные"]
-        color_map = {name: qualitative.Plotly[index % len(qualitative.Plotly)] for index, name in enumerate(color_names)}
+        if kind == "ternary":
+            a, b, c = _ternary_components(panel)
+            work = dataframe.copy()
+            for component in (a, b, c):
+                work[component] = pd.to_numeric(work[component], errors="coerce")
+            work = work.dropna(subset=[a, b, c])
+            if work.empty:
+                continue
+            color_labels, color_names, color_map, marker_labels, marker_names, marker_map = _visual_encoding(work, color_column=color_column, marker_column=marker_column, group_column=group_column)
+            for color_name in color_names:
+                for marker_name in marker_names:
+                    part = work.loc[(color_labels == color_name) & (marker_labels == marker_name)]
+                    if part.empty:
+                        continue
+                    ids = [_clean_id(value) for value in part[id_column].tolist()]
+                    showlegend = color_name not in legend_seen
+                    figure.add_trace(go.Scatterternary(
+                        a=part[a], b=part[b], c=part[c], mode="markers", name=color_name, legendgroup=color_name, showlegend=showlegend,
+                        customdata=[[value] for value in ids], text=_hover_text(part),
+                        hovertemplate="%{text}<br>a: %{a}<br>b: %{b}<br>c: %{c}<extra></extra>",
+                        selectedpoints=[i for i, value in enumerate(ids) if value in selected] if selected else None,
+                        marker={"size": 8, "opacity": 0.88, "color": color_map[color_name], "symbol": marker_map[marker_name]},
+                        selected={"marker": {"size": 13, "opacity": 1.0, "color": color_map[color_name]}},
+                        unselected={"marker": {"opacity": 0.18}} if selected else None,
+                        meta={"panel_kind": "ternary", "components": [a, b, c]},
+                    ), row=row, col=col)
+                    if showlegend:
+                        legend_seen.add(color_name)
+            continue
 
-        if marker_field:
-            marker_labels = work[marker_field].astype("string").fillna("Без значения").replace("", "Без значения")
-            marker_names = [str(value) for value in marker_labels.unique().tolist()]
-        else:
-            marker_labels = pd.Series(["Данные"] * len(work), index=work.index, dtype="string")
-            marker_names = ["Данные"]
-        symbols = ("circle", "square", "triangle-up", "diamond", "cross", "x", "pentagon", "star")
-        marker_map = {name: symbols[index % len(symbols)] for index, name in enumerate(marker_names)}
-
-        for color_name in color_names:
-            colored = work.loc[color_labels == color_name]
-            for marker_name in marker_names:
-                part = colored.loc[marker_labels.loc[colored.index] == marker_name]
-                if part.empty:
-                    continue
-                ids = [_clean_id(value) for value in part[id_column].tolist()]
-                selectedpoints = [index for index, value in enumerate(ids) if value in selected] if selected else None
-                showlegend = color_name not in legend_seen
-                trace = go.Scattergl(
-                    x=part[x], y=part[y], mode="markers", name=color_name,
-                    legendgroup=color_name, showlegend=showlegend,
-                    customdata=[[value] for value in ids], text=_hover_text(part),
-                    hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
-                    selectedpoints=selectedpoints,
-                    marker={"size": 8, "opacity": 0.88, "color": color_map[color_name], "symbol": marker_map[marker_name]},
-                    selected={"marker": {"size": 13, "opacity": 1.0, "color": color_map[color_name], "symbol": marker_map[marker_name]}},
-                    unselected={"marker": {"opacity": 0.18}} if selected else None,
-                )
-                figure.add_trace(trace, row=row, col=col)
-                if showlegend:
-                    legend_seen.add(color_name)
-
-        add_row_display_overlay(
-            figure, work, x, y,
-            labelled_ids=labelled_ids,
-            excluded_ids=excluded_ids,
-            display_color=display_color,
-            display_marker=display_marker,
-            row=row,
-            col=col,
-        )
-
-        panel_limits = limits[panel_index] if panel_index < len(limits) and isinstance(limits[panel_index], dict) else {}
-        x_range = _plotly_axis_range(panel_limits.get("x"), log=log_x)
-        y_range = _plotly_axis_range(panel_limits.get("y"), log=log_y)
-        figure.update_xaxes(title_text=str(panel.get("x_label") or x), type="log" if log_x else "linear", range=x_range, row=row, col=col)
-        figure.update_yaxes(title_text=str(panel.get("y_label") or y), type="log" if log_y else "linear", range=y_range, row=row, col=col)
+        variables = _panel_components(panel, "variables")
+        log_y = bool(panel.get("log_y", True))
+        work = dataframe.copy()
+        for variable in variables:
+            work[variable] = pd.to_numeric(work[variable], errors="coerce")
+        work = work.dropna(subset=variables, how="all")
+        if log_y:
+            work = work.loc[(work[variables] > 0).any(axis=1)]
+        if work.empty:
+            continue
+        color_labels, _, color_map, marker_labels, _, marker_map = _visual_encoding(work, color_column=color_column, marker_column=marker_column, group_column=group_column)
+        for _, record in work.iterrows():
+            analysis_id = _clean_id(record.get(id_column))
+            pairs = [(variable, float(record[variable])) for variable in variables if pd.notna(record[variable]) and (not log_y or float(record[variable]) > 0)]
+            if not analysis_id or len(pairs) < 2:
+                continue
+            xs, ys = zip(*pairs)
+            color_name, marker_name = str(color_labels.loc[record.name]), str(marker_labels.loc[record.name])
+            is_selected, showlegend = analysis_id in selected, color_name not in legend_seen
+            figure.add_trace(go.Scatter(
+                x=list(xs), y=list(ys), mode="lines+markers", name=color_name, legendgroup=color_name, showlegend=showlegend,
+                customdata=[[analysis_id] for _ in xs], text=[_hover_text(work.loc[[record.name]])[0] for _ in xs],
+                hovertemplate="%{text}<br>%{x}: %{y}<extra></extra>",
+                line={"color": color_map[color_name], "width": 3.2 if is_selected else 1.25},
+                marker={"size": 7 if is_selected else 5, "color": color_map[color_name], "symbol": marker_map[marker_name]},
+                opacity=1.0 if not selected or is_selected else 0.13,
+                meta={"panel_kind": "spider", "analysis_id": analysis_id},
+            ), row=row, col=col)
+            if showlegend:
+                legend_seen.add(color_name)
+        figure.update_xaxes(title_text=str(panel.get("x_label") or "Элементы"), type="category", row=row, col=col)
+        figure.update_yaxes(title_text=str(panel.get("y_label") or "Нормированное содержание"), type="log" if log_y else "linear", range=_plotly_axis_range(panel_limits.get("y"), log=log_y), row=row, col=col)
 
     figure.update_layout(
-        height=max(360, int(height_per_row) * nrows), dragmode=dragmode,
-        clickmode="event+select", selectdirection="any", uirevision="petrolab-linked-panels",
-        margin={"l": 30, "r": 20, "t": 70, "b": 35},
+        height=max(360, int(height_per_row) * nrows), dragmode=dragmode, clickmode="event+select",
+        selectdirection="any", uirevision="petrolab-linked-panels", margin={"l": 30, "r": 20, "t": 70, "b": 35},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
     )
     return figure
@@ -252,8 +374,10 @@ def render_linked_panel_selection(
         if not str(column).startswith("_") and dataframe[column].nunique(dropna=True) <= 30
         and not pd.api.types.is_numeric_dtype(dataframe[column])
     ]
-    preferred = [value for value in ("PetroLab Generation", "Generation", "Рабочая группа", "Источник", "Минерал", "Sample", "Grain", "Point", "Method", "Метод") if value in categorical]
+    preferred = [value for value in ("PetroLab Generation", "Generation", "Рабочая группа", "Источник", "Минерал", "Mineral", "Rock", "Порода", "Lithology", "Литология", "Massif", "Массив", "Массив/комплекс", "Sample", "Grain", "Point", "Method", "Метод") if value in categorical]
     categorical = list(dict.fromkeys([*preferred, *categorical]))
+
+    st.caption(f"Материал в текущем наборе: {_material_scope_label(visible)}. Связь панелей идёт по analysis_id, а не по типу материала.")
 
     c1, c2, c3 = st.columns([1.15, 1, 1])
     with c1:
@@ -307,7 +431,7 @@ def render_linked_panel_selection(
     hidden_count = len(context.analysis_ids) - len(visible_selected)
     if context.analysis_ids:
         c1, c2 = st.columns([4, 1])
-        message = f"Общий отбор: {len(visible_selected)} видимых точек; те же analysis_id подсвечиваются в других представлениях."
+        message = f"Общий отбор: {len(visible_selected)} видимых точек; те же analysis_id подсвечиваются в бинарных, треугольных и spider-панелях."
         if hidden_count:
             message += f" Ещё {hidden_count} сейчас не видны из-за фильтра/Hide."
         c1.info(message)
@@ -315,5 +439,5 @@ def render_linked_panel_selection(
             clear_selection()
             st.rerun()
     else:
-        st.caption("Выберите точки на любой панели — этот же Selection появится в таблице, XY и статистике.")
+        st.caption("Выберите точки на любой панели — тот же Selection появится в бинарных, треугольных и spider-графиках, таблице, XY и статистике.")
     return visible_selected
