@@ -19,6 +19,7 @@ from petrolab.ui.layout import render_badges, render_page_header, render_section
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 from petrolab.ui.selection_context import read_selection
+from petrolab.ui.smart_plot_start import seed_plot_handoff
 from petrolab.ui.work_context import set_work_context
 
 
@@ -113,7 +114,7 @@ def _secondary_selection_actions(dataframe: pd.DataFrame, dataset_ids: list[int]
     if not ids:
         return
     render_section_header("Ещё действия", "Для текущего общего отбора")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     if c1.button("Редактировать значения", width="stretch", key="workspace_selection_edit"):
         st.session_state["workflow_edit_dataset_ids"] = [int(value) for value in dataset_ids]
         st.session_state["workflow_edit_analysis_ids"] = ids
@@ -124,7 +125,20 @@ def _secondary_selection_actions(dataframe: pd.DataFrame, dataset_ids: list[int]
         st.session_state["workflow_table_analysis_ids"] = ids
         navigate("article_tables")
         st.rerun()
-    if c3.button("Термодинамика", width="stretch", key="workspace_selection_thermo"):
+    if c3.button("Построить график", type="primary", width="stretch", key="workspace_selection_plot"):
+        seed_plot_handoff(
+            st.session_state,
+            dataset_ids=dataset_ids,
+            analysis_ids=ids,
+            context={
+                "origin": "workspace_selection",
+                "label": f"Образцы · {len(ids)} точек",
+            },
+            notice=f"В график передан точный отбор: {len(ids)} точек.",
+        )
+        navigate("plots")
+        st.rerun()
+    if c4.button("Термодинамика", width="stretch", key="workspace_selection_thermo"):
         st.session_state["thermodynamics_workspace_analysis_ids"] = ids
         st.session_state["thermodynamics_workspace_dataset_ids"] = [int(value) for value in dataset_ids]
         navigate("thermobarometry")
