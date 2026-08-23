@@ -426,6 +426,19 @@ def _map_and_manage(project_id: int, images: list) -> None:
                     st.rerun()
         else:
             st.caption("Сначала добавьте отдельный BSE-снимок на вкладке «Снимок».")
+        if linked:
+            st.markdown("##### BSE выбранного поля")
+            preview_columns = st.columns(min(3, len(linked)))
+            for index, linked_image in enumerate(linked):
+                with preview_columns[index % len(preview_columns)]:
+                    try:
+                        st.image(
+                            linked_image.preview_path,
+                            caption=f"{linked_image.title} → {field_by_id[int(field_id)]['name']}",
+                            width="stretch",
+                        )
+                    except Exception:
+                        st.caption(f"BSE: {linked_image.title} (превью недоступно)")
         for linked_image in linked:
             row = st.columns([3, 1])
             row[0].caption(f"{linked_image.image_type} · {linked_image.title} → {field_by_id[int(field_id)]['name']}")

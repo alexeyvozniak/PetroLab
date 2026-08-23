@@ -94,7 +94,7 @@ for marker in [
 slides = (PAGES / "slides.py").read_text(encoding="utf-8")
 for marker in [
     "render_slides_page", "Шлифы и поля", "Оригинал остаётся", "Одна метка может связать EPMA, ЭДС и LA",
-    "Два щелчка по снимку", "Сбросить выбор на изображении", "Малый BSE для конкретного поля",
+    "Два щелчка по снимку", "Сбросить выбор на изображении", "Малый BSE для конкретного поля", "BSE выбранного поля",
 ]:
     assert marker in slides, marker
 assert '("slides", "Шлифы и поля")' in NAVIGATION
