@@ -97,7 +97,9 @@ for marker in [
     "Два щелчка по снимку", "Сбросить выбор на изображении", "Малый BSE для конкретного поля", "BSE выбранного поля",
 ]:
     assert marker in slides, marker
-assert '("slides", "Шлифы и поля")' in NAVIGATION
+assert '("slides", "Шлифы")' in NAVIGATION
+assert '("samples", "Образцы")' in NAVIGATION
+assert '"samples": render_database_browser_page' in APP
 assert '"slides": render_slides_page' in APP
 
 home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
@@ -159,9 +161,9 @@ for marker in [
 assert "render_sidebar" in APP
 assert "PAGE_GROUPS" not in APP
 assert "Рабочая область" not in APP
-for label in ["Данные", "Исследование", "Материалы", "Публикация", "Система"]:
+for label in ["Начать", "Материал", "Анализы и графики", "Дополнительные инструменты", "Научные инструменты", "Публикация", "Система"]:
     assert label in NAVIGATION
-for label in ["Главная", "Новые анализы", "База анализов", "Расчёты", "XY-диаграммы", "Изображения", "История правок данных"]:
+for label in ["Обзор", "Образцы", "Найти в проектах", "Графики", "Шлифы", "Породы", "Анализы", "Добавить данные", "Настройки"]:
     assert label in NAVIGATION
 
 # High-value dashboard pages use the shared visual hierarchy.

@@ -28,20 +28,14 @@ from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
 from petrolab.settings_service import load_settings, save_settings
-from petrolab.source_registry import (
-    SOURCE_LABEL_COLUMN,
-    SOURCE_TABLE_COLUMN,
-    attach_study_metadata,
-)
 
 
 _SELECTION_FIELDS = {
-    "Object": ("Объект", ("Object", "Объект", "Locality", "Местность")),
-    "Sample": ("Образец", ("Sample", "Образец")),
-    "Mineral": ("Минерал", ("Минерал", "Mineral")),
-    "Generation": ("Генерация", ("Generation", "Генерация")),
-    "Method": ("Метод", ("Method", "Метод", "Technique", "Метод анализа")),
-    "Source": ("Источник / статья", (SOURCE_LABEL_COLUMN,)),
+    "Object": ("Object", "Объект", "Locality", "Местность"),
+    "Sample": ("Sample", "Образец"),
+    "Mineral": ("Минерал", "Mineral"),
+    "Generation": ("Generation", "Генерация"),
+    "Method": ("Method", "Метод", "Technique", "Метод анализа"),
 }
 
 
@@ -60,9 +54,7 @@ def _render_selection_toolbar(project_id: int, scope: str, query: str) -> None:
     dataset_ids = [int(dataset["id"]) for dataset in datasets]
     if not dataset_ids:
         return
-    dataframe = attach_study_metadata(
-        attach_generations(attach_work_groups(load_unified_with_derived(None, dataset_ids)))
-    )
+    dataframe = attach_generations(attach_work_groups(load_unified_with_derived(None, dataset_ids)))
     if dataframe.empty or "_analysis_id" not in dataframe.columns:
         return
     # Object/locality is optional for imported chemistry.  When it has been
@@ -92,35 +84,27 @@ def _render_selection_toolbar(project_id: int, scope: str, query: str) -> None:
                 ).any(axis=1)
             ].copy()
 
+        columns = st.columns(len(_SELECTION_FIELDS))
         active_filters: dict[str, list[str]] = {}
-        filter_items = list(_SELECTION_FIELDS.items())
-        for row_start in range(0, len(filter_items), 3):
-            row_items = filter_items[row_start:row_start + 3]
-            columns = st.columns(len(row_items))
-            for widget, (field_key, (label, candidates)) in zip(columns, row_items):
-                column = _first_column(filtered, candidates)
-                if column is None:
-                    widget.caption(f"{label}: нет поля")
-                    continue
-                values = sorted(filtered[column].dropna().astype(str).loc[lambda value: value.str.strip().ne("")].unique())
-                selected = widget.multiselect(label, values, key=f"db_selection_{field_key}")
-                if selected:
-                    filtered = filtered[filtered[column].astype(str).isin(selected)].copy()
-                    active_filters[label] = selected
+        for index, (widget, (label, candidates)) in enumerate(zip(columns, _SELECTION_FIELDS.items())):
+            column = _first_column(filtered, candidates)
+            if column is None:
+                widget.caption(f"{label}: нет поля")
+                continue
+            values = sorted(filtered[column].dropna().astype(str).loc[lambda value: value.str.strip().ne("")].unique())
+            selected = widget.multiselect(label, values, key=f"db_selection_{index}_{label}")
+            if selected:
+                filtered = filtered[filtered[column].astype(str).isin(selected)].copy()
+                active_filters[label] = selected
 
         analysis_ids = filtered["_analysis_id"].astype(str).tolist()
         selected_dataset_ids = sorted({int(value) for value in filtered["_dataset_id"].dropna().tolist()})
-        selected_study_ids = sorted({int(value) for value in filtered.get("_study_id", pd.Series(dtype="Int64")).dropna().tolist()})
         render_badges([
             (f"{len(analysis_ids):,} точек".replace(",", " "), "accent"),
             (f"{len(selected_dataset_ids)} наборов", "neutral"),
-            (f"{len(selected_study_ids)} источников", "neutral"),
         ])
         visible = [
-            column for column in [
-                "Sample", "Grain", "Point", "Минерал", "Generation", "Method",
-                SOURCE_LABEL_COLUMN, SOURCE_TABLE_COLUMN, "QC уровень", "QC решение", "Набор",
-            ]
+            column for column in ["Sample", "Grain", "Point", "Минерал", "Generation", "Method", "QC уровень", "QC решение", "Набор"]
             if column in filtered.columns
         ]
         st.dataframe(filtered[visible].head(250), width="stretch", hide_index=True, height=230)
@@ -130,7 +114,6 @@ def _render_selection_toolbar(project_id: int, scope: str, query: str) -> None:
         plot, table, excel = st.columns(3)
         context = {
             "dataset_ids": selected_dataset_ids,
-            "study_ids": selected_study_ids,
             "analysis_ids": analysis_ids,
             "filters": active_filters,
             "query": query.strip(),
@@ -338,9 +321,14 @@ def _render_sample_location_card(project_id: int) -> None:
 
 
 def render_database_browser_page() -> None:
+    sample_catalog = str(st.session_state.get("nav_route", "")) == "samples"
     render_page_header(
-        "Вся база",
-        "Единый каталог образцов и всех связанных с ними минералов, whole-rock данных, изотопии и будущих аналитических сессий.",
+        "Образцы" if sample_catalog else "Вся база",
+        (
+            "Каталог физических Sample: паспорт, местность и связи со шлифами, точками, анализами и whole-rock данными."
+            if sample_catalog
+            else "Единый каталог образцов и всех связанных с ними минералов, whole-rock данных, изотопии и будущих аналитических сессий."
+        ),
         eyebrow="База данных",
     )
     project_id = active_project_id()

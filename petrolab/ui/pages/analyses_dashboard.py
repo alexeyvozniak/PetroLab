@@ -12,27 +12,19 @@ from petrolab.analysis_drafts import (
     replace_visible_analysis_draft,
 )
 from petrolab.analysis_groups import WORK_GROUP_COLUMN, attach_work_groups
-from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label, human_point_label
+from petrolab.dataframe_utils import apply_quick_filter, compute_changes, dataset_label
 from petrolab.db import META_COLUMNS, list_accessible_datasets
 from petrolab.derived import active_derived_columns, load_unified_with_derived
 from petrolab.services.analysis_service import save_changes_and_sync, save_changes_to_database
-from petrolab.ui.analysis_components import (
-    PROTECTED_ANALYSIS_COLUMNS,
-    render_point_card,
-    render_thermodynamic_panel,
-)
+from petrolab.ui.analysis_components import PROTECTED_ANALYSIS_COLUMNS, render_point_card
 from petrolab.ui.destructive_actions import confirm_then, render_pending
 from petrolab.ui.editability import common_editable_source_columns
-from petrolab.ui.exact_route import persist_exact_route, render_exact_route_banner
 from petrolab.ui.layout import render_badges, render_page_header
 from petrolab.ui.project_context import active_project_id
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", "QC уровень", "QC решение", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
 _SAVE_FLASH_KEY = "analysis_save_flash"
 _DRAFT_EDITOR_KEY = "unified_editor_dashboard"
-_EXACT_A = "_analyses_exact_analysis_ids"
-_EXACT_D = "_analyses_exact_dataset_ids"
-_EXACT_C = "_analyses_exact_context"
 
 
 def _view_columns(dataframe, derived: set[str], mode: str):
@@ -84,37 +76,11 @@ def _clear_draft_and_editor(project_id: int) -> None:
     st.session_state.pop(_DRAFT_EDITOR_KEY, None)
 
 
-def _thermodynamic_row_selector(dataframe, project_id: int) -> None:
-    """Compact '+' interaction directly below the calculated-fields table."""
-    if dataframe.empty or "_analysis_id" not in dataframe.columns:
-        return
-    st.markdown("#### ＋ Термодинамические параметры строки")
-    st.caption(
-        "Выберите анализ из текущей таблицы. Откроются сохранённые T, P и fO₂ именно этой точки; "
-        "исходная химия и структурная формула при этом не меняются."
-    )
-    choices: dict[str, str] = {}
-    seen: dict[str, int] = {}
-    for _, row in dataframe.head(3000).iterrows():
-        analysis_id = str(row["_analysis_id"])
-        base = human_point_label(row)
-        seen[base] = seen.get(base, 0) + 1
-        label = f"＋ {base}" if seen[base] == 1 else f"＋ {base} · вариант {seen[base]}"
-        choices[label] = analysis_id
-    selected_label = st.selectbox(
-        "Анализ",
-        list(choices),
-        key="analysis_table_thermodynamic_point",
-        label_visibility="collapsed",
-    )
-    render_thermodynamic_panel(choices[selected_label], project_id, expanded=True)
-
-
 def render_analyses_dashboard_page() -> None:
     project_id = active_project_id()
     render_page_header(
-        "База анализов",
-        "Исходная химия, локальная интерпретация и актуальные расчётные поля в одной рабочей таблице.",
+        "Анализы",
+        "Рабочая таблица активного проекта: отберите строки, проверьте QC, внесите правки и передайте выборку на графики.",
         eyebrow="Данные",
     )
     _show_save_flash()
@@ -125,24 +91,6 @@ def render_analyses_dashboard_page() -> None:
     if not datasets:
         st.info("В активном проекте нет данных.")
         return
-
-    exact_ids, _, _ = persist_exact_route(
-        st.session_state,
-        incoming_analysis_key="workflow_edit_analysis_ids",
-        incoming_dataset_key="workflow_edit_dataset_ids",
-        incoming_context_key="workflow_edit_context",
-        persistent_analysis_key=_EXACT_A,
-        persistent_dataset_key=_EXACT_D,
-        persistent_context_key=_EXACT_C,
-    )
-    render_exact_route_banner(
-        count=len(exact_ids),
-        label="Снять точный отбор и открыть наборы целиком",
-        reset_key="analyses_reset_exact",
-        persistent_keys=(_EXACT_A, _EXACT_D, _EXACT_C),
-        incoming_keys=("workflow_edit_analysis_ids", "workflow_edit_dataset_ids", "workflow_edit_context"),
-        extra_clear=(_DRAFT_EDITOR_KEY,),
-    )
 
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
     requested_dataset_ids = [
@@ -270,9 +218,6 @@ def render_analyses_dashboard_page() -> None:
                 st.error(error)
         st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
         st.caption("«QC уровень» и причины рассчитываются из данных и не скрывают анализы. В «QC решение» можно вручную оставить Авто, Включить или Исключить для графиков; это поле хранится только в PetroLab.")
-        if mode == "Расчёты":
-            st.divider()
-            _thermodynamic_row_selector(shown, int(project_id))
     with point_tab:
         if len(shown) > 3000:
             st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск в toolbar, чтобы сузить выборку.")

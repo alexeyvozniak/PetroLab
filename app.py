@@ -73,7 +73,7 @@ ROUTES = {
     "add_data": render_add_data_page, "attention": render_attention_page,
     "batch_edit": render_batch_edit_page, "intake": render_data_intake_page,
     "sessions": render_analytical_sessions_page, "mixed_minerals": render_mixed_minerals_page,
-    "measurements": render_measurements_page, "database": render_database_browser_page,
+    "measurements": render_measurements_page, "samples": render_database_browser_page, "database": render_database_browser_page,
     "sources": render_sources_page, "analyses": render_analyses_page, "formulae": render_formulae_page,
     "plots": render_plots_page, "ternary": render_ternary_page,
     "linked_views": render_linked_views_page,

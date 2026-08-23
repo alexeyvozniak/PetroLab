@@ -10,7 +10,11 @@ from petrolab.ui.project_context import set_active_project
 
 
 def render_search_page() -> None:
-    render_page_header("Глобальный поиск", "Находит Sample, минералы, точки, породы и изображения во всех проектах.", eyebrow="Поиск")
+    render_page_header(
+        "Найти в проектах",
+        "Начните здесь, если знаете хотя бы фрагмент названия. Поиск находит Sample, минералы, точки, породы и изображения во всех проектах.",
+        eyebrow="Поиск",
+    )
     projects = list_projects()
     by_id = {int(row["id"]): row for row in projects}
     scope = st.segmented_control("Область", ["Все проекты", "Выбранные проекты"], default="Все проекты")
