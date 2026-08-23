@@ -77,7 +77,15 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: 
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
+        # Publication and scientific routes are purposefully behind the
+        # secondary disclosure; the test must exercise that real navigation.
+        if not any(button.text.strip() == label for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')):
+            sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
+            for details in sidebar.find_elements(By.CSS_SELECTOR, "details"):
+                if "Дополнительные инструменты" in details.text and details.get_attribute("open") is None:
+                    details.find_element(By.CSS_SELECTOR, "summary").click()
+                    break
+            wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
         buttons = [button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button') if button.is_displayed() and button.text.strip() == label]
         assert buttons, f"Sidebar button not found: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])

@@ -1,6 +1,4 @@
-__version__ = "0.15.9"
-
-from contextlib import contextmanager as _contextmanager
+__version__ = "0.16.0"
 
 from .measurement_policy import install as _install_measurement_policy
 _install_measurement_policy()
@@ -25,40 +23,3 @@ del _install_formula_policy
 from .rock_runtime import install as _install_rock_runtime
 _install_rock_runtime()
 del _install_rock_runtime
-
-from .physical_point_safety import install as _install_physical_point_safety
-_install_physical_point_safety()
-del _install_physical_point_safety
-
-from .amphibole_runtime import install as _install_amphibole_runtime
-_install_amphibole_runtime()
-del _install_amphibole_runtime
-
-from .user_derived_runtime import install as _install_user_derived_runtime
-_install_user_derived_runtime()
-del _install_user_derived_runtime
-
-from .textural_runtime import install as _install_textural_runtime
-_install_textural_runtime()
-del _install_textural_runtime
-
-from .phase_runtime import install as _install_phase_runtime
-_install_phase_runtime()
-del _install_phase_runtime
-
-from .dataset_membership_runtime import install as _install_dataset_membership_runtime
-_install_dataset_membership_runtime()
-del _install_dataset_membership_runtime
-
-# The current row-edit persistence path records every changed cell directly in
-# db.change_log. A short-lived UX adapter still imports the former context-manager
-# name; keep that import compatible without creating a second duplicate journal.
-from . import operation_journal as _operation_journal
-if not hasattr(_operation_journal, "journaled_operation"):
-    @_contextmanager
-    def _cell_change_log_scope(*_args, **_kwargs):
-        yield
-    _operation_journal.journaled_operation = _cell_change_log_scope
-
-del _operation_journal
-del _contextmanager

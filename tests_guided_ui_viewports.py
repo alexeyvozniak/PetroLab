@@ -18,10 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 PORT = 8521
 VIEWPORTS = ((1440, 900), (390, 844))
-# The guided workflow remains a compatibility route and is covered by its
-# state/unit tests. Browser smoke follows visible scientific tasks users can
-# actually reach from the consolidated sidebar.
-PAGES = (("profile", "Профиль по зерну"), ("mixed", "Фазы и выбросы"))
+PAGES = (("workflow", "Рабочий процесс"), ("mixed", "Фазы и выбросы"))
 
 
 def _wait(url: str, timeout: float = 35.0) -> None:
@@ -53,6 +50,7 @@ def _seed(root: Path) -> None:
             "FeO": 6.0 + 0.1 * (index % 2), "MgO": 15.0 + 0.1 * (index % 3),
             "CaO": 21.0 - 0.1 * (index % 3), "Na2O": 0.8,
         })
+    # Still clinopyroxene-like, but deliberately unusual relative to the compact group.
     rows.append({
         "Sample": "PG-1", "Grain": "Cpx-1", "Point": "p9",
         "SiO2": 48.5, "Al2O3": 2.0, "FeO": 8.0, "MgO": 8.0, "CaO": 28.0, "Na2O": 1.0,
@@ -67,64 +65,6 @@ def _seed(root: Path) -> None:
     replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, 2 + len(frame))))
 
 
-def _sidebar_buttons(driver: webdriver.Chrome, label: str):
-    return [
-        button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
-        if button.text.strip() == label
-    ]
-
-
-def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str):
-    return [button for button in _sidebar_buttons(driver, label) if button.is_displayed()]
-
-
-def _expand_tools_if_needed(driver: webdriver.Chrome, label: str) -> None:
-    """Open the consolidated advanced-task expander across Streamlit rerenders."""
-    if _visible_sidebar_buttons(driver, label):
-        return
-
-    for _attempt in range(3):
-        if _visible_sidebar_buttons(driver, label):
-            return
-        sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
-        target_summary = None
-        for expander in sidebar.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
-            try:
-                summary = expander.find_element(By.CSS_SELECTOR, "summary")
-            except Exception:
-                continue
-            summary_text = summary.text.strip()
-            if "Дополнительно" in summary_text or "Все инструменты" in summary_text:
-                target_summary = summary
-                break
-        if target_summary is None:
-            time.sleep(0.4)
-            continue
-
-        existing = _sidebar_buttons(driver, label)
-        if not existing:
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", target_summary)
-                target_summary.click()
-            except Exception:
-                try:
-                    driver.execute_script("arguments[0].click();", target_summary)
-                except Exception:
-                    pass
-
-        deadline = time.time() + 3.0
-        while time.time() < deadline:
-            matches = _sidebar_buttons(driver, label)
-            if matches:
-                try:
-                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", matches[0])
-                except Exception:
-                    pass
-                if any(button.is_displayed() for button in matches):
-                    return
-            time.sleep(0.2)
-
-
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
     driver.execute_cdp_cmd("Emulation.clearDeviceMetricsOverride", {})
     driver.set_window_size(1280, 900)
@@ -132,10 +72,18 @@ def _select_page(driver: webdriver.Chrome, label: str, output: Path, slug: str) 
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     try:
-        _expand_tools_if_needed(driver, label)
-        wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
-        buttons = _visible_sidebar_buttons(driver, label)
-        assert buttons, f"Sidebar button not found after expanding advanced tasks: {label}"
+        # Secondary routes are intentionally collapsed to keep the everyday
+        # navigation short. Open the disclosure only when the requested test
+        # route lives there, just as a researcher would.
+        if not any(button.text.strip() == label for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')):
+            sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
+            for details in sidebar.find_elements(By.CSS_SELECTOR, "details"):
+                if "Дополнительные инструменты" in details.text and details.get_attribute("open") is None:
+                    details.find_element(By.CSS_SELECTOR, "summary").click()
+                    break
+            wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
+        buttons = [button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button') if button.is_displayed() and button.text.strip() == label]
+        assert buttons, f"Sidebar button not found: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()
         time.sleep(1.5)
@@ -169,7 +117,7 @@ def _assert_viewport(driver: webdriver.Chrome, width: int, height: int, slug: st
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_", ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(prefix="petrolab_guided_ui_") as tmp:
         root = Path(tmp)
         _seed(root)
         output = Path(os.environ.get("PETROLAB_GUIDED_VIEWPORT_ARTIFACTS", "guided_viewport_artifacts"))
@@ -212,7 +160,7 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-    print("consolidated workflow real-browser viewport tests: OK")
+    print("guided workflow real-browser viewport tests: OK")
 
 
 if __name__ == "__main__":

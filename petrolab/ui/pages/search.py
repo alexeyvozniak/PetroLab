@@ -42,7 +42,7 @@ def render_search_page() -> None:
             else:
                 dataset_id = result.get("dataset_id")
                 if dataset_id is None:
-                    st.warning("У этого изображения нет набора анализов; откройте его через «Шлифы и поля».")
+                    st.warning("У этого изображения нет набора анализов; откройте его через «Шлифы».")
                     return
                 st.session_state["workflow_image_dataset_id"] = int(dataset_id)
                 st.session_state["workflow_image_asset_id"] = int(result["asset_id"])
