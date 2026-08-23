@@ -567,25 +567,28 @@ def _render_source_statuses(project_id: int) -> None:
         manual_block = bool((schema.get("__schema__") or {}).get("import_block"))
         if managed:
             status, detail = _managed_copy_status(dataset)
+            origin_label = "внутренняя рабочая копия"
         elif manual_block:
             status = "ручной блок"
             detail = "Границы таблицы сохранены вместе с исходными строками Excel. Чтобы не сдвинуть точки после вставки заметки, обновление из файла отключено."
+            origin_label = "зафиксированный фрагмент Excel"
         else:
             status, detail = source_status(dataset)
+            origin_label = "связанный исходный файл" if str(dataset.get("source_kind") or "") == "linked" else "снимок без связи с файлом"
         with st.container(border=True):
             left, right = st.columns([4, 1])
             with left:
                 st.markdown(f"**{dataset['name']}**")
                 render_badges([
                     (status, "neutral" if managed else ("success" if status == "актуален" else "warning")),
-                    ("внутренняя копия" if managed else "связанный источник", "neutral"),
+                    (origin_label, "neutral"),
                 ])
                 st.caption(detail)
                 if managed:
-                    st.caption("Это внутренняя рабочая копия PetroLab. Изменения базы не записываются в пользовательский оригинал.")
+                    st.caption("Изменения базы не записываются в пользовательский оригинал. При обновлении будет прочитана эта рабочая копия.")
             with right:
                 if not managed and not manual_block and status == "изменён вне ПетроЛаба":
-                    if st.button("Обновить из файла", key=f"refresh_source_{dataset['id']}", width="stretch"):
+                    if st.button("Перечитать исходный файл", key=f"refresh_source_{dataset['id']}", width="stretch"):
                         try:
                             result = refresh_dataset_from_source(int(dataset["id"]))
                             st.success(
