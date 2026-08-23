@@ -32,7 +32,7 @@ from petrolab.visualization_presets import FIGURE_PRESETS
 
 _CURATED_GROUPS = (
     "PetroLab Generation", "Generation", WORK_GROUP_COLUMN, "Sample", "Grain", "Textural zone",
-    SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал", "Physical Point",
+    SOURCE_LABEL_COLUMN, "Источник", "Набор", "Минерал", "Mineral", "Rock", "Порода", "Lithology", "Литология", "Massif", "Массив", "Physical Point",
 )
 _SCOPE_IDS_KEY = "_multi_panel_analysis_scope_ids"
 _SCOPE_SOURCE_KEY = "_multi_panel_scope_source"
@@ -116,11 +116,33 @@ def _raw_dataframe(project_id: int, inbox: PlotSpec | None) -> tuple[pd.DataFram
             _clear_exact_scope()
             st.rerun()
 
-    minerals = sorted(dataframe.get("Минерал", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
-    if minerals:
-        chosen = st.multiselect("Минералы", minerals, default=minerals, key="multi_panel_minerals")
-        dataframe = dataframe[dataframe["Минерал"].astype(str).isin(chosen)] if chosen else dataframe.iloc[0:0]
-    query = st.text_input("Фильтр", placeholder="Sample, Generation, статья, группа…", key="multi_panel_query")
+    mineral_column = next((column for column in ("Минерал", "Mineral", "Фаза") if column in dataframe.columns), None)
+    rock_columns = [column for column in ("Rock", "Порода", "Lithology", "Литология", "Massif", "Массив", "Массив/комплекс") if column in dataframe.columns]
+    has_minerals = mineral_column is not None and dataframe[mineral_column].notna().any()
+    has_rocks = bool(rock_columns) and dataframe[rock_columns].notna().any(axis=None)
+    if has_minerals and has_rocks:
+        material_scope = st.segmented_control(
+            "Материал", ["Все анализы", "Минералы", "Породы"],
+            default="Все анализы", key="multi_panel_material_scope",
+            help="Отбор не привязан к минералам: породы и минералы могут жить в одном linked selection.",
+        ) or "Все анализы"
+        if material_scope == "Минералы":
+            dataframe = dataframe.loc[dataframe[mineral_column].notna()].copy()
+        elif material_scope == "Породы":
+            dataframe = dataframe.loc[dataframe[rock_columns].notna().any(axis=1)].copy()
+    elif has_minerals:
+        st.caption("Материал: минералы")
+    elif has_rocks:
+        st.caption("Материал: породы")
+    if has_minerals and mineral_column is not None:
+        minerals = sorted(dataframe[mineral_column].dropna().astype(str).unique().tolist())
+        if minerals:
+            chosen = st.multiselect("Минералы / фазы", minerals, default=minerals, key="multi_panel_minerals")
+            if chosen:
+                dataframe = dataframe.loc[
+                    dataframe[mineral_column].isna() | dataframe[mineral_column].astype(str).isin(chosen)
+                ].copy()
+    query = st.text_input("Фильтр", placeholder="Sample, Generation, порода, статья, группа…", key="multi_panel_query")
     dataframe = apply_quick_filter(dataframe, query)
     if not dataframe.empty:
         dataframe, _, _, _ = render_source_visibility_controls(dataframe, key="multi_panel_sources")
@@ -224,7 +246,7 @@ def render_multi_panel_page() -> None:
     project = active_project()
     render_page_header(
         "Сравнить на нескольких диаграммах",
-        "Одна выборка, единый linked selection и 2–10 XY-панелей. Готовый одиночный график можно передать сюда без повторной настройки.",
+        "Одна выборка и единый linked selection для 2–10 бинарных, треугольных и spider-панелей. Минералы и породы используют общий analysis_id.",
         eyebrow="Исследование",
         context=str(project["name"]) if project else "Проект не выбран",
     )
@@ -265,7 +287,7 @@ def render_multi_panel_page() -> None:
         ("composite" if mode != "Обычные анализы" else "analysis rows", "success" if mode != "Обычные анализы" else "neutral"),
     ])
 
-    render_section_header("Панели", "Origin-подобный менеджер: одна строка — одна панель")
+    render_section_header("Панели", "Одна строка — одна панель: бинарная, треугольная или spider")
     defaults = _panel_defaults(numeric, inbox)
     panel_count = st.slider(
         "Количество графиков", 2, 10,
@@ -350,7 +372,7 @@ def render_multi_panel_page() -> None:
     )
 
     if mode == "Обычные анализы" and "_analysis_id" in dataframe.columns:
-        render_section_header("Связанное исследование", "Один и тот же Selection работает на всех панелях, в таблице, XY и PCA")
+        render_section_header("Связанное исследование", "Один Selection для минералов и пород во всех панелях, таблице, XY и PCA")
         render_linked_panel_selection(
             plot_dataframe, panels, id_column="_analysis_id", key=f"mineral_multi_{project_id}",
             group_column=group_col, columns=int(columns), axis_limits=axis_limits,
@@ -362,7 +384,16 @@ def render_multi_panel_page() -> None:
     if inbox is not None:
         clear_multi_panel_inbox()
 
-    render_section_header("Публикационный вид", "Те же панели в стабильном SVG/PNG; это не редактор A/B/C")
+    all_binary = all(str(panel.get("kind") or "xy") == "xy" for panel in panels)
+    render_section_header("Публикационный вид", "SVG/PNG для бинарных панелей; mixed view остаётся интерактивным")
+    visible_columns = [column for column in dataframe.columns if not str(column).startswith("_")]
+    if not all_binary:
+        st.info("Треугольные и spider-панели уже работают в linked-интерфейсе выше. Публикационный SVG/PNG для mixed layout будет следующим шагом.")
+        st.download_button(
+            "XLSX данных", _xlsx_bytes(dataframe[visible_columns]), file_name="petrolab_multi_panel_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+        )
+        return
     try:
         figure = build_multi_panel_scatter(
             plot_dataframe, panels, group_column=group_col, style_map=styles,
@@ -380,7 +411,6 @@ def render_multi_panel_page() -> None:
     e1, e2, e3 = st.columns(3)
     e1.download_button("SVG", figure_svg_bytes(figure), file_name="petrolab_multi_panel.svg", mime="image/svg+xml", width="stretch")
     e2.download_button("PNG 600 dpi", figure_png_bytes(figure, 600), file_name="petrolab_multi_panel.png", mime="image/png", width="stretch")
-    visible_columns = [column for column in dataframe.columns if not str(column).startswith("_")]
     e3.download_button(
         "XLSX данных", _xlsx_bytes(dataframe[visible_columns]), file_name="petrolab_multi_panel_data.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
