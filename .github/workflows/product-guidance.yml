@@ -9,6 +9,7 @@ on:
       - "petrolab/operation_journal.py"
       - "petrolab/phase_reassignment.py"
       - "petrolab/project_health.py"
+      - "petrolab/project_checklist.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
@@ -34,6 +35,7 @@ on:
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
+      - "tests_project_checklist.py"
       - "tests_product_ui_viewports.py"
       - "tests_streamlit.py"
       - "tests_ui_layout.py"
@@ -44,6 +46,7 @@ on:
       - "petrolab/operation_journal.py"
       - "petrolab/phase_reassignment.py"
       - "petrolab/project_health.py"
+      - "petrolab/project_checklist.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
@@ -69,6 +72,7 @@ on:
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
+      - "tests_project_checklist.py"
       - "tests_product_ui_viewports.py"
       - "tests_streamlit.py"
       - "tests_ui_layout.py"
@@ -99,6 +103,7 @@ jobs:
           petrolab/operation_journal.py
           petrolab/phase_reassignment.py
           petrolab/project_health.py
+          petrolab/project_checklist.py
           petrolab/smart_start.py
           petrolab/edit_undo.py
           petrolab/interactive_plotting.py
@@ -121,12 +126,15 @@ jobs:
           petrolab/ui/pages/object_workspace.py
           petrolab/ui/pages/plots_dashboard.py
           tests_product_guidance.py
+          tests_project_checklist.py
           tests_product_ui_viewports.py
           tests_streamlit.py
           tests_ui_layout.py
           tests_v0157_linked_selection.py
       - name: Run product guidance regressions
         run: python tests_product_guidance.py
+      - name: Run project checklist regressions
+        run: python tests_project_checklist.py
       - name: Run linked-selection integration gate
         run: python tests_v0157_linked_selection.py
       - name: Run Streamlit workspace regressions
