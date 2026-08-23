@@ -17,16 +17,35 @@ from petrolab.mineral_recognition import (
     score_candidates,
 )
 from petrolab.mineral_reference import MINERAL_REFERENCE_VERSION
+from petrolab.oxide_mineral_recognition import OXIDE_EXTENSION_VERSION, score_oxide_candidates
 
 
-EXTENDED_RULESET_VERSION = f"{MINERAL_RECOGNITION_RULESET_VERSION}+alkaline-{ALKALINE_EXTENSION_VERSION}"
+EXTENDED_RULESET_VERSION = (
+    f"{MINERAL_RECOGNITION_RULESET_VERSION}+alkaline-{ALKALINE_EXTENSION_VERSION}"
+    f"+oxide-{OXIDE_EXTENSION_VERSION}"
+)
 EXTENDED_REFERENCE_VERSION = f"{MINERAL_REFERENCE_VERSION}+alkaline-{ALKALINE_REFERENCE_VERSION}"
+
+# Stable public vocabulary for UI controls. These are conservative phase/family
+# names supported somewhere in the recognition stack; species-level manual choices
+# may extend this list without changing automatic recognition confidence rules.
+MINERAL_KEYS = (
+    "apatite", "monazite", "xenotime", "baddeleyite", "zircon",
+    "perovskite", "titanite", "rutile", "barite", "celestine",
+    "carbonate", "spinel", "silica", "feldspar", "feldspathoid",
+    "mica", "clinopyroxene", "amphibole", "garnet", "olivine",
+)
 
 
 def score_candidates_extended(row: Mapping[str, Any]) -> dict[str, MineralCandidate]:
-    """Merge the general PetroLab scorer with the specialist alkaline-carbonatite layer."""
+    """Merge the general scorer with specialist alkaline and conservative oxide layers."""
     merged = dict(score_candidates(row))
     for target, candidate in score_alkaline_candidates(row).items():
+        new = MineralCandidate(target=target, score=candidate.score, reasons=candidate.reasons)
+        old = merged.get(target)
+        if old is None or new.score > old.score:
+            merged[target] = new
+    for target, candidate in score_oxide_candidates(row).items():
         new = MineralCandidate(target=target, score=candidate.score, reasons=candidate.reasons)
         old = merged.get(target)
         if old is None or new.score > old.score:
@@ -35,10 +54,10 @@ def score_candidates_extended(row: Mapping[str, Any]) -> dict[str, MineralCandid
 
 
 def recognize_mineral_extended(row: Mapping[str, Any]) -> MineralRecognition:
-    """Return a conservative recognition using both general and specialist rule layers.
+    """Return a conservative recognition using all specialist rule layers.
 
-    Confidence thresholds intentionally remain conservative. The specialist layer may add
-    diagnostic candidates but cannot confirm a phase automatically; ties remain ambiguous.
+    Confidence thresholds intentionally remain conservative. Specialist layers may add
+    diagnostic candidates but cannot silently force a phase; ties remain ambiguous.
     """
     candidates = sorted(
         score_candidates_extended(row).values(),
