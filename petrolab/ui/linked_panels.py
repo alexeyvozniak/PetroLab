@@ -123,6 +123,8 @@ def build_linked_panel_figure(
     id_column: str,
     selected_ids: Iterable[str] = (),
     group_column: str | None = None,
+    color_column: str | None = None,
+    marker_column: str | None = None,
     columns: int = 2,
     height_per_row: int = 330,
     dragmode: str | bool = "lasso",
@@ -159,27 +161,47 @@ def build_linked_panel_figure(
         if work.empty:
             continue
 
-        if group_column and group_column in work.columns:
-            labels = work[group_column].astype("string").fillna("Без группы").replace("", "Без группы")
-            groups = [(str(name), work.loc[labels == name]) for name in labels.unique().tolist()]
+        color_field = color_column if color_column and color_column in work.columns else group_column if group_column in work.columns else None
+        marker_field = marker_column if marker_column and marker_column in work.columns else None
+        if color_field:
+            color_labels = work[color_field].astype("string").fillna("Без группы").replace("", "Без группы")
+            color_names = [str(value) for value in color_labels.unique().tolist()]
         else:
-            groups = [("Данные", work)]
+            color_labels = pd.Series(["Данные"] * len(work), index=work.index, dtype="string")
+            color_names = ["Данные"]
+        color_map = {name: qualitative.Plotly[index % len(qualitative.Plotly)] for index, name in enumerate(color_names)}
 
-        for group_name, part in groups:
-            ids = [_clean_id(value) for value in part[id_column].tolist()]
-            selectedpoints = [index for index, value in enumerate(ids) if value in selected] if selected else None
-            trace = go.Scattergl(
-                x=part[x], y=part[y], mode="markers", name=group_name,
-                legendgroup=group_name, showlegend=group_name not in legend_seen,
-                customdata=[[value] for value in ids], text=_hover_text(part),
-                hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
-                selectedpoints=selectedpoints,
-                marker={"size": 8, "opacity": 0.88, "color": colors.get(group_name)},
-                selected={"marker": {"size": 13, "opacity": 1.0, "color": colors.get(group_name)}},
-                unselected={"marker": {"opacity": 0.18}} if selected else None,
-            )
-            figure.add_trace(trace, row=row, col=col)
-            legend_seen.add(group_name)
+        if marker_field:
+            marker_labels = work[marker_field].astype("string").fillna("Без значения").replace("", "Без значения")
+            marker_names = [str(value) for value in marker_labels.unique().tolist()]
+        else:
+            marker_labels = pd.Series(["Данные"] * len(work), index=work.index, dtype="string")
+            marker_names = ["Данные"]
+        symbols = ("circle", "square", "triangle-up", "diamond", "cross", "x", "pentagon", "star")
+        marker_map = {name: symbols[index % len(symbols)] for index, name in enumerate(marker_names)}
+
+        for color_name in color_names:
+            colored = work.loc[color_labels == color_name]
+            for marker_name in marker_names:
+                part = colored.loc[marker_labels.loc[colored.index] == marker_name]
+                if part.empty:
+                    continue
+                ids = [_clean_id(value) for value in part[id_column].tolist()]
+                selectedpoints = [index for index, value in enumerate(ids) if value in selected] if selected else None
+                showlegend = color_name not in legend_seen
+                trace = go.Scattergl(
+                    x=part[x], y=part[y], mode="markers", name=color_name,
+                    legendgroup=color_name, showlegend=showlegend,
+                    customdata=[[value] for value in ids], text=_hover_text(part),
+                    hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
+                    selectedpoints=selectedpoints,
+                    marker={"size": 8, "opacity": 0.88, "color": color_map[color_name], "symbol": marker_map[marker_name]},
+                    selected={"marker": {"size": 13, "opacity": 1.0, "color": color_map[color_name], "symbol": marker_map[marker_name]}},
+                    unselected={"marker": {"opacity": 0.18}} if selected else None,
+                )
+                figure.add_trace(trace, row=row, col=col)
+                if showlegend:
+                    legend_seen.add(color_name)
 
         add_row_display_overlay(
             figure, work, x, y,
@@ -225,21 +247,47 @@ def render_linked_panel_selection(
     context = read_selection()
     visible_selected = [value for value in context.analysis_ids if value in available]
 
-    c1, c2 = st.columns([1.3, 1])
+    categorical = [
+        str(column) for column in dataframe.columns
+        if not str(column).startswith("_") and dataframe[column].nunique(dropna=True) <= 30
+        and not pd.api.types.is_numeric_dtype(dataframe[column])
+    ]
+    preferred = [value for value in ("PetroLab Generation", "Generation", "Рабочая группа", "Источник", "Минерал", "Sample", "Grain", "Point", "Method", "Метод") if value in categorical]
+    categorical = list(dict.fromkeys([*preferred, *categorical]))
+
+    c1, c2, c3 = st.columns([1.15, 1, 1])
     with c1:
         tool = st.segmented_control(
             "Инструмент", ["Точка", "Прямоугольник", "Лассо", "Панорама"],
             default="Лассо", key=f"{key}_tool",
         ) or "Лассо"
     with c2:
-        mode = render_selection_mode(key_prefix=f"{key}_linked")
+        color_choice = st.selectbox(
+            "Цвет точек",
+            ["Как в общей группировке", *categorical],
+            index=0,
+            key=f"{key}_color_column",
+            help="Цвет и значок настраиваются независимо. Цвет задаётся значением одного поля.",
+        )
+    with c3:
+        marker_choice = st.selectbox(
+            "Значок точек",
+            ["Одинаковый маркер", *categorical],
+            index=0,
+            key=f"{key}_marker_column",
+            help="Форма значка задаётся независимо от цвета.",
+        )
+    mode = render_selection_mode(key_prefix=f"{key}_linked")
+    color_column = group_column if color_choice == "Как в общей группировке" else str(color_choice)
+    marker_column = None if marker_choice == "Одинаковый маркер" else str(marker_choice)
     dragmode: str | bool = {
         "Точка": False, "Прямоугольник": "select", "Лассо": "lasso", "Панорама": "pan",
     }.get(str(tool), "lasso")
 
     figure = build_linked_panel_figure(
         visible, panels, id_column=id_column, selected_ids=context.analysis_ids,
-        group_column=group_column, columns=columns, dragmode=dragmode,
+        group_column=group_column, color_column=color_column, marker_column=marker_column,
+        columns=columns, dragmode=dragmode,
         axis_limits=axis_limits, labelled_ids=row_states.labelled, excluded_ids=row_states.excluded,
         display_color=row_states.display_color, display_marker=row_states.display_marker,
     )
