@@ -7,14 +7,19 @@ from petrolab.dataframe_utils import apply_quick_filter, row_identity
 from petrolab.services.image_service import SCOPE_ANALYSIS, SCOPE_DATASET, SCOPE_FIELD
 
 
+# Specific petrographic image types come first. Legacy labels stay in the list
+# so previously saved/session values remain valid during the UI transition.
 IMAGE_KINDS = [
+    "Шлиф PPL",
+    "Шлиф XPL",
     "BSE",
-    "EDS",
-    "Оптическая микрофотография",
+    "SEM / EDS",
     "Карта элементов",
-    "Фото обнажения",
-    "Фото образца",
+    "Оптическая микрофотография",
     "Фото шлифа / препарата",
+    "Фото образца",
+    "Фото обнажения",
+    "EDS",
     "Другое",
 ]
 SCOPE_LABELS = {
@@ -25,12 +30,24 @@ SCOPE_LABELS = {
 }
 
 
+_FIELD_LABELS = {
+    "Sample": "Образец (Sample)",
+    "Grain": "Зерно (Grain)",
+    "Generation": "Поколение (Generation)",
+    "Point": "Точка (Point)",
+    "ThinSection": "Шлиф / препарат",
+    "Thin section": "Шлиф / препарат",
+    "Шлиф": "Шлиф / препарат",
+    "Препарат": "Шлиф / препарат",
+}
+
+
 def assignment_error(prefix: str, scope_type: str) -> str | None:
     if scope_type == SCOPE_ANALYSIS and not st.session_state.get(f"{prefix}_analysis_ids"):
         return "Выберите хотя бы одну аналитическую точку или другой тип привязки."
     if scope_type == SCOPE_FIELD:
         if not st.session_state.get(f"{prefix}_field_column") or not st.session_state.get(f"{prefix}_field_value"):
-            return "Выберите поле и значение."
+            return "Выберите уровень привязки и конкретный объект."
     return None
 
 
@@ -49,10 +66,14 @@ def analysis_id_labels(dataframe: pd.DataFrame) -> dict[str, str]:
 
 
 def render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
+    st.caption(
+        "Выберите именно те аналитические точки, которые видны на фотографии. "
+        "EPMA, EDS и LA-ICP-MS остаются отдельными наблюдениями."
+    )
     query = st.text_input(
         "Поиск по образцу / зерну / точке",
         key=f"{prefix}_point_query",
-        placeholder="Например: N-7, зерно 14 или N-X1",
+        placeholder="Например: 19 ТР-1, Grain 7 или N-X1",
     )
     full_labels = analysis_id_labels(dataframe)
     filtered = apply_quick_filter(dataframe, query)
@@ -70,13 +91,35 @@ def render_multi_point_controls(prefix: str, dataframe: pd.DataFrame) -> None:
     option_ids = list(dict.fromkeys(valid_previous + filtered_ids))
     if selected_key not in st.session_state or valid_previous != previous:
         st.session_state[selected_key] = valid_previous
+
+    quick_all, quick_clear = st.columns(2)
+    if quick_all.button(
+        "Выбрать все найденные",
+        disabled=not filtered_ids,
+        width="stretch",
+        key=f"{prefix}_select_all_filtered",
+        help="Выбирает только точки текущего результата поиска, а не весь dataset.",
+    ):
+        st.session_state[selected_key] = filtered_ids
+        st.rerun()
+    if quick_clear.button(
+        "Очистить выбор",
+        disabled=not valid_previous,
+        width="stretch",
+        key=f"{prefix}_clear_points",
+    ):
+        st.session_state[selected_key] = []
+        st.rerun()
+
     st.multiselect(
         "Точки, видимые на этой фотографии",
         option_ids,
         format_func=lambda analysis_id: full_labels.get(analysis_id, analysis_id[:8]),
         key=selected_key,
     )
-    st.caption(f"Выбрано точек: {len(st.session_state.get(selected_key, []))}.")
+    selected_count = len(st.session_state.get(selected_key, []))
+    found_count = len(filtered_ids)
+    st.caption(f"Выбрано точек: {selected_count}. Найдено текущим поиском: {found_count}.")
 
 
 def render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
@@ -92,20 +135,26 @@ def render_field_controls(prefix: str, dataframe: pd.DataFrame) -> None:
     )
     if not candidates:
         st.warning(
-            "Для semantic field-link нужны Sample, Grain, Generation или Point. "
+            "Для смысловой привязки нужны Sample, Grain, Generation, Point или колонка шлифа. "
             "Используйте связь с аналитическими точками или со всем набором."
         )
         return
-    column = st.selectbox("Поле", candidates, key=f"{prefix}_field_column")
+    column = st.selectbox(
+        "Уровень привязки",
+        candidates,
+        format_func=lambda value: _FIELD_LABELS.get(str(value), str(value)),
+        key=f"{prefix}_field_column",
+    )
     values = sorted(dataframe[column].dropna().astype(str).unique().tolist())
     value_key = f"{prefix}_field_value"
     if not values:
         st.session_state.pop(value_key, None)
-        st.warning("В выбранном поле нет непустых значений.")
+        st.warning("На выбранном уровне нет непустых значений.")
         return
     if st.session_state.get(value_key) not in values:
         st.session_state[value_key] = values[0]
-    st.selectbox("Значение", values, key=value_key)
+    value = st.selectbox("Конкретный объект", values, key=value_key)
+    st.caption(f"Фото будет связано: {_FIELD_LABELS.get(str(column), str(column))} → {value}")
 
 
 def clear_wizard_state(dataset_id: int) -> None:
