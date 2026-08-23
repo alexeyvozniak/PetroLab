@@ -314,12 +314,81 @@ def _valid_norm(value: float, name: str) -> float:
     return numeric
 
 
+FIELD_SHAPES = ("rectangle", "square")
+
+
+def field_geometry_from_corners(
+    first: tuple[float, float], second: tuple[float, float], *, shape: str = "rectangle",
+) -> dict[str, float | str]:
+    """Build the only supported field geometry from two image-relative corners.
+
+    A square is anchored at the first corner and grows toward the second one.
+    Its side is shortened at the image boundary rather than overflowing the
+    preview.  Coordinates are normalized to the [0, 1] image area.
+    """
+    if shape not in FIELD_SHAPES:
+        raise ValueError("Для поля доступны только прямоугольник или квадрат")
+    first_x, first_y = _valid_norm(first[0], "X первого угла"), _valid_norm(first[1], "Y первого угла")
+    second_x, second_y = _valid_norm(second[0], "X второго угла"), _valid_norm(second[1], "Y второго угла")
+    delta_x, delta_y = second_x - first_x, second_y - first_y
+    if abs(delta_x) < 1e-9 or abs(delta_y) < 1e-9:
+        raise ValueError("Укажите два разных угла поля")
+    if shape == "rectangle":
+        return {
+            "kind": "rectangle",
+            "x": min(first_x, second_x),
+            "y": min(first_y, second_y),
+            "width": abs(delta_x),
+            "height": abs(delta_y),
+        }
+    horizontal_room = (1 - first_x) if delta_x > 0 else first_x
+    vertical_room = (1 - first_y) if delta_y > 0 else first_y
+    side = min(max(abs(delta_x), abs(delta_y)), horizontal_room, vertical_room)
+    if side < 1e-9:
+        raise ValueError("Квадрат не помещается в границы снимка")
+    end_x = first_x + (side if delta_x > 0 else -side)
+    end_y = first_y + (side if delta_y > 0 else -side)
+    return {
+        "kind": "square",
+        "x": min(first_x, end_x),
+        "y": min(first_y, end_y),
+        "width": side,
+        "height": side,
+    }
+
+
+def validate_field_geometry(geometry: dict | None) -> dict[str, float | str]:
+    """Normalize legacy rectangles and reject arbitrary contours or overflow."""
+    if not geometry:
+        return {}
+    if not isinstance(geometry, dict):
+        raise ValueError("Границы поля должны быть прямоугольником или квадратом")
+    unsupported = set(geometry) - {"kind", "x", "y", "width", "height"}
+    if unsupported:
+        raise ValueError("Сложные контуры не поддерживаются: используйте прямоугольник или квадрат")
+    required = {"x", "y", "width", "height"}
+    if not required.issubset(geometry):
+        raise ValueError("Для поля укажите оба угла или X, Y, ширину и высоту")
+    kind = str(geometry.get("kind") or "rectangle")
+    if kind not in FIELD_SHAPES:
+        raise ValueError("Для поля доступны только прямоугольник или квадрат")
+    x, y = _valid_norm(geometry["x"], "X"), _valid_norm(geometry["y"], "Y")
+    width, height = float(geometry["width"]), float(geometry["height"])
+    if width <= 0 or height <= 0 or width > 1 or height > 1:
+        raise ValueError("Ширина и высота поля должны быть больше нуля и не больше снимка")
+    if x + width > 1 + 1e-9 or y + height > 1 + 1e-9:
+        raise ValueError("Поле выходит за границы снимка")
+    if kind == "square" and abs(width - height) > 1e-6:
+        raise ValueError("У квадрата ширина и высота должны совпадать")
+    return {"kind": kind, "x": x, "y": y, "width": width, "height": height}
+
+
 def create_slide_field(project_id: int, *, slide_image_id: int, name: str, description: str = "", geometry: dict | None = None) -> int:
     ensure_slide_schema()
     name = str(name).strip()
     if not name:
         raise ValueError("Назовите поле")
-    payload = geometry or {}
+    payload = validate_field_geometry(geometry)
     with connect() as con:
         row = con.execute("SELECT project_id FROM slide_images WHERE id=?", (int(slide_image_id),)).fetchone()
         if not row or int(row["project_id"]) != int(project_id):
@@ -354,7 +423,7 @@ def list_slide_fields(project_id: int, *, slide_image_id: int | None = None) -> 
 
 
 def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int) -> None:
-    """Attach a small BSE/EDS/LA image to one exact rectangular field."""
+    """Attach one small BSE image to one exact rectangular or square field."""
     ensure_slide_schema()
     with connect() as con:
         field = con.execute("SELECT project_id FROM slide_fields WHERE id=?", (int(field_id),)).fetchone()
@@ -363,8 +432,8 @@ def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int
             raise ValueError("Поле не относится к этому проекту")
         if not image or int(image["project_id"]) != int(project_id):
             raise ValueError("Снимок не относится к этому проекту")
-        if str(image["image_type"]) not in {"BSE", "EDS-карта", "LA-ICP-MS-карта"}:
-            raise ValueError("К полю можно привязать BSE, EDS-карту или LA-ICP-MS-карту")
+        if str(image["image_type"]) != "BSE":
+            raise ValueError("К полю можно привязать только отдельный BSE-снимок")
         con.execute("INSERT OR IGNORE INTO slide_field_image_links(field_id,image_id) VALUES(?,?)", (int(field_id), int(image_id)))
         con.commit()
 
