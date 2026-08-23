@@ -8,7 +8,7 @@ from uuid import uuid4
 import pandas as pd
 
 from petrolab.column_schema import apply_semantic_mapping
-from petrolab.db import connect
+from petrolab.db import connect, list_datasets
 from petrolab.io_utils import (
     read_tabular_block_with_map,
     read_tabular_path,
@@ -169,6 +169,19 @@ def _rollback(created: list[tuple[int, Path]]) -> None:
             csv_path.unlink(missing_ok=True)
 
 
+def _rollback_unreported(project_id: int, baseline_ids: set[int]) -> None:
+    """Clean a dataset persisted just before an unexpected caller-side failure."""
+    with connect() as con:
+        rows = con.execute("SELECT id,csv_path FROM datasets WHERE project_id=?", (int(project_id),)).fetchall()
+    for row in rows:
+        dataset_id = int(row["id"])
+        if dataset_id in baseline_ids:
+            continue
+        csv_path = Path(str(row["csv_path"] or ""))
+        _delete_dataset(dataset_id)
+        csv_path.unlink(missing_ok=True)
+
+
 def install() -> None:
     from petrolab.services import import_service as svc
 
@@ -196,6 +209,7 @@ def install() -> None:
             semantic_maps=semantic_maps, measurement_maps=measurement_maps,
         )
         source_hash = sha256_file(source)
+        baseline_ids = {int(row["id"]) for row in list_datasets(project_id)}
         created: list[tuple[int, Path]] = []
         try:
             for item in prepared:
@@ -210,6 +224,7 @@ def install() -> None:
                 ))
         except Exception:
             _rollback(created)
+            _rollback_unreported(project_id, baseline_ids)
             raise
         return svc.ImportBatchResult(tuple(item[0] for item in created), source)
 
@@ -238,6 +253,7 @@ def install() -> None:
         )
         managed_path = svc._store_managed_source(project_id, filename, file_bytes)
         source_hash = sha256_bytes(file_bytes)
+        baseline_ids = {int(row["id"]) for row in list_datasets(project_id)}
         created: list[tuple[int, Path]] = []
         try:
             for item in prepared:
@@ -252,6 +268,7 @@ def install() -> None:
                 ))
         except Exception:
             _rollback(created)
+            _rollback_unreported(project_id, baseline_ids)
             managed_path.unlink(missing_ok=True)
             raise
         return svc.ImportBatchResult(tuple(item[0] for item in created), managed_path)

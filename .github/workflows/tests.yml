@@ -95,6 +95,7 @@ jobs:
         run: |
           python tests_import_semantics.py
           python tests_manual_import_blocks.py
+          python tests_import_atomic.py
 
       - name: Run global library link regressions
         shell: cmd
