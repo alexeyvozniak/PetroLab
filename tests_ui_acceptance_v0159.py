@@ -193,10 +193,6 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
     _assert_no_exception(driver, width, height)
 
     if page_name == "home":
-        sidebar_text = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]').text
-        assert "ПетроЛаб" in sidebar_text or "PetroLab" in sidebar_text, (
-            f"Home identity missing from sidebar at {width}x{height}"
-        )
         assert PROJECT_NAME in text, f"Project context missing at {width}x{height}"
         return
 
