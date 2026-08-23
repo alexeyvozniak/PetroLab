@@ -23,6 +23,7 @@ from petrolab.slides import (
     detach_image_from_slide_field,
     field_geometry_from_corners,
     list_field_images,
+    list_image_fields,
     list_slide_fields,
     list_slide_images,
     list_slide_markers,
@@ -416,13 +417,25 @@ def _map_and_manage(project_id: int, images: list) -> None:
         if detailed:
             by_id = {candidate.id: candidate for candidate in detailed}
             candidate_id = st.selectbox("Снимок BSE", list(by_id), format_func=lambda value: by_id[int(value)].title, key="slide_field_image_candidate")
-            if st.button("Привязать к полю", type="primary", key="slide_field_image_attach"):
+            existing_fields = list_image_fields(project_id, image_id=int(candidate_id))
+            other_fields = [field for field in existing_fields if int(field["id"]) != int(field_id)]
+            move = False
+            if other_fields:
+                st.warning("Этот BSE уже связан с полем: " + ", ".join(str(field["name"]) for field in other_fields) + ".")
+                relation_action = st.radio(
+                    "Что сделать со старой связью?", ["Оставить связь в обоих полях", "Перенести BSE в выбранное поле"],
+                    key=f"slide_field_image_action_{candidate_id}",
+                )
+                move = relation_action.startswith("Перенести")
+            action_label = "Перенести BSE в поле" if move else "Привязать к полю"
+            if st.button(action_label, type="primary", key="slide_field_image_attach"):
                 try:
-                    attach_image_to_slide_field(project_id, field_id=int(field_id), image_id=int(candidate_id))
+                    attach_image_to_slide_field(project_id, field_id=int(field_id), image_id=int(candidate_id), move=move)
                 except Exception as exc:
                     st.error(str(exc))
                 else:
-                    st.success(f"{by_id[int(candidate_id)].title} привязан к полю {field_by_id[int(field_id)]['name']}.")
+                    verb = "перенесён" if move else "привязан"
+                    st.success(f"{by_id[int(candidate_id)].title} {verb} к полю {field_by_id[int(field_id)]['name']}.")
                     st.rerun()
         else:
             st.caption("Сначала добавьте отдельный BSE-снимок на вкладке «Снимок».")

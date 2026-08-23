@@ -422,8 +422,8 @@ def list_slide_fields(project_id: int, *, slide_image_id: int | None = None) -> 
     return result
 
 
-def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int) -> None:
-    """Attach one small BSE image to one exact rectangular or square field."""
+def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int, move: bool = False) -> None:
+    """Attach one small BSE to a field, optionally moving it from every old field."""
     ensure_slide_schema()
     with connect() as con:
         field = con.execute("SELECT project_id FROM slide_fields WHERE id=?", (int(field_id),)).fetchone()
@@ -434,6 +434,8 @@ def attach_image_to_slide_field(project_id: int, *, field_id: int, image_id: int
             raise ValueError("Снимок не относится к этому проекту")
         if str(image["image_type"]) != "BSE":
             raise ValueError("К полю можно привязать только отдельный BSE-снимок")
+        if move:
+            con.execute("DELETE FROM slide_field_image_links WHERE image_id=?", (int(image_id),))
         con.execute("INSERT OR IGNORE INTO slide_field_image_links(field_id,image_id) VALUES(?,?)", (int(field_id), int(image_id)))
         con.commit()
 
@@ -454,6 +456,18 @@ def list_field_images(project_id: int, *, field_id: int) -> list[SlideImage]:
                ORDER BY i.created_at DESC,i.id DESC""", (int(field_id), int(project_id))
         ).fetchall()
     return [_record_from_row(row) for row in rows]
+
+
+def list_image_fields(project_id: int, *, image_id: int) -> list[dict]:
+    """Return the exact fields currently using a small BSE image."""
+    ensure_slide_schema()
+    with connect() as con:
+        rows = con.execute(
+            """SELECT f.* FROM slide_field_image_links link JOIN slide_fields f ON f.id=link.field_id
+               WHERE link.image_id=? AND f.project_id=? ORDER BY f.name COLLATE NOCASE,f.id""",
+            (int(image_id), int(project_id)),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _validate_analysis_ids(con, project_id: int, analysis_ids: tuple[str, ...]) -> None:

@@ -23,6 +23,7 @@ def main() -> None:
             list_slide_fields,
             list_slide_images,
             list_slide_markers,
+            list_field_images,
             register_linked_slide_image,
             register_managed_slide_image,
             relink_slide_original,
@@ -82,6 +83,13 @@ def main() -> None:
             project_id, filename="field-bse.png", data=original.read_bytes(), title="BSE-03", image_type="BSE",
         )
         attach_image_to_slide_field(project_id, field_id=field_id, image_id=bse.id)
+        second_field = create_slide_field(
+            project_id, slide_image_id=slide.id, name="Mica rim",
+            geometry={"x": 0.5, "y": 0.2, "width": 0.2, "height": 0.2},
+        )
+        attach_image_to_slide_field(project_id, field_id=second_field, image_id=bse.id, move=True)
+        assert list_field_images(project_id, field_id=field_id) == []
+        assert [item.id for item in list_field_images(project_id, field_id=second_field)] == [bse.id]
         eds = register_managed_slide_image(
             project_id, filename="field-eds.png", data=original.read_bytes(), title="EDS-Si", image_type="EDS-карта",
         )
