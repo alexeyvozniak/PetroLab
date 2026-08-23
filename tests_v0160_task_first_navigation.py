@@ -7,11 +7,13 @@ def main() -> None:
     assert PRIMARY_NAV == [
         ("home", "Обзор"),
         ("workspace", "Образцы"),
+        ("rock_workspace", "Породы"),
         ("search", "Поиск"),
         ("thin_section", "Шлифы"),
         ("analyses", "Анализы"),
         ("add_data", "Добавить"),
     ]
+    assert ROUTE_LABELS["rock_workspace"] == "Породы"
     assert ROUTE_LABELS["plots"] == "Графики"
     assert ROUTE_LABELS["statistics"] == "Статистика"
     assert ROUTE_LABELS["publish"] == "Публикация"
