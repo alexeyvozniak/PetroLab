@@ -102,6 +102,11 @@ def _available_update(installed_version: str) -> str | None:
 def _render_update_notice(installed_version: str) -> None:
     if not bool(load_settings().get("check_updates_automatically", True)):
         return
+    # Do not block the very first paint with a network request. The normal automatic
+    # check runs on the next Streamlit interaction/rerun and remains cached for 6 h.
+    if not st.session_state.get("_petrolab_first_paint_complete"):
+        st.session_state["_petrolab_first_paint_complete"] = True
+        return
     remote_version = _available_update(installed_version)
     if remote_version is None:
         return
@@ -155,6 +160,7 @@ def render_sidebar(version: str) -> str:
             "Активный проект", ids,
             format_func=lambda value: str(by_id[int(value)]["name"]),
             key="sidebar_project",
+            label_visibility="collapsed",
         )
         set_active_project(int(selected))
         datasets = list_accessible_datasets(int(selected))
