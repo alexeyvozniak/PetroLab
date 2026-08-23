@@ -19,7 +19,13 @@ from petrolab.io_utils import numeric_candidates
 from petrolab.ternary_data import prepare_ternary
 from petrolab.ternary_plotting import build_interactive_ternary
 from petrolab.ui.data_scope import render_analysis_scope
-from petrolab.ui.layout import render_hint, render_page_header, render_section_header
+from petrolab.ui.layout import render_hint, render_page_header, render_section_header, render_work_context
+from petrolab.ui.selection_components import (
+    render_selection_mode,
+    selection_action_description,
+    selection_action_label,
+)
+from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
 from petrolab.ui.selection_controls import render_save_selection
 
 
@@ -152,14 +158,6 @@ def _render_spider_panel(dataframe: pd.DataFrame, *, elements: tuple[str, ...], 
     ))
 
 
-def _apply_candidate(mode: str, current: set[str], candidate: set[str]) -> set[str]:
-    if mode == "Заменить":
-        return candidate
-    if mode == "Добавить":
-        return current | candidate
-    return current - candidate
-
-
 def render_linked_views_page() -> None:
     render_page_header(
         "Связанные представления",
@@ -174,18 +172,27 @@ def render_linked_views_page() -> None:
         st.error("В выбранных данных нет устойчивых ID анализов.")
         return
 
-    stored = {str(value) for value in st.session_state.get("active_selection_analysis_ids", [])}
+    context = read_selection()
+    stored = set(context.analysis_ids) or {str(value) for value in st.session_state.get("active_selection_analysis_ids", [])}
     available = set(frame["_analysis_id"].astype(str))
     active = stored & available
     categories = _categorical_columns(frame)
     controls = st.columns([1, 1, 1, 1])
-    mode = controls[0].segmented_control("Действие", ["Заменить", "Добавить", "Исключить"], default="Заменить", key="linked_action")
+    with controls[0]:
+        mode = render_selection_mode(key_prefix="linked_views", default="replace")
     color_by = controls[1].selectbox("Цвет", ["Без группировки", *categories], key="linked_color")
     symbol_by = controls[2].selectbox("Форма", ["Без группировки", *categories], key="linked_symbol")
-    controls[3].metric("В общем отборе", len(active))
+    controls[3].metric("В рабочей выборке", len(active))
     color_by = None if color_by == "Без группировки" else color_by
     symbol_by = None if symbol_by == "Без группировки" else symbol_by
-    render_hint("Выделите точки на XY или ternary либо выберите кривые на spider. Затем примените предварительный отбор одной кнопкой. Исходные анализы не меняются.")
+    render_work_context(
+        area="выбранные наборы для связанных графиков",
+        visible_count=len(frame),
+        selection_count=len(stored),
+        selection_visible_count=len(active),
+        note="Выборка общая для таблиц, XY, ternary и spider",
+    )
+    render_hint("Выделите точки на XY или ternary либо выберите кривые на spider. Затем примените действие ниже. Исходные анализы, QC и фильтры не меняются.")
 
     pending: set[str] = set()
     top = st.columns(3)
@@ -203,18 +210,22 @@ def render_linked_views_page() -> None:
     with bottom[2]:
         pending |= _render_spider_panel(frame, elements=SPIDER_ORDER, title="Multi-element spider", active_ids=active)
 
-    render_section_header("Общий отбор", "Предварительный отбор остаётся обратимым до применения")
-    st.caption(f"В предварительном отборе: {len(pending)} точек.")
+    render_section_header("Применить выделение", "Выделенные на любой панели точки пока только подготовлены. Вы сами выбираете, что сделать с ними.")
+    st.caption(f"Сейчас выделено на графиках: {len(pending)} точек. {selection_action_description(mode)}")
     left, middle, right = st.columns([1.2, 1.2, 1])
-    if left.button("Применить ко всем панелям", type="primary", disabled=not pending, key="linked_apply"):
-        updated = _apply_candidate(str(mode), active, pending)
-        st.session_state["active_selection_analysis_ids"] = sorted(updated)
-        st.session_state["selection_analysis_ids"] = sorted(updated)
-        st.success(f"Общий отбор: {len(updated)} точек.")
+    if left.button(selection_action_label(mode), type="primary", disabled=not pending, key="linked_apply"):
+        # Keep the old handoff keys for existing pages, but make SelectionContext
+        # the authoritative shared object for every new interaction.
+        if tuple(sorted(active)) != context.analysis_ids:
+            set_selection(sorted(active), origin="Связанные представления", mode="replace")
+        updated = set_selection(sorted(pending), origin="Связанные представления", mode=mode)
+        st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
+        st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
+        st.success(f"Рабочая выборка: {updated.count} точек.")
         st.rerun()
-    if middle.button("Очистить общий отбор", disabled=not active, key="linked_clear"):
+    if middle.button("Очистить рабочую выборку", disabled=not stored, key="linked_clear"):
+        clear_selection()
         st.session_state["active_selection_analysis_ids"] = []
         st.session_state["selection_analysis_ids"] = []
         st.rerun()
     render_save_selection(scope.project_id, sorted(active), key_prefix="linked_views", context={"chart_type": "linked_views", "dataset_ids": list(scope.dataset_ids)})
-

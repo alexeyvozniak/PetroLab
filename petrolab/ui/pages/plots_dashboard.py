@@ -13,7 +13,8 @@ from petrolab.minerals.registry import MINERALS
 from petrolab.plotting import build_scatter, figure_png_bytes, figure_svg_bytes
 from petrolab.publication_manifest import build_selection_manifest, manifest_json_bytes, workbook_with_manifest
 from petrolab.settings_service import load_settings
-from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.layout import render_badges, render_page_header, render_work_context
+from petrolab.ui.selection_context import read_selection
 from petrolab.ui.navigation import navigate
 from petrolab.ui.pages.plots_advanced import render_advanced_xy_workspace
 from petrolab.ui.project_context import active_project_id
@@ -178,6 +179,14 @@ def _quick_workspace(project_id: int) -> None:
             (f"{len(plot_source):,} точек".replace(",", " "), "accent"),
             (f"{len(names)} групп", "neutral"),
         ])
+        selection = read_selection()
+        render_work_context(
+            area="активный проект · XY-график",
+            visible_count=len(plot_source),
+            selection_count=selection.count,
+            selection_visible_count=len(set(plot_source["_analysis_id"].astype(str)) & set(selection.analysis_ids)),
+            note="QC и фильтры влияют на этот вид, но не удаляют анализы",
+        )
 
     with right:
         render_quick_interactive(

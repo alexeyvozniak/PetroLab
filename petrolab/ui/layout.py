@@ -65,6 +65,33 @@ def render_badges(items: Iterable[tuple[str, str]]) -> None:
         st.markdown('<div class="petrolab-badges">' + "".join(badges) + "</div>", unsafe_allow_html=True)
 
 
+def render_work_context(
+    *,
+    area: str,
+    visible_count: int | None = None,
+    selection_count: int | None = None,
+    selection_visible_count: int | None = None,
+    note: str = "",
+) -> None:
+    """Show the current scientific scope in one compact, repeatable sentence."""
+    parts = [f"Контекст: {str(area).strip() or 'текущий вид'}"]
+    if visible_count is not None:
+        parts.append(f"в этом виде {int(visible_count):,} анализов".replace(",", " "))
+    if selection_count:
+        selected = f"в рабочей выборке {int(selection_count):,}".replace(",", " ")
+        if selection_visible_count is not None and int(selection_visible_count) != int(selection_count):
+            selected += f", здесь видно {int(selection_visible_count):,}".replace(",", " ")
+        parts.append(selected)
+    if note:
+        parts.append(str(note).strip())
+    st.markdown(
+        '<div class="petrolab-work-context" role="status">'
+        + _escape(" · ".join(part for part in parts if part))
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_hint(text: str) -> None:
     """Optional guidance hidden behind a small info disclosure; never use for QC/errors/warnings."""
     from petrolab.settings_service import load_settings

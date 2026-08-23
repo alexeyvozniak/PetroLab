@@ -11,7 +11,7 @@ from plotly.colors import qualitative
 from plotly.subplots import make_subplots
 
 from petrolab.interactive_plotting import add_row_display_overlay
-from petrolab.ui.selection_components import render_selection_mode
+from petrolab.ui.selection_components import render_selection_mode, selection_action_label
 from petrolab.ui.selection_context import clear_selection, read_row_states, read_selection, set_selection
 
 
@@ -431,7 +431,7 @@ def render_linked_panel_selection(
     hidden_count = len(context.analysis_ids) - len(visible_selected)
     if context.analysis_ids:
         c1, c2 = st.columns([4, 1])
-        message = f"Общий отбор: {len(visible_selected)} видимых точек; те же analysis_id подсвечиваются в бинарных, треугольных и spider-панелях."
+        message = f"Рабочая выборка: {len(visible_selected)} видимых точек; те же analysis_id подсвечиваются в бинарных, треугольных и spider-панелях."
         if hidden_count:
             message += f" Ещё {hidden_count} сейчас не видны из-за фильтра/Hide."
         c1.info(message)
@@ -439,5 +439,5 @@ def render_linked_panel_selection(
             clear_selection()
             st.rerun()
     else:
-        st.caption("Выберите точки на любой панели — тот же Selection появится в бинарных, треугольных и spider-графиках, таблице, XY и статистике.")
+        st.caption(f"Выберите точки на любой панели. Текущий режим: «{selection_action_label(mode)}». Selection появится в таблице, XY, ternary, spider и статистике.")
     return visible_selected

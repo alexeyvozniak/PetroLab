@@ -113,12 +113,26 @@ for marker in ["внутренняя рабочая копия", "зафикси
 # Linked views are a first-class investigation route, not a hidden variant of XY.
 for marker in [
     "render_linked_views_page", "Связанные представления", "_render_xy_panel",
-    "_render_ternary_panel", "_render_spider_panel", "Применить ко всем панелям",
-    "Заменить", "Добавить", "Исключить", "Цвет", "Форма",
+    "_render_ternary_panel", "_render_spider_panel", "Применить выделение",
+    "selection_action_description", "selection_action_label", "Цвет", "Форма",
+    "render_work_context",
 ]:
     assert marker in LINKED_VIEWS, marker
 assert '("linked_views", "Связанные представления")' in NAVIGATION
 assert '"linked_views": render_linked_views_page' in APP
+
+# The shared context strip must explain scope without turning a filter into a
+# destructive data operation. Import must expose its final write explicitly.
+for marker in ["def render_work_context", 'role="status"', "Контекст:"]:
+    assert marker in LAYOUT, marker
+for page_name in ["analyses_dashboard.py", "database_browser.py", "plots_dashboard.py", "sources_dashboard.py"]:
+    assert "render_work_context" in (PAGES / page_name).read_text(encoding="utf-8"), page_name
+sources = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
+for marker in [
+    "Разобрать вручную: несколько таблиц на одном листе",
+    "Готово к импорту:", "Ничего ещё не записано.", "_render_import_readiness",
+]:
+    assert marker in sources, marker
 
 # XY quick/advanced workspaces and guarded actions have explicit owners.
 advanced = (PAGES / "plots_advanced.py").read_text(encoding="utf-8")

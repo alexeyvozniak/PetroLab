@@ -40,22 +40,44 @@ _DISPLAY_MARKERS = {
 }
 
 
+_SELECTION_ACTIONS = {
+    "Новый отбор": "replace",
+    "Добавить к отбору": "add",
+    "Убрать из отбора": "subtract",
+}
+
+
+def selection_action_description(mode: str) -> str:
+    """Human explanation of a selection operation, kept distinct from QC/exclude."""
+    return {
+        "replace": "Оставить в рабочей выборке только точки, которые вы выделите сейчас.",
+        "add": "Присоединить выделенные сейчас точки к уже выбранным.",
+        "subtract": "Убрать выделенные сейчас точки из рабочей выборки. Это не QC-исключение и не удаление данных.",
+    }.get(str(mode), "Оставить в рабочей выборке только точки, которые вы выделите сейчас.")
+
+
+def selection_action_label(mode: str) -> str:
+    return {
+        "replace": "Начать новый отбор",
+        "add": "Добавить к текущему отбору",
+        "subtract": "Убрать из текущего отбора",
+    }.get(str(mode), "Начать новый отбор")
+
+
 def render_selection_mode(*, key_prefix: str, default: str = "replace") -> str:
-    labels = {
-        "Заменить": "replace",
-        "Добавить": "add",
-        "Вычесть": "subtract",
-    }
-    reverse = {value: label for label, value in labels.items()}
-    current = reverse.get(default, "Заменить")
+    """Choose how a graph gesture changes the shared, reversible Selection."""
+    reverse = {value: label for label, value in _SELECTION_ACTIONS.items()}
+    current = reverse.get(default, "Новый отбор")
     choice = st.segmented_control(
-        "Как менять отбор",
-        list(labels),
+        "После выделения",
+        list(_SELECTION_ACTIONS),
         default=current,
         key=f"{key_prefix}_selection_mode",
-        help="Заменить — новый отбор вместо старого; Добавить — расширить; Вычесть — убрать выбранные точки.",
+        help="Selection меняет только состав временной рабочей выборки. Он не удаляет анализы и не меняет QC.",
     )
-    return labels.get(str(choice or current), "replace")
+    mode = _SELECTION_ACTIONS.get(str(choice or current), "replace")
+    st.caption(selection_action_description(mode))
+    return mode
 
 
 def selected_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
