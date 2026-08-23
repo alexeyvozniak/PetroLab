@@ -100,6 +100,10 @@ for marker in [
 assert '("slides", "Шлифы и поля")' in NAVIGATION
 assert '"slides": render_slides_page' in APP
 
+home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
+assert "Рабочая копия PetroLab" in home
+assert "Связанный исходный файл" in home
+
 # Linked views are a first-class investigation route, not a hidden variant of XY.
 for marker in [
     "render_linked_views_page", "Связанные представления", "_render_xy_panel",
