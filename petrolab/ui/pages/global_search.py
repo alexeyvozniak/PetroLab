@@ -12,6 +12,7 @@ from petrolab.search_service import (
     SCOPE_PROJECT,
     SearchCatalog,
     SearchHit,
+    _SEARCH_COLUMNS,
     build_search_catalog,
     query_catalog,
 )
@@ -169,11 +170,13 @@ def _open_workspace_hit(hit: SearchHit, *, active_project_id: int, in_current_pr
         set_active_project(int(hit.project_id))
     if hit.kind == "sample" and hit.sample_id is not None:
         st.session_state["workspace_mode"] = "Sample"
+        st.session_state["workspace_sample"] = int(hit.sample_id)
         st.session_state["workspace_sample_id_pending"] = int(hit.sample_id)
         st.session_state["workspace_query_pending"] = hit.title
         navigate("workspace")
     elif hit.kind == "dataset" and hit.dataset_id is not None:
         st.session_state["workspace_mode"] = "Массив данных"
+        st.session_state["workspace_dataset"] = int(hit.dataset_id)
         st.session_state["workspace_dataset_id_pending"] = int(hit.dataset_id)
         st.session_state["workspace_query_pending"] = hit.title
         navigate("workspace")
