@@ -213,6 +213,7 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
         charts = driver.find_elements(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"], .js-plotly-plot')
         charts = [chart for chart in charts if chart.is_displayed()]
         assert charts, f"No visible Plotly graph at {width}x{height}"
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", charts[0])
         rect = driver.execute_script(
             """
             const el = arguments[0];
