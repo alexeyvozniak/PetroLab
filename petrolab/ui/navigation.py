@@ -16,6 +16,7 @@ from petrolab.update_checker import available_update
 PRIMARY_NAV = [
     ("home", "Обзор"),
     ("workspace", "Образцы"),
+    ("rock_workspace", "Породы"),
     ("search", "Поиск"),
     ("thin_section", "Шлифы"),
     ("analyses", "Анализы"),
@@ -78,7 +79,6 @@ _HIDDEN_ROUTE_LABELS = {
     "slides": "Шлифы и поля",
     "formulae": "Формулы / APFU",
     "minerals": "Минералогические модули",
-    "rock_workspace": "Породы",
     "rocks": "Редактор пород",
 }
 
