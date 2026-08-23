@@ -20,6 +20,7 @@ from petrolab.io_utils import (
     list_excel_sheets,
     list_excel_sheets_path,
     read_tabular_path,
+    read_tabular_block_with_map,
     read_tabular_with_map,
     sha256_bytes,
     sha256_file,
@@ -152,6 +153,25 @@ def inspect_uploaded_sheet(
     return _schema_preview(sheet_name, dataframe, column_map)
 
 
+def inspect_linked_block(
+    path: str | Path, sheet_name: str, header_row: int, last_row: int,
+) -> ImportSchemaPreview:
+    source = validate_source_path(path)
+    dataframe, column_map, _ = read_tabular_block_with_map(
+        source.read_bytes(), source.name, sheet_name or None, int(header_row), int(last_row)
+    )
+    return _schema_preview(sheet_name, dataframe, column_map)
+
+
+def inspect_uploaded_block(
+    file_bytes: bytes, filename: str, sheet_name: str, header_row: int, last_row: int,
+) -> ImportSchemaPreview:
+    dataframe, column_map, _ = read_tabular_block_with_map(
+        file_bytes, filename, sheet_name or None, int(header_row), int(last_row)
+    )
+    return _schema_preview(sheet_name, dataframe, column_map)
+
+
 def preview_linked_source(
     path: str | Path,
     sheet_name: str,
@@ -178,6 +198,32 @@ def preview_uploaded_source(
     measurement_map: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
     dataframe, column_map, _ = read_tabular_with_map(file_bytes, filename, sheet_name or None, int(header_row))
+    mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
+    mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
+    mapped, _ = _attach_detected_method(mapped, mapped_column_map)
+    return _calculate_mineral(mapped, mineral_key)
+
+
+def preview_linked_block(
+    path: str | Path, sheet_name: str, header_row: int, last_row: int, mineral_key: str,
+    semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    source = validate_source_path(path)
+    return preview_uploaded_block(
+        source.read_bytes(), source.name, sheet_name, header_row, last_row, mineral_key,
+        semantic_map, measurement_map,
+    )
+
+
+def preview_uploaded_block(
+    file_bytes: bytes, filename: str, sheet_name: str, header_row: int, last_row: int,
+    mineral_key: str, semantic_map: Mapping[str, str] | None = None,
+    measurement_map: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    dataframe, column_map, _ = read_tabular_block_with_map(
+        file_bytes, filename, sheet_name or None, int(header_row), int(last_row)
+    )
     mapped, mapped_column_map, _ = apply_semantic_mapping(dataframe, column_map, semantic_map)
     mapped, mapped_column_map, _ = apply_measurement_overrides(mapped, mapped_column_map, measurement_map)
     mapped, _ = _attach_detected_method(mapped, mapped_column_map)

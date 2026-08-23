@@ -19,6 +19,7 @@ for function in (import_linked_sheets, import_uploaded_sheets):
     parameters = inspect.signature(function).parameters
     assert "header_rows" in parameters
     assert "mineral_keys" in parameters
+    assert "blocks" in parameters
 
 # FeO can be explicitly confirmed as total Fe reported on an FeO basis.
 source_map = {

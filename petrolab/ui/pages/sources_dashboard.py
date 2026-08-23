@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 from pathlib import Path
 from typing import Callable
 
@@ -21,11 +23,15 @@ from petrolab.services.import_service import (
     import_linked_sheets,
     import_uploaded_sheets,
     inspect_linked_sheet,
+    inspect_linked_block,
     inspect_uploaded_sheet,
+    inspect_uploaded_block,
     list_linked_sheets,
     list_uploaded_sheets,
     preview_linked_source,
+    preview_linked_block,
     preview_uploaded_source,
+    preview_uploaded_block,
     refresh_dataset_from_source,
 )
 from petrolab.sources import source_status
@@ -151,11 +157,97 @@ def _sheet_settings(
     return header_rows, mineral_keys
 
 
+def _manual_blocks(
+    sheets: list[str],
+    default_mineral: str,
+    prefix: str,
+    raw_preview: Callable[[str], pd.DataFrame],
+) -> list[dict]:
+    """Let a researcher mark several ordinary tables inside one messy worksheet."""
+    if not sheets:
+        return []
+    st.subheader("Разметка таблиц на листе")
+    render_hint(
+        "Выберите лист и границы каждой таблицы. Номера строк берутся из Excel: строка заголовков входит в блок, "
+        "последняя строка данных тоже входит. Примечания и другие таблицы между блоками не попадут в импорт."
+    )
+    sheet = st.selectbox("Лист для разметки", sheets, key=f"{prefix}_block_sheet")
+    try:
+        raw = raw_preview(sheet).head(120).copy()
+        raw.insert(0, "Строка Excel", range(1, len(raw) + 1))
+        st.dataframe(raw.fillna(""), width="stretch", hide_index=True, height=280)
+        st.caption("Показаны первые 120 строк листа. Для таблицы ниже можно указать строки дальше этого предпросмотра.")
+    except Exception as exc:
+        st.error(f"Не удалось показать лист для разметки: {exc}")
+        return []
+
+    count = int(st.number_input("Таблиц на этом листе", 1, 12, 2, 1, key=f"{prefix}_block_count"))
+    minerals = _import_mineral_keys()
+    blocks: list[dict] = []
+    for index in range(count):
+        block_id = f"{prefix}_block_{index + 1}"
+        with st.expander(f"Таблица {index + 1}", expanded=index == 0):
+            c1, c2, c3 = st.columns(3)
+            title = c1.text_input("Название", value=f"Таблица {index + 1}", key=f"{block_id}_title")
+            header = int(c2.number_input("Строка заголовков", 1, 100_000, 1, 1, key=f"{block_id}_header"))
+            last = int(c3.number_input("Последняя строка", 2, 100_000, 2, 1, key=f"{block_id}_last"))
+            mineral = st.selectbox(
+                "Минерал / режим", minerals, index=minerals.index(default_mineral),
+                format_func=_import_mineral_label, key=f"{block_id}_mineral",
+            )
+            if last <= header:
+                st.error("Последняя строка должна идти после строки заголовков.")
+            blocks.append({
+                "id": block_id, "sheet": sheet, "title": title,
+                "header_row": header, "last_row": last, "mineral_key": mineral,
+            })
+    return blocks
+
+
+def _block_mapping_and_preview(
+    blocks: list[dict],
+    *,
+    inspector: Callable[[dict], ImportSchemaPreview],
+    previewer: Callable[[dict, dict[str, str], dict[str, str]], pd.DataFrame],
+    prefix: str,
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], bool]:
+    ids = [str(block["id"]) for block in blocks]
+    lookup = {str(block["id"]): block for block in blocks}
+    labels = {
+        key: f"{item['sheet'] or 'CSV'} · {item['title']} ({item['header_row']}–{item['last_row']})"
+        for key, item in lookup.items()
+    }
+    headers = {key: int(lookup[key]["header_row"]) for key in ids}
+    semantic, measurement, ready = _schema_mapping(
+        ids, lambda block_id, _header: inspector(lookup[block_id]), prefix, headers, labels,
+    )
+    if ready:
+        ready = _render_normalized_previews(
+            ids,
+            lambda block_id: previewer(
+                lookup[block_id], semantic.get(block_id, {}), measurement.get(block_id, {})
+            ),
+            labels,
+        )
+    return semantic, measurement, ready
+
+
+def _raw_uploaded_rows(data: bytes, filename: str, sheet: str) -> pd.DataFrame:
+    suffix = Path(filename).suffix.lower()
+    if suffix in {".xlsx", ".xlsm", ".xls"}:
+        return pd.read_excel(io.BytesIO(data), sheet_name=sheet or 0, header=None)
+    try:
+        return pd.read_csv(io.BytesIO(data), sep=None, engine="python", header=None)
+    except UnicodeDecodeError:
+        return pd.read_csv(io.BytesIO(data), sep=None, engine="python", header=None, encoding="cp1251")
+
+
 def _schema_mapping(
     selected: list[str],
     inspector: Callable[[str, int], ImportSchemaPreview],
     prefix: str,
     header_rows: dict[str, int],
+    labels: dict[str, str] | None = None,
 ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], bool]:
     semantic_maps: dict[str, dict[str, str]] = {}
     measurement_maps: dict[str, dict[str, str]] = {}
@@ -169,7 +261,7 @@ def _schema_mapping(
         "способ представления железа подтверждаются отдельно для каждого листа."
     )
     for sheet_index, sheet in enumerate(selected):
-        label = sheet or "CSV"
+        label = (labels or {}).get(sheet, sheet or "CSV")
         try:
             preview = inspector(sheet, header_rows[sheet])
         except Exception as exc:
@@ -269,6 +361,7 @@ def _schema_mapping(
 def _render_normalized_previews(
     selected: list[str],
     previewer: Callable[[str], pd.DataFrame],
+    labels: dict[str, str] | None = None,
 ) -> bool:
     """Show the actual future rows for every selected sheet before any write."""
     if not selected:
@@ -276,7 +369,7 @@ def _render_normalized_previews(
     st.subheader("Предпросмотр перед сохранением")
     ready = True
     for index, sheet in enumerate(selected):
-        label = sheet or "CSV"
+        label = (labels or {}).get(sheet, sheet or "CSV")
         try:
             dataframe = previewer(sheet)
             with st.expander(f"{label} · будет создан новый набор", expanded=index == 0):
@@ -312,7 +405,6 @@ def _render_linked_import(project_id: int) -> None:
     else:
         st.info("XLS/CSV: файл можно импортировать и перечитывать, но обратная запись в источник отключена.")
 
-    selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="linked_sheets")
     mineral_options = _import_mineral_keys()
     default_mineral = st.selectbox(
         "Что находится в файле", mineral_options, index=0,
@@ -322,29 +414,53 @@ def _render_linked_import(project_id: int) -> None:
     dataset_name = st.text_input("Название набора", value=source_path.stem, key="linked_dataset_name")
     target_project_id = _import_target(project_id, "linked_import_target")
     st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
-    headers, minerals = _sheet_settings(selected, default_header, default_mineral, "linked")
-    semantic, measurement, ready = _schema_mapping(
-        selected,
-        lambda sheet, header: inspect_linked_sheet(source_path, sheet, header),
-        "linked", headers,
+    mode = st.radio(
+        "Как устроен файл",
+        ["Одна таблица на лист", "Несколько таблиц внутри одного листа"],
+        horizontal=True, key="linked_import_mode",
     )
-
-    if selected and ready:
-        ready = _render_normalized_previews(
-            selected,
-            lambda sheet: preview_linked_source(
-                source_path, sheet, headers[sheet], minerals[sheet],
-                semantic.get(sheet, {}), measurement.get(sheet, {}),
-            ),
+    blocks: list[dict] = []
+    headers: dict[str, int] = {}
+    minerals: dict[str, str] = {}
+    if mode == "Несколько таблиц внутри одного листа":
+        blocks = _manual_blocks(
+            sheets, default_mineral, "linked",
+            lambda sheet: _raw_uploaded_rows(source_path.read_bytes(), source_path.name, sheet),
         )
+        semantic, measurement, ready = _block_mapping_and_preview(
+            blocks,
+            inspector=lambda block: inspect_linked_block(
+                source_path, block["sheet"], block["header_row"], block["last_row"]
+            ),
+            previewer=lambda block, semantic_map, measurement_map: preview_linked_block(
+                source_path, block["sheet"], block["header_row"], block["last_row"], block["mineral_key"],
+                semantic_map, measurement_map,
+            ),
+            prefix="linked_block",
+        )
+        selected: list[str] = []
+    else:
+        selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="linked_sheets")
+        headers, minerals = _sheet_settings(selected, default_header, default_mineral, "linked")
+        semantic, measurement, ready = _schema_mapping(
+            selected, lambda sheet, header: inspect_linked_sheet(source_path, sheet, header), "linked", headers,
+        )
+        if selected and ready:
+            ready = _render_normalized_previews(
+                selected,
+                lambda sheet: preview_linked_source(
+                    source_path, sheet, headers[sheet], minerals[sheet],
+                    semantic.get(sheet, {}), measurement.get(sheet, {}),
+                ),
+            )
 
-    if st.button("Связать и импортировать", type="primary", key="link_local", disabled=not selected or not ready):
+    if st.button("Связать и импортировать", type="primary", key="link_local", disabled=not (selected or blocks) or not ready):
         try:
             result = import_linked_sheets(
                 project_id=target_project_id, path=source_path, sheet_names=selected,
                 mineral_key=default_mineral, dataset_name=dataset_name, header_row=default_header,
                 semantic_maps=semantic, measurement_maps=measurement,
-                header_rows=headers, mineral_keys=minerals,
+                header_rows=headers, mineral_keys=minerals, blocks=blocks,
             )
             _continue_after_import(list(result.dataset_ids), project_id)
         except Exception as exc:
@@ -365,7 +481,6 @@ def _render_uploaded_import(project_id: int) -> None:
     except Exception as exc:
         st.error(f"Не удалось открыть загруженный файл: {exc}")
         return
-    selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="upload_sheets")
     mineral_options = _import_mineral_keys()
     default_mineral = st.selectbox(
         "Что находится в файле", mineral_options, index=0,
@@ -375,27 +490,49 @@ def _render_uploaded_import(project_id: int) -> None:
     dataset_name = st.text_input("Название набора", value=Path(uploaded.name).stem, key="upload_dataset_name")
     target_project_id = _import_target(project_id, "upload_import_target")
     st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
-    headers, minerals = _sheet_settings(selected, default_header, default_mineral, "upload")
-    semantic, measurement, ready = _schema_mapping(
-        selected,
-        lambda sheet, header: inspect_uploaded_sheet(data, uploaded.name, sheet, header),
-        "upload", headers,
+    mode = st.radio(
+        "Как устроен файл",
+        ["Одна таблица на лист", "Несколько таблиц внутри одного листа"],
+        horizontal=True, key="upload_import_mode",
     )
-    if selected and ready:
-        ready = _render_normalized_previews(
-            selected,
-            lambda sheet: preview_uploaded_source(
-                data, uploaded.name, sheet, headers[sheet], minerals[sheet],
-                semantic.get(sheet, {}), measurement.get(sheet, {}),
+    blocks: list[dict] = []
+    headers: dict[str, int] = {}
+    minerals: dict[str, str] = {}
+    if mode == "Несколько таблиц внутри одного листа":
+        blocks = _manual_blocks(sheets, default_mineral, "upload", lambda sheet: _raw_uploaded_rows(data, uploaded.name, sheet))
+        semantic, measurement, ready = _block_mapping_and_preview(
+            blocks,
+            inspector=lambda block: inspect_uploaded_block(
+                data, uploaded.name, block["sheet"], block["header_row"], block["last_row"]
             ),
+            previewer=lambda block, semantic_map, measurement_map: preview_uploaded_block(
+                data, uploaded.name, block["sheet"], block["header_row"], block["last_row"], block["mineral_key"],
+                semantic_map, measurement_map,
+            ),
+            prefix="upload_block",
         )
-    if st.button("Импортировать рабочую копию", type="primary", key="upload_import", disabled=not selected or not ready):
+        selected: list[str] = []
+    else:
+        selected = st.multiselect("Листы для импорта", sheets, default=sheets[:1], key="upload_sheets")
+        headers, minerals = _sheet_settings(selected, default_header, default_mineral, "upload")
+        semantic, measurement, ready = _schema_mapping(
+            selected, lambda sheet, header: inspect_uploaded_sheet(data, uploaded.name, sheet, header), "upload", headers,
+        )
+        if selected and ready:
+            ready = _render_normalized_previews(
+                selected,
+                lambda sheet: preview_uploaded_source(
+                    data, uploaded.name, sheet, headers[sheet], minerals[sheet],
+                    semantic.get(sheet, {}), measurement.get(sheet, {}),
+                ),
+            )
+    if st.button("Импортировать рабочую копию", type="primary", key="upload_import", disabled=not (selected or blocks) or not ready):
         try:
             result = import_uploaded_sheets(
                 project_id=target_project_id, file_bytes=data, filename=uploaded.name,
                 sheet_names=selected, mineral_key=default_mineral, dataset_name=dataset_name,
                 header_row=default_header, semantic_maps=semantic, measurement_maps=measurement,
-                header_rows=headers, mineral_keys=minerals,
+                header_rows=headers, mineral_keys=minerals, blocks=blocks,
             )
             _continue_after_import(list(result.dataset_ids), project_id)
         except Exception as exc:
@@ -423,7 +560,18 @@ def _render_source_statuses(project_id: int) -> None:
         return
     for dataset in datasets:
         managed = str(dataset.get("source_kind") or "") == "managed_copy"
-        status, detail = _managed_copy_status(dataset) if managed else source_status(dataset)
+        try:
+            schema = json.loads(str(dataset.get("column_map_json") or "{}"))
+        except json.JSONDecodeError:
+            schema = {}
+        manual_block = bool((schema.get("__schema__") or {}).get("import_block"))
+        if managed:
+            status, detail = _managed_copy_status(dataset)
+        elif manual_block:
+            status = "ручной блок"
+            detail = "Границы таблицы сохранены вместе с исходными строками Excel. Чтобы не сдвинуть точки после вставки заметки, обновление из файла отключено."
+        else:
+            status, detail = source_status(dataset)
         with st.container(border=True):
             left, right = st.columns([4, 1])
             with left:
@@ -436,7 +584,7 @@ def _render_source_statuses(project_id: int) -> None:
                 if managed:
                     st.caption("Это внутренняя рабочая копия PetroLab. Изменения базы не записываются в пользовательский оригинал.")
             with right:
-                if not managed and status == "изменён вне ПетроЛаба":
+                if not managed and not manual_block and status == "изменён вне ПетроЛаба":
                     if st.button("Обновить из файла", key=f"refresh_source_{dataset['id']}", width="stretch"):
                         try:
                             result = refresh_dataset_from_source(int(dataset["id"]))
