@@ -36,6 +36,11 @@ def render_search_page() -> None:
                 st.session_state["workflow_plot_dataset_ids"] = [int(result["dataset_id"])]
                 navigate("plots")
             else:
-                st.session_state["workflow_image_dataset_id"] = int(result["dataset_id"])
+                dataset_id = result.get("dataset_id")
+                if dataset_id is None:
+                    st.warning("У этого изображения нет набора анализов; откройте его через «Шлифы и поля».")
+                    return
+                st.session_state["workflow_image_dataset_id"] = int(dataset_id)
+                st.session_state["workflow_image_asset_id"] = int(result["asset_id"])
                 navigate("images")
             st.rerun()

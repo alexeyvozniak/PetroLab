@@ -14,10 +14,10 @@ os.environ["PETROLAB_DATA_DIR"] = str(Path(_tmp.name) / "data")
 
 from petrolab.db import add_dataset, create_project, load_dataset_dataframe, replace_dataset_rows
 from petrolab.figure_recipes import list_figure_recipes, save_figure_recipe
-from petrolab.image_inbox import add_to_inbox, assign_inbox_item, list_inbox_items
+from petrolab.image_inbox import add_to_inbox, assign_inbox_item, assign_inbox_items, list_inbox_items
 from petrolab.search import global_search
 from petrolab.selections import list_selections, save_selection, selection_analysis_ids
-from petrolab.services.image_service import ImageAssignment, ImagePayload, ImageScope, SCOPE_ANALYSIS
+from petrolab.services.image_service import ImageAssignment, ImagePayload, ImageScope, SCOPE_ANALYSIS, image_export_records
 from petrolab.slides import (
     attach_image_to_slide_field,
     create_slide_field,
@@ -58,6 +58,16 @@ def main() -> None:
         assignment=ImageAssignment(ImagePayload("BSE-03.png", image_bytes()), ImageScope(SCOPE_ANALYSIS, analysis_ids=(first_id,)), "BSE", "BSE-03"),
     )
     assert asset_id > 0 and list_inbox_items(project_id) == []
+    image_results = global_search("BSE-03")
+    assert any(item["kind"] == "image" and int(item["asset_id"]) == asset_id for item in image_results)
+    assert any(int(item["id"]) == asset_id for item in image_export_records())
+
+    batch = add_to_inbox(project_id, [ImagePayload("BSE-04.png", image_bytes()), ImagePayload("BSE-05.png", image_bytes())])
+    batch_assets = assign_inbox_items(
+        project_id, [item.id for item in batch], dataset_id=dataset_id,
+        scope=ImageScope(SCOPE_ANALYSIS, analysis_ids=(first_id,)), kind="BSE",
+    )
+    assert len(batch_assets) == 2 and list_inbox_items(project_id) == []
 
     main_slide = register_managed_slide_image(project_id, filename="PPL.png", data=image_bytes(), title="PPL", image_type="Фотография шлифа")
     bse_slide = register_managed_slide_image(project_id, filename="BSE.png", data=image_bytes(), title="BSE-03", image_type="BSE")

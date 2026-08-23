@@ -117,6 +117,61 @@ def assign_inbox_item(project_id: int, item_id: int, *, dataset_id: int, assignm
     return asset_id
 
 
+def assign_inbox_items(
+    project_id: int,
+    item_ids: list[int],
+    *,
+    dataset_id: int,
+    scope,
+    kind: str,
+    title: str = "",
+) -> list[int]:
+    """Assign several staged images to one explicitly chosen scientific context.
+
+    The production image service validates the entire list before writing a file,
+    so an invalid common scope cannot leave half of the Inbox attached.
+    """
+    ensure_inbox_schema()
+    unique_ids = list(dict.fromkeys(int(value) for value in item_ids))
+    if not unique_ids:
+        raise ValueError("Выберите изображения Inbox")
+    markers = ",".join("?" for _ in unique_ids)
+    with connect() as con:
+        rows = con.execute(
+            f"SELECT * FROM image_inbox_items WHERE project_id=? AND id IN ({markers})",
+            (int(project_id), *unique_ids),
+        ).fetchall()
+    by_id = {int(row["id"]): row for row in rows}
+    if set(by_id) != set(unique_ids):
+        raise ValueError("Часть выбранных изображений Inbox недоступна")
+    if any(row["assigned_asset_id"] is not None for row in rows):
+        raise ValueError("Часть выбранных изображений уже была привязана")
+    assignments: list[ImageAssignment] = []
+    paths: list[Path] = []
+    for item_id in unique_ids:
+        row = by_id[item_id]
+        path = Path(str(row["stored_path"]))
+        if not path.is_file():
+            raise ValueError(f"Файл Inbox отсутствует: {row['filename']}")
+        paths.append(path)
+        assignments.append(ImageAssignment(
+            ImagePayload(str(row["filename"]), path.read_bytes()), scope, str(kind),
+            str(title).strip() or path.stem,
+        ))
+    result = create_assigned_image_batch(
+        project_id=int(project_id), dataset_id=int(dataset_id), assignments=assignments,
+    )
+    with connect() as con:
+        con.executemany(
+            "UPDATE image_inbox_items SET assigned_asset_id=? WHERE id=?",
+            list(zip(result.asset_ids, unique_ids)),
+        )
+        con.commit()
+    for path in paths:
+        path.unlink(missing_ok=True)
+    return list(result.asset_ids)
+
+
 def discard_inbox_item(project_id: int, item_id: int) -> None:
     ensure_inbox_schema()
     with connect() as con:
