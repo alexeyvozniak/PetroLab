@@ -75,8 +75,7 @@ def open_page(app, label: str, expected_route: str) -> None:
 
 def assert_primary_navigation(app) -> None:
     expected = [
-        "Главная", "Данные", "Графики", "Статистика", "Шлифы и изображения",
-        "Расчёты", "Публикация", "Поиск", "Настройки",
+        "Обзор", "Образцы", "Породы", "Поиск", "Шлифы", "Анализы", "Добавить",
     ]
     actual = [button.label for button in app.sidebar.button]
     missing = [label for label in expected if label not in actual]
@@ -131,15 +130,13 @@ def main() -> None:
         assert_back_restores_route(app)
 
         pages = [
-            ("Главная", "home"),
-            ("Данные", "workspace"),
-            ("Графики", "plots"),
-            ("Статистика", "statistics"),
-            ("Шлифы и изображения", "thin_section"),
-            ("Расчёты", "calculate"),
-            ("Публикация", "publish"),
+            ("Обзор", "home"),
+            ("Образцы", "workspace"),
+            ("Породы", "rock_workspace"),
             ("Поиск", "search"),
-            ("Настройки", "settings"),
+            ("Шлифы", "thin_section"),
+            ("Анализы", "analyses"),
+            ("Добавить", "add_data"),
         ]
         for label, route in pages:
             open_page(app, label, route)
