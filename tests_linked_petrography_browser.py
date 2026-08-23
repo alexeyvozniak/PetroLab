@@ -170,6 +170,26 @@ def _wait_for_idle(driver: webdriver.Chrome, timeout: float = 35.0) -> None:
     raise AssertionError(f"Streamlit did not become idle: {_main_signature(driver)}")
 
 
+def _scroll_position(driver: webdriver.Chrome) -> tuple[int, int]:
+    value = driver.execute_script(
+        """
+        const main = document.querySelector('[data-testid="stMain"]');
+        return [Math.round(main?.scrollTop || 0), Math.round(window.scrollY || 0)];
+        """
+    )
+    return int(value[0]), int(value[1])
+
+
+def _wait_for_route_top(driver: webdriver.Chrome, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        main_top, window_top = _scroll_position(driver)
+        if main_top <= 8 and window_top <= 8:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"New route did not reset scroll to top: {_scroll_position(driver)}")
+
+
 def _visible_button(driver: webdriver.Chrome, label: str):
     candidates = [
         button for button in driver.find_elements(By.TAG_NAME, "button")
@@ -217,6 +237,7 @@ def _navigate_sidebar(driver: webdriver.Chrome, label: str) -> None:
     assert candidates, f"Sidebar route not found: {label}"
     driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", candidates[0])
     _wait_for_idle(driver)
+    _wait_for_route_top(driver)
 
 
 def _main_text(driver: webdriver.Chrome) -> str:
@@ -294,6 +315,7 @@ def main() -> None:
         _save(driver, "01_thin_links.png")
 
         _click_button(driver, "Открыть в графиках")
+        _wait_for_route_top(driver)
         text = _main_text(driver)
         assert "XY-диаграммы" in text
         assert "Выбрано: 2" in text, text[:2500]
@@ -307,6 +329,7 @@ def main() -> None:
         _save(driver, "02_graph_selection_2.png")
 
         _click_button(driver, "На шлифе")
+        _wait_for_route_top(driver)
         text = _main_text(driver)
         assert "Работать со шлифом" in text
         assert "Selection · 2" in text, text[:2500]
