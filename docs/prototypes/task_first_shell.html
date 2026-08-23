@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PetroLab task-first prototype</title>
+<style>
+:root{--bg:#edf0ef;--surface:#fbfcfb;--soft:#f1f3f2;--strong:#e5e9e7;--text:#17211f;--muted:#596663;--border:#cbd2cf;--border2:#aeb9b5;--accent:#315f56;--accent2:#244b44;--accentSoft:#dfe9e6;--warning:#775817;--warningSoft:#f1ead7;--danger:#8f3f3f;--success:#2f654c}
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:"Segoe UI",Arial,sans-serif;color:var(--text);background:var(--bg)}button,input,select{font:inherit}.app{display:grid;grid-template-columns:264px minmax(0,1fr);min-height:100vh}.sidebar{background:#e6eae8;border-right:1px solid var(--border2);padding:16px 12px;position:sticky;top:0;height:100vh;overflow:auto}.brand{font-size:19px;font-weight:760;margin-bottom:2px}.version{font-size:12px;color:var(--muted);margin-bottom:16px}.label{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.07em;color:#46514e;margin:16px 6px 6px}.project{border:1px solid var(--border);background:var(--surface);padding:9px 10px;border-radius:5px;font-weight:650}.project small{display:block;color:var(--muted);font-weight:500;margin-top:2px}.search{margin-top:8px;width:100%;height:38px;border:1px solid var(--border2);background:white;border-radius:4px;padding:0 10px;color:var(--text)}.nav{display:grid;gap:3px}.nav button{border:1px solid transparent;background:transparent;text-align:left;padding:8px 10px;border-radius:4px;color:var(--text);cursor:pointer}.nav button:hover{background:rgba(49,95,86,.08)}.nav button.active{background:#d9e3e0;border-color:#b9c7c3;border-left:3px solid var(--accent);color:var(--accent2);font-weight:720}.context-card{margin-top:16px;border-top:1px solid var(--border);padding-top:12px;font-size:13px}.context-card b{display:block}.context-card span{color:var(--muted);font-size:12px}.main{min-width:0}.topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 22px;position:sticky;top:0;z-index:5}.crumbs{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;color:var(--muted)}.crumbs b{color:var(--text)}.top-actions{margin-left:auto;display:flex;gap:8px}.content{padding:22px;max-width:1640px;margin:auto}.screen{display:none}.screen.active{display:block}.page-head{display:flex;align-items:flex-start;gap:18px;border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:18px}.page-head h1{font-size:27px;margin:0 0 4px;line-height:1.15}.page-head p{margin:0;color:var(--muted);font-size:14px}.btn{border:1px solid var(--border2);background:var(--surface);border-radius:4px;padding:8px 12px;cursor:pointer;font-weight:650;color:var(--text)}.btn.primary{background:var(--accent);border-color:var(--accent);color:white}.btn.soft{background:var(--accentSoft);border-color:#b9cbc6;color:var(--accent2)}.btn.small{padding:6px 9px;font-size:12px}.hero-search{display:grid;grid-template-columns:1fr auto;gap:8px;max-width:900px;margin-bottom:18px}.hero-search input{height:48px;border:1px solid var(--border2);background:white;border-radius:5px;padding:0 14px;font-size:16px}.quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0 24px}.card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px}.card h3{font-size:15px;margin:0 0 4px}.card p{font-size:13px;color:var(--muted);margin:0 0 12px;line-height:1.4}.section-title{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:6px;margin:22px 0 10px}.section-title h2{font-size:16px;margin:0}.recent{display:grid;gap:8px}.recent-row{display:grid;grid-template-columns:1.4fr .8fr .8fr auto;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);padding:10px 12px;border-radius:4px;font-size:13px}.muted{color:var(--muted)}.badge{display:inline-flex;align-items:center;border:1px solid var(--border);background:var(--soft);padding:3px 7px;border-radius:3px;font-size:11px;color:var(--muted);font-weight:650}.badge.accent{background:var(--accentSoft);border-color:#b9cbc6;color:var(--accent2)}.result-summary{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}.tabs{display:flex;gap:0;border-bottom:1px solid var(--border2);margin:14px 0 12px}.tab{padding:9px 13px;border:0;background:transparent;font-weight:650;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}.tab.active{color:var(--accent2);border-bottom-color:var(--accent)}.object-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(290px,.75fr);gap:14px}.workspace-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px}.object-title{display:flex;align-items:center;gap:10px}.object-title h2{margin:0;font-size:21px}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.fact{border:1px solid var(--border);background:var(--soft);padding:9px;border-radius:4px}.fact b{display:block;font-size:16px}.fact span{font-size:11px;color:var(--muted)}.table{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface)}.table th,.table td{padding:8px 9px;border-bottom:1px solid var(--border);text-align:left}.table th{background:var(--strong);font-weight:700}.side-actions{display:grid;gap:8px}.drop{border:1px dashed var(--border2);background:var(--surface);border-radius:6px;padding:26px;text-align:center;margin-bottom:14px}.drop strong{display:block;font-size:17px}.drop span{display:block;color:var(--muted);font-size:13px;margin:5px 0 12px}.steps{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}.step{padding:5px 8px;border:1px solid var(--border);background:var(--soft);font-size:11px;border-radius:3px}.step.active{background:var(--accentSoft);border-color:#b9cbc6;color:var(--accent2);font-weight:700}.file-row{display:grid;grid-template-columns:1.4fr .5fr .5fr .5fr auto;gap:8px;align-items:center;border:1px solid var(--border);background:var(--surface);padding:9px;border-radius:4px;margin-bottom:7px;font-size:12px}.thin-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,.75fr);gap:14px}.viewer{background:#202625;border:1px solid #151918;border-radius:6px;min-height:570px;display:flex;align-items:center;justify-content:center;padding:14px}.viewer svg{width:100%;height:100%;max-height:540px;background:#d9d0b7}.link-panel{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;max-height:650px;overflow:auto}.field{margin-bottom:12px}.field label{display:block;font-size:12px;font-weight:700;margin-bottom:4px}.field select,.field input{width:100%;height:36px;border:1px solid var(--border2);border-radius:4px;background:white;padding:0 9px}.point-list{border:1px solid var(--border);border-radius:4px;overflow:hidden}.point{display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--border);font-size:12px}.point:last-child{border-bottom:0}.filmstrip{display:flex;gap:8px;margin-top:12px;overflow:auto}.thumb{min-width:150px;border:1px solid var(--border);background:var(--surface);padding:7px;border-radius:4px;font-size:11px}.thumb.active{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}.thumb b{display:block}.notice{background:var(--accentSoft);border:1px solid #b9cbc6;color:var(--accent2);padding:9px 10px;border-radius:4px;font-size:12px;margin:10px 0}.split-actions{display:flex;gap:8px;flex-wrap:wrap}.status{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--success);font-weight:700}.dot{width:7px;height:7px;border-radius:50%;background:var(--success)}@media(max-width:1150px){.app{grid-template-columns:228px minmax(0,1fr)}.object-layout,.thin-layout{grid-template-columns:1fr}.facts{grid-template-columns:repeat(2,1fr)}.quick{grid-template-columns:1fr}.top-actions .secondary{display:none}}@media(max-width:820px){.app{display:block}.sidebar{position:relative;height:auto}.content{padding:14px}.recent-row,.file-row{grid-template-columns:1fr}.topbar{position:relative}.facts{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand">◈ ПетроЛаб</div>
+  <div class="version">v0.15.x · локальные данные</div>
+  <div class="label">Проект</div>
+  <div class="project">Диссертация <small>18 наборов · 6 021 анализ</small></div>
+  <input class="search" value="" aria-label="Глобальный поиск" placeholder="Найти образец, минерал, статью, шлиф…">
+  <div class="label">Основное</div>
+  <div class="nav">
+    <button data-screen="home" class="active">Главная</button>
+    <button data-screen="add">Добавить данные</button>
+    <button data-screen="search">Поиск</button>
+    <button data-screen="search">Данные и выборка</button>
+    <button data-screen="search">Графики и сравнение</button>
+    <button data-screen="thin">Шлифы и фото</button>
+    <button>Расчёты</button>
+    <button>Публикация</button>
+    <button>Настройки</button>
+  </div>
+  <div class="context-card"><span>Текущий контекст</span><b>Турий мыс · флогопит</b><span>214 анализов · 3 источника</span></div>
+</aside>
+<main class="main">
+  <div class="topbar">
+    <div class="crumbs"><b>Диссертация</b> / Турий мыс / Флогопит / 214 анализов / 3 источника</div>
+    <div class="top-actions"><button class="btn small secondary">Сбросить отбор</button><button class="btn primary small">Построить график</button></div>
+  </div>
+  <div class="content">
+    <section id="home" class="screen active">
+      <div class="page-head"><div><h1>Что хотите сделать?</h1><p>Начните с объекта, данных или изображения. PetroLab сохранит контекст между шагами.</p></div></div>
+      <div class="hero-search"><input value="19 ТР-1"><button class="btn primary" data-screen="search">Найти</button></div>
+      <div class="quick">
+        <div class="card"><h3>Добавить данные</h3><p>Excel, CSV, PPL/XPL, BSE, карты и фотографии через один вход.</p><button class="btn soft" data-screen="add">Добавить</button></div>
+        <div class="card"><h3>Продолжить текущий отбор</h3><p>Турий мыс · флогопит · 214 анализов. Контекст уже готов для графиков и расчётов.</p><button class="btn">Открыть отбор</button></div>
+        <div class="card"><h3>Открыть шлиф</h3><p>19 ТР-1 · TR1-A · 6 изображений · 18 связанных аналитических точек.</p><button class="btn" data-screen="thin">Открыть шлиф</button></div>
+      </div>
+      <div class="section-title"><h2>Недавняя работа</h2></div>
+      <div class="recent">
+        <div class="recent-row"><b>19 ТР-1</b><span class="muted">Турий мыс</span><span>38 анализов</span><button class="btn small" data-screen="search">Открыть</button></div>
+        <div class="recent-row"><b>Флогопит · Кандалакша</b><span class="muted">Lithos</span><span>214 анализов</span><button class="btn small">Открыть</button></div>
+        <div class="recent-row"><b>TR1-A · PPL/XPL</b><span class="muted">Шлиф</span><span>6 изображений</span><button class="btn small" data-screen="thin">Открыть</button></div>
+      </div>
+    </section>
+
+    <section id="search" class="screen">
+      <div class="page-head"><div><h1>19 ТР-1</h1><p>Найденный объект открывается как единый рабочий контекст, а не как набор несвязанных таблиц.</p></div><button class="btn primary">Построить график</button></div>
+      <div class="result-summary"><span class="badge accent">38 анализов</span><span class="badge">1 Sample</span><span class="badge">1 шлиф</span><span class="badge">6 изображений</span><span class="badge">2 источника</span></div>
+      <div class="object-layout">
+        <div class="workspace-card">
+          <div class="object-title"><h2>Sample 19 ТР-1</h2><span class="badge accent">Турий мыс</span></div>
+          <div class="facts"><div class="fact"><b>38</b><span>анализов</span></div><div class="fact"><b>1</b><span>шлиф</span></div><div class="fact"><b>6</b><span>изображений</span></div><div class="fact"><b>2</b><span>источника</span></div></div>
+          <div class="tabs"><button class="tab active">Обзор</button><button class="tab">Анализы</button><button class="tab" data-screen="thin">Шлифы и фото</button><button class="tab">Расчёты</button><button class="tab">Источники</button></div>
+          <table class="table"><thead><tr><th>Точка</th><th>Минерал</th><th>Generation</th><th>Метод</th><th>Источник</th></tr></thead><tbody><tr><td>112</td><td>Гранат</td><td>core</td><td>EPMA</td><td>Турий мыс</td></tr><tr><td>113</td><td>Гранат</td><td>rim</td><td>EPMA</td><td>Турий мыс</td></tr><tr><td>118</td><td>Гранат</td><td>core</td><td>EDS</td><td>Турий мыс</td></tr><tr><td>121</td><td>Флогопит</td><td>rim</td><td>EPMA</td><td>Турий мыс</td></tr></tbody></table>
+        </div>
+        <aside class="workspace-card">
+          <h3 style="margin-top:0">Текущий отбор</h3><p class="muted">Sample 19 ТР-1 · все минералы · 38 анализов</p>
+          <div class="side-actions"><button class="btn primary">Построить график</button><button class="btn">Сравнить с другими данными</button><button class="btn" data-screen="thin">Открыть шлиф и точки</button><button class="btn">Рассчитать APFU</button></div>
+          <div class="section-title"><h2>Связано</h2></div><p><b>TR1-A</b><br><span class="muted">PPL, XPL, BSE · 18 точек</span></p><p><b>Study: Турий мыс</b><br><span class="muted">2 набора данных</span></p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="add" class="screen">
+      <div class="page-head"><div><h1>Добавить данные</h1><p>Один вход для таблиц и изображений. Ничего не сохраняется до проверки.</p></div></div>
+      <div class="drop"><strong>Перетащите Excel, CSV или фотографии</strong><span>Можно загрузить таблицу вместе с PPL/XPL/BSE и сразу связать их с импортированными точками.</span><div class="split-actions" style="justify-content:center"><button class="btn primary">Выбрать таблицу</button><button class="btn">Выбрать изображения</button></div></div>
+      <div class="steps"><span class="step">1 · Файлы</span><span class="step active">2 · Распознавание</span><span class="step">3 · Листы и колонки</span><span class="step">4 · Sample / Mineral / Point</span><span class="step">5 · Проверка</span><span class="step">6 · Сохранение</span></div>
+      <div class="file-row"><b>supplementary table 2.xlsx</b><span>Excel</span><span>44 листа</span><span class="status"><span class="dot"></span>распознано</span><button class="btn small">Проверить</button></div>
+      <div class="file-row"><b>19_TR1_PPL_01.tif</b><span>Изображение</span><span>PPL</span><span class="status"><span class="dot"></span>готово</span><button class="btn small" data-screen="thin">Привязать</button></div>
+      <div class="file-row"><b>19_TR1_XPL_01.tif</b><span>Изображение</span><span>XPL</span><span class="status"><span class="dot"></span>готово</span><button class="btn small" data-screen="thin">Привязать</button></div>
+      <div class="notice">После безопасного импорта таблицы изображения автоматически получают этот dataset как рекомендуемый контекст, но связь подтверждается пользователем.</div>
+      <div class="split-actions"><button class="btn primary">Продолжить проверку таблицы</button><button class="btn" data-screen="thin">Перейти к фотографиям</button></div>
+    </section>
+
+    <section id="thin" class="screen">
+      <div class="page-head"><div><h1>Привязать фотографию шлифа</h1><p>19_TR1_PPL_01.tif · фото 1 из 6 · текущий контекст: Sample 19 ТР-1</p></div></div>
+      <div class="thin-layout">
+        <div class="viewer">
+          <svg viewBox="0 0 900 600" role="img" aria-label="Схематичное PPL изображение шлифа 19 ТР-1">
+            <rect width="900" height="600" fill="#d7cfb6"/>
+            <polygon points="10,20 260,50 230,240 30,220" fill="#aaa383" stroke="#675f4b" stroke-width="4"/>
+            <polygon points="270,35 530,80 500,260 235,240" fill="#c0a986" stroke="#675f4b" stroke-width="4"/>
+            <polygon points="530,80 860,25 870,240 505,260" fill="#9b9a7b" stroke="#675f4b" stroke-width="4"/>
+            <polygon points="20,230 230,245 290,520 15,575" fill="#b98f78" stroke="#675f4b" stroke-width="4"/>
+            <polygon points="235,250 505,265 600,565 295,520" fill="#cab98d" stroke="#675f4b" stroke-width="4"/>
+            <polygon points="510,265 870,245 885,575 605,565" fill="#8e7d70" stroke="#675f4b" stroke-width="4"/>
+            <circle cx="395" cy="335" r="20" fill="#315f56" stroke="white" stroke-width="4"/><text x="395" y="341" font-size="17" fill="white" text-anchor="middle" font-family="Segoe UI">112</text>
+            <circle cx="455" cy="365" r="20" fill="#315f56" stroke="white" stroke-width="4"/><text x="455" y="371" font-size="17" fill="white" text-anchor="middle" font-family="Segoe UI">113</text>
+            <circle cx="565" cy="320" r="20" fill="#775817" stroke="white" stroke-width="4"/><text x="565" y="326" font-size="17" fill="white" text-anchor="middle" font-family="Segoe UI">118</text>
+            <text x="385" y="290" font-size="22" fill="#17211f" font-weight="700" font-family="Segoe UI">Grain 7</text>
+          </svg>
+        </div>
+        <aside class="link-panel">
+          <div class="field"><label>Что это?</label><select><option>Шлиф · PPL</option><option>Шлиф · XPL</option><option>BSE</option><option>SEM/EDS map</option><option>Карта элемента</option><option>Макрофото образца</option></select></div>
+          <div class="field"><label>Sample</label><select><option>19 ТР-1</option><option>Другой Sample</option></select></div>
+          <div class="field"><label>Шлиф / препарат</label><select><option>TR1-A</option><option>Создать новый шлиф</option></select></div>
+          <div class="field"><label>Поле / зерно</label><select><option>Grain 7</option><option>Field 3</option><option>Весь шлиф</option></select></div>
+          <div class="field"><label>Связанные аналитические точки</label><input value="112, 113, 118"></div>
+          <div class="point-list"><div class="point"><input type="checkbox" checked><span><b>112</b> · Гранат · core</span><span class="badge">EPMA</span></div><div class="point"><input type="checkbox" checked><span><b>113</b> · Гранат · rim</span><span class="badge">EPMA</span></div><div class="point"><input type="checkbox" checked><span><b>118</b> · Гранат · core</span><span class="badge">EDS</span></div><div class="point"><input type="checkbox"><span><b>121</b> · Флогопит · rim</span><span class="badge">EPMA</span></div></div>
+          <div class="field" style="margin-top:12px"><label>Textural zone</label><select><option>ядро</option><option>кайма</option><option>реакционная зона</option><option>тонкая внешняя кайма</option></select></div>
+          <div class="notice">Фото будет связано: Sample 19 ТР-1 → TR1-A → Grain 7 → точки 112, 113, 118.</div>
+          <button class="btn primary" style="width:100%">Сохранить и следующее фото</button>
+          <div class="split-actions" style="margin-top:8px"><button class="btn small">Открыть шлиф</button><button class="btn small" data-screen="search">Показать связанные анализы</button></div>
+        </aside>
+      </div>
+      <div class="filmstrip"><div class="thumb active"><b>1 · PPL</b>19_TR1_PPL_01.tif</div><div class="thumb"><b>2 · XPL</b>19_TR1_XPL_01.tif</div><div class="thumb"><b>3 · BSE</b>19_TR1_BSE_01.tif</div><div class="thumb"><b>4 · PPL</b>19_TR1_PPL_02.tif</div><div class="thumb"><b>5 · XPL</b>19_TR1_XPL_02.tif</div><div class="thumb"><b>6 · map</b>19_TR1_Fe_map.tif</div></div>
+    </section>
+  </div>
+</main>
+</div>
+<script>
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.nav button[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===id));window.scrollTo({top:0,behavior:'instant'})}
+document.querySelectorAll('[data-screen]').forEach(el=>el.addEventListener('click',()=>show(el.dataset.screen)));
+</script>
+</body>
+</html>
