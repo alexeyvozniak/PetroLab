@@ -10,6 +10,7 @@ from petrolab.ui.plot_spec import PlotSpec
 
 
 _RANGE_COLUMNS = ("X min", "X max", "Y min", "Y max")
+_PANEL_TYPES = ("Бинарный (XY)", "Треугольный (A–B–C)", "Spider (REE / trace)")
 
 
 def _context_token(numeric: list[str]) -> str:
@@ -44,11 +45,14 @@ def _default_rows(
         default_x, default_y = defaults[index % len(defaults)] if defaults else (numeric[0], numeric[1])
         if index == 0 and inbox is not None and inbox.x in numeric and inbox.y in numeric and inbox.x != inbox.y:
             default_x, default_y = inbox.x, inbox.y
+        default_z = next((column for column in numeric if column not in {default_x, default_y}), default_x)
         rows.append(
             {
                 "Панель": index + 1,
+                "Тип": "Бинарный (XY)",
                 "X": default_x,
                 "Y": default_y,
+                "Z": default_z,
                 "Название": (
                     inbox.title
                     if index == 0 and inbox is not None and inbox.title
@@ -73,6 +77,10 @@ def _normalize_rows(frame: pd.DataFrame) -> pd.DataFrame:
     for column, default in (("Убрать", False), ("Дублировать", False)):
         if column not in result.columns:
             result[column] = default
+    if "Тип" not in result.columns:
+        result["Тип"] = "Бинарный (XY)"
+    if "Z" not in result.columns:
+        result["Z"] = result.get("X", pd.Series("", index=result.index))
     for column in _RANGE_COLUMNS:
         if column not in result.columns:
             result[column] = None
@@ -227,8 +235,8 @@ def render_panel_manager(
     widget_key = f"{key_prefix}_panel_manager"
     seed_key = f"_{key_prefix}_panel_seed"
     st.caption(
-        "Одна строка = одна панель. Пустые X/Y min/max означают auto; заполненная пара границ "
-        "переопределяет общий масштаб только для этой панели."
+        "Одна строка = одна панель. Тип определяет, как читать X/Y/Z: XY, A–B–C или стартовый набор элементов spider. "
+        "Пустые min/max означают auto; заполненная пара границ переопределяет общий масштаб только для этой панели."
     )
     edited = st.data_editor(
         source,
@@ -237,8 +245,10 @@ def render_panel_manager(
         disabled=["Панель"],
         column_config={
             "Панель": st.column_config.NumberColumn("Панель", width="small"),
-            "X": st.column_config.SelectboxColumn("X", options=numeric, required=True),
-            "Y": st.column_config.SelectboxColumn("Y", options=numeric, required=True),
+            "Тип": st.column_config.SelectboxColumn("Тип", options=list(_PANEL_TYPES), required=True, width="medium"),
+            "X": st.column_config.SelectboxColumn("X / A", options=numeric, required=True),
+            "Y": st.column_config.SelectboxColumn("Y / B", options=numeric, required=True),
+            "Z": st.column_config.SelectboxColumn("Z / C", options=numeric, required=True),
             "Название": st.column_config.TextColumn("Название", width="large"),
             "log X": st.column_config.CheckboxColumn("log X", width="small"),
             "log Y": st.column_config.CheckboxColumn("log Y", width="small"),
@@ -264,11 +274,30 @@ def render_panel_manager(
             if _apply_panel_structure_actions(edited, key_prefix=key_prefix):
                 return []
 
+    spider_variables: dict[int, list[str]] = {}
+    for index, row in edited.iterrows():
+        if str(row.get("Тип")) != "Spider (REE / trace)":
+            continue
+        defaults_for_spider = list(dict.fromkeys([str(row.get("X")), str(row.get("Y")), str(row.get("Z"))]))
+        spider_variables[int(index)] = st.multiselect(
+            f"Элементы spider · панель {int(row.get('Панель') or index + 1)}",
+            numeric,
+            default=[value for value in defaults_for_spider if value in numeric],
+            key=f"{key_prefix}_spider_variables_{int(row.get('Панель') or index + 1)}",
+            help="Выберите последовательность элементов или нормированных содержаний для spider-графика.",
+        )
+
     problems: list[str] = []
     for index, row in edited.iterrows():
         panel_number = int(row.get("Панель") or index + 1)
-        if str(row.get("X")) == str(row.get("Y")):
+        panel_type = str(row.get("Тип") or "Бинарный (XY)")
+        components = [str(row.get("X")), str(row.get("Y")), str(row.get("Z"))]
+        if panel_type == "Бинарный (XY)" and components[0] == components[1]:
             problems.append(f"панель {panel_number}: X и Y совпадают")
+        if panel_type == "Треугольный (A–B–C)" and len(set(components)) < 3:
+            problems.append(f"панель {panel_number}: A, B и C должны быть разными")
+        if panel_type == "Spider (REE / trace)" and len(spider_variables.get(int(index), [])) < 2:
+            problems.append(f"панель {panel_number}: для spider нужны хотя бы два элемента")
         problems.extend(_panel_range_problems(row, panel_number))
     positions = pd.to_numeric(edited["Порядок"], errors="coerce")
     if positions.isna().any() or positions.duplicated().any():
@@ -280,21 +309,27 @@ def render_panel_manager(
     prepared = edited.assign(_position=positions).sort_values("_position", kind="stable")
     panels: list[dict] = []
     for _, row in prepared.iterrows():
-        x = str(row["X"])
-        y = str(row["Y"])
-        panels.append(
-            {
-                "x": x,
-                "y": y,
-                "x_label": x,
-                "y_label": y,
-                "title": str(row.get("Название") or "").strip(),
-                "log_x": bool(row.get("log X")),
-                "log_y": bool(row.get("log Y")),
-                "x_min": _optional_float(row.get("X min")),
-                "x_max": _optional_float(row.get("X max")),
-                "y_min": _optional_float(row.get("Y min")),
-                "y_max": _optional_float(row.get("Y max")),
-            }
-        )
+        x, y, z = str(row["X"]), str(row["Y"]), str(row["Z"])
+        panel_type = str(row.get("Тип") or "Бинарный (XY)")
+        common = {
+            "title": str(row.get("Название") or "").strip(),
+            "log_x": bool(row.get("log X")),
+            "log_y": bool(row.get("log Y")),
+            "x_min": _optional_float(row.get("X min")),
+            "x_max": _optional_float(row.get("X max")),
+            "y_min": _optional_float(row.get("Y min")),
+            "y_max": _optional_float(row.get("Y max")),
+        }
+        if panel_type == "Треугольный (A–B–C)":
+            panels.append({"kind": "ternary", "a": x, "b": y, "c": z, **common})
+        elif panel_type == "Spider (REE / trace)":
+            panels.append({
+                "kind": "spider",
+                "variables": spider_variables.get(int(index), [x, y, z]),
+                "x_label": "Элементы",
+                "y_label": "Нормированное содержание",
+                **common,
+            })
+        else:
+            panels.append({"kind": "xy", "x": x, "y": y, "x_label": x, "y_label": y, **common})
     return panels
