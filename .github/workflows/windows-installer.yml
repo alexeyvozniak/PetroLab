@@ -64,7 +64,7 @@ jobs:
           retention-days: 14
 
       - name: Wait for full Windows verification and UI acceptance
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,7 +99,7 @@ jobs:
           throw "Timed out waiting for release verification of $env:GITHUB_SHA: $($missing -join ', ')."
 
       - name: Publish rolling Windows installer
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

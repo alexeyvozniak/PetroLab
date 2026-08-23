@@ -15,6 +15,7 @@ def main() -> None:
     assert '"Windows verification", "v0.16.1 acceptance audit"' in text
     assert "All release verification gates passed" in text
     assert "gh run list --workflow $workflowName --commit $env:GITHUB_SHA" in text
+    assert "github.event_name == 'workflow_dispatch'" in text
     assert "git tag -f windows-latest $env:GITHUB_SHA" in text[publish_pos:]
     print("PetroLab 0.16.1 rolling release waits for science/UI acceptance: OK")
 
