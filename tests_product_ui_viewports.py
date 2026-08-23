@@ -18,14 +18,13 @@ from tests_guided_ui_viewports import _assert_viewport, _seed, _select_page, _vi
 
 PORT = 8522
 PAGES = (
-    ("add_data", "Добавить данные", ("Универсальный +", "Файлы", "Excel / CSV")),
+    ("add_data", "Добавить", ("Добавить анализы", "Excel / CSV")),
     ("attention", "Требует внимания", ("Сначала проверить", "Неразобранные фазы / mixed")),
     ("batch", "Массовые действия", ("Наборы", "Фильтр")),
     ("history", "История правок данных", ("История действий", "Интерпретации", "Значения и Excel")),
 )
 PRIMARY_NAV = (
-    "Главная", "Данные", "Графики", "Статистика", "Шлифы и изображения",
-    "Расчёты", "Публикация", "Поиск", "Настройки",
+    "Обзор", "Образцы", "Породы", "Поиск", "Шлифы", "Анализы", "Добавить",
 )
 PLOT_TOOLS = ("Точка", "Прямоугольник", "Лассо", "Панорама")
 VIEWPORTS = ((1440, 900), (390, 844))
@@ -97,10 +96,10 @@ def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output:
 def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     # Independent screenshot helpers hard-refresh; Back must be tested inside one
     # live Streamlit websocket session instead.
-    _click_primary_without_refresh(driver, "Данные", output, "back_data")
-    _wait_for_page_content(driver, ("Рабочий стол",), "back_data", output)
-    _click_primary_without_refresh(driver, "Графики", output, "back_plots")
-    _wait_for_page_content(driver, ("XY-диаграммы",), "back_plots", output)
+    _click_primary_without_refresh(driver, "Образцы", output, "back_samples")
+    _wait_for_page_content(driver, ("Рабочий стол",), "back_samples", output)
+    _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
+    _wait_for_page_content(driver, ("Работать со шлифом",), "back_thin_section", output)
 
     wait = WebDriverWait(driver, 20)
     wait.until(lambda d: bool(_visible_sidebar_buttons(d, "← Назад")))
@@ -124,7 +123,7 @@ def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> N
     Their visible labels are the stable user contract; deterministic linked-selection
     semantics are covered separately by tests_v0157_linked_selection.py.
     """
-    _click_primary_without_refresh(driver, "Графики", output, "plot_workspace")
+    _select_page(driver, "Графики", output, "plot_workspace")
     _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_TOOLS), "plot_workspace", output)
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')))
