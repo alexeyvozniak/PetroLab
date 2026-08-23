@@ -11,24 +11,25 @@ from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-# Nine task-oriented entries are the normal navigation. Implementation pages
-# remain addressable for old recipes/internal links, but they are not menu items.
+# Task-first daily navigation. The order follows the user's normal workflow:
+# enter a project -> add/find data -> work with the current selection -> publish.
+# Implementation pages remain addressable for old recipes/internal links, but they
+# do not compete with the daily actions in the main menu.
 PRIMARY_NAV = [
     ("home", "Главная"),
-    ("workspace", "Данные"),
-    ("plots", "Графики"),
-    ("statistics", "Статистика"),
-    ("thin_section", "Шлифы и изображения"),
+    ("add_data", "Добавить данные"),
+    ("search", "Поиск"),
+    ("workspace", "Данные и выборка"),
+    ("plots", "Графики и сравнение"),
+    ("thin_section", "Шлифы и фото"),
     ("calculate", "Расчёты"),
     ("publish", "Публикация"),
-    ("search", "Поиск"),
     ("settings", "Настройки"),
 ]
 DAILY_NAV = PRIMARY_NAV
 
 TOOL_SECTIONS = {
     "Данные": [
-        ("add_data", "Добавить данные"),
         ("sessions", "Аналитические сессии"),
         ("measurements", "Образцы и измерения"),
         ("mixed_minerals", "Фазы и выбросы"),
@@ -186,9 +187,9 @@ def render_sidebar(version: str) -> str:
             "Найти везде",
             key="sidebar_object_search",
             label_visibility="collapsed",
-            placeholder="🔎 Найти везде…",
+            placeholder="Образец, минерал, статья, шлиф…",
         )
-        if st.button("Найти", key="sidebar_object_search_go", width="stretch"):
+        if st.button("Искать везде", key="sidebar_object_search_go", width="stretch"):
             st.session_state["global_search_query_pending"] = str(search or "").strip()
             st.session_state["global_search_scope_pending"] = "all"
             navigate("search")
