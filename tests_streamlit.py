@@ -75,8 +75,7 @@ def open_page(app, label: str, expected_route: str) -> None:
 
 def assert_primary_navigation(app) -> None:
     expected = [
-        "Главная", "Данные", "Графики", "Статистика", "Шлифы и изображения",
-        "Расчёты", "Публикация", "Поиск", "Настройки",
+        "Обзор", "Образцы", "Породы", "Поиск", "Шлифы", "Анализы", "Добавить",
     ]
     actual = [button.label for button in app.sidebar.button]
     missing = [label for label in expected if label not in actual]
@@ -87,7 +86,7 @@ def assert_primary_navigation(app) -> None:
 
 def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
     """The primary Data task must never be blank while working datasets exist."""
-    open_page(app, "Данные", "workspace")
+    open_page(app, "Образцы", "workspace")
     assert str(app.session_state["workspace_mode"]) == "Массив данных", app.session_state["workspace_mode"]
     selectors = [widget for widget in app.selectbox if widget.label == "Массив данных"]
     assert selectors, "Data workspace did not expose the existing dataset selector"
@@ -97,7 +96,7 @@ def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
 
 
 def assert_back_restores_route(app) -> None:
-    open_page(app, "Данные", "workspace")
+    open_page(app, "Образцы", "workspace")
     open_page(app, "Графики", "plots")
     _sidebar_button(app, "← Назад").click()
     app.run(timeout=30)
@@ -131,15 +130,13 @@ def main() -> None:
         assert_back_restores_route(app)
 
         pages = [
-            ("Главная", "home"),
-            ("Данные", "workspace"),
-            ("Графики", "plots"),
-            ("Статистика", "statistics"),
-            ("Шлифы и изображения", "thin_section"),
-            ("Расчёты", "calculate"),
-            ("Публикация", "publish"),
+            ("Обзор", "home"),
+            ("Образцы", "workspace"),
+            ("Породы", "rock_workspace"),
             ("Поиск", "search"),
-            ("Настройки", "settings"),
+            ("Шлифы", "thin_section"),
+            ("Анализы", "analyses"),
+            ("Добавить", "add_data"),
         ]
         for label, route in pages:
             open_page(app, label, route)

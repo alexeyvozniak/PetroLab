@@ -43,21 +43,6 @@ CODA_DOMAIN_LABELS = {
 }
 
 
-def _numeric_frame(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    return dataframe[columns].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
-
-
-def numeric_feature_candidates(dataframe: pd.DataFrame, *, exclude_meta: bool = True) -> list[str]:
-    result: list[str] = []
-    for column in dataframe.columns:
-        if exclude_meta and str(column).startswith("_"):
-            continue
-        values = pd.to_numeric(dataframe[column], errors="coerce").replace([np.inf, -np.inf], np.nan)
-        if values.notna().sum() >= 2:
-            result.append(str(column))
-    return result
-
-
 def compositional_feature_domain(column: str) -> str | None:
     """Return a conservative CoDA domain for one numeric column.
 
@@ -74,6 +59,49 @@ def compositional_feature_domain(column: str) -> str | None:
     if descriptor.quantity_kind in {"trace_element", "element_concentration"} and descriptor.canonical_unit == "µg/g":
         return "trace_ug_g"
     return None
+
+
+def is_concentration_feature(column: str) -> bool:
+    """True only for measured oxide/element concentrations, never arbitrary signed metrics."""
+    return compositional_feature_domain(str(column)) in {"oxide_wt", "trace_ug_g"}
+
+
+def negative_concentration_counts(dataframe: pd.DataFrame, columns: list[str]) -> dict[str, int]:
+    """Count below-zero analytical concentrations that the statistical layer will floor to zero."""
+    result: dict[str, int] = {}
+    for column in columns:
+        if column not in dataframe.columns or not is_concentration_feature(column):
+            continue
+        values = pd.to_numeric(dataframe[column], errors="coerce")
+        count = int(values.lt(0).fillna(False).sum())
+        if count:
+            result[str(column)] = count
+    return result
+
+
+def _numeric_frame(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Numeric statistical working frame with a physical zero floor for concentrations.
+
+    Raw source values are never mutated. Only recognized oxide wt.% and element
+    concentration columns are floored; signed derived quantities such as epsilon-Nd,
+    PCA scores, isotope deviations or coordinates keep their negative values.
+    """
+    numeric = dataframe[columns].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    for column in numeric.columns:
+        if is_concentration_feature(str(column)):
+            numeric[column] = numeric[column].clip(lower=0.0)
+    return numeric
+
+
+def numeric_feature_candidates(dataframe: pd.DataFrame, *, exclude_meta: bool = True) -> list[str]:
+    result: list[str] = []
+    for column in dataframe.columns:
+        if exclude_meta and str(column).startswith("_"):
+            continue
+        values = pd.to_numeric(dataframe[column], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        if values.notna().sum() >= 2:
+            result.append(str(column))
+    return result
 
 
 def compositional_feature_candidates(dataframe: pd.DataFrame, domain: str | None = None) -> list[str]:
@@ -122,7 +150,7 @@ def clr_transform(dataframe: pd.DataFrame, columns: list[str]) -> tuple[pd.DataF
     if clean.empty:
         raise ValueError(
             "Для CLR не осталось строк, где все выбранные компоненты конечны и > 0. "
-            "PetroLab не подставляет псевдосчёт автоматически."
+            "Отрицательные концентрации предварительно приравниваются к 0; PetroLab не подставляет псевдосчёт автоматически."
         )
     logs = np.log(clean)
     clr = logs.sub(logs.mean(axis=1), axis=0)

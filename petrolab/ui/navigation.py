@@ -11,18 +11,16 @@ from petrolab.ui.work_context import clear_work_context, get_work_context
 from petrolab.update_checker import available_update
 
 
-# Nine task-oriented entries are the normal navigation. Implementation pages
-# remain addressable for old recipes/internal links, but they are not menu items.
+# Six daily actions keep the first-level navigation calm. Specialist routes
+# remain addressable through “Дополнительно”, old recipes and internal links.
 PRIMARY_NAV = [
-    ("home", "Главная"),
-    ("workspace", "Данные"),
-    ("plots", "Графики"),
-    ("statistics", "Статистика"),
-    ("thin_section", "Шлифы и изображения"),
-    ("calculate", "Расчёты"),
-    ("publish", "Публикация"),
+    ("home", "Обзор"),
+    ("workspace", "Образцы"),
+    ("rock_workspace", "Породы"),
     ("search", "Поиск"),
-    ("settings", "Настройки"),
+    ("thin_section", "Шлифы"),
+    ("analyses", "Анализы"),
+    ("add_data", "Добавить"),
 ]
 DAILY_NAV = PRIMARY_NAV
 
@@ -36,6 +34,8 @@ TOOL_SECTIONS = {
         ("generations", "Поколения"),
     ],
     "Исследование": [
+        ("plots", "Графики"),
+        ("statistics", "Статистика"),
         ("multi_panel", "Сравнить на нескольких диаграммах"),
         ("grain_profile", "Профиль по зерну"),
         ("whole_rock_compare", "Породы + литература"),
@@ -69,14 +69,16 @@ _HIDDEN_ROUTE_LABELS = {
     "compare": "Сравнить данные",
     "quick_import": "Быстрый импорт",
     "workflow": "Рабочий процесс",
-    "analyses": "База анализов",
+    "calculate": "Расчёты",
+    "publish": "Публикация",
+    "settings": "Настройки",
+    "analyses": "Анализы",
     "sources": "Новые анализы",
     "intake": "Источники и литература",
     "images": "Изображения",
     "slides": "Шлифы и поля",
     "formulae": "Формулы / APFU",
     "minerals": "Минералогические модули",
-    "rock_workspace": "Породы",
     "rocks": "Редактор пород",
 }
 
@@ -91,16 +93,22 @@ def navigate(route: str, *, record_history: bool = True) -> None:
     current = str(st.session_state.get("nav_route", "home"))
     if record_history and current in ROUTE_LABELS and current != route:
         push_current(st.session_state, current_route=current)
+    if current != route:
+        # Route changes start at the top; intra-page state keeps its own scroll.
+        st.session_state["_scroll_to_top_pending"] = True
     st.session_state["nav_route"] = route
 
 
 def go_back() -> str | None:
     current = str(st.session_state.get("nav_route", "home"))
-    return restore_previous_route(
+    restored = restore_previous_route(
         st.session_state,
         current_route=current,
         valid_routes=set(ROUTE_LABELS),
     )
+    if restored is not None and restored != current:
+        st.session_state["_scroll_to_top_pending"] = True
+    return restored
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)

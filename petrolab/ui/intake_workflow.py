@@ -20,6 +20,12 @@ from petrolab.ui.smart_plot_start import seed_import_plot_handoff
 
 _PROJECT_CONTEXT_KEY = "_petrolab_intake_project_id"
 _TRANSIENT_PREFIXES = ("universal_", "univimg_", "staging_")
+_INTAKE_MODE_KEY = "intake_entry_mode"
+_MODE_TABLE = "Анализы"
+_MODE_IMAGES = "Изображения"
+_MODE_BOTH = "Вместе"
+_TABLE_TYPES = ["xlsx", "xlsm", "xls", "csv"]
+_IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp"]
 
 
 def _reset_transient_state_on_project_change(project_id: int) -> None:
@@ -293,52 +299,104 @@ def _render_post_import_steps(project_id: int) -> None:
         st.rerun()
 
 
+def _intake_mode() -> str:
+    current = st.session_state.get(_INTAKE_MODE_KEY)
+    if current not in {_MODE_TABLE, _MODE_IMAGES, _MODE_BOTH}:
+        st.session_state[_INTAKE_MODE_KEY] = _MODE_TABLE
+    return st.segmented_control(
+        "Что добавить?",
+        [_MODE_TABLE, _MODE_IMAGES, _MODE_BOTH],
+        default=_MODE_TABLE,
+        key=_INTAKE_MODE_KEY,
+        help=(
+            "«Анализы» — Excel/CSV. «Изображения» — добавить фотографии к уже загруженным анализам. "
+            "«Вместе» — новая таблица и фотографии одной пачкой."
+        ),
+    ) or _MODE_TABLE
+
+
 def render_intake_workflow(project_id: int) -> None:
-    """Single user-facing intake path without runtime module monkey-patching."""
+    """Single user-facing intake path with a direct images-only entry."""
     _reset_transient_state_on_project_change(int(project_id))
     st.divider()
-    render_section_header(
-        "Универсальный +",
-        "Перетащите Excel/CSV и/или фотографии. PetroLab сначала распознаёт их и ничего не пишет до проверки.",
-    )
+    mode = _intake_mode()
+    if mode == _MODE_IMAGES:
+        render_section_header(
+            "Добавить изображения",
+            "Выберите фотографии — первая сразу откроется для привязки к полному исходному листу аналитической сессии.",
+        )
+        upload_types = _IMAGE_TYPES
+        uploader_label = "Изображения"
+        uploader_key = "universal_intake_files_images"
+    elif mode == _MODE_TABLE:
+        render_section_header(
+            "Добавить анализы",
+            "Загрузите Excel или CSV. После проверки можно перейти к изображениям отдельным шагом.",
+        )
+        upload_types = _TABLE_TYPES
+        uploader_label = "Excel / CSV"
+        uploader_key = "universal_intake_files_table"
+    else:
+        render_section_header(
+            "Добавить анализы и изображения",
+            "Загрузите одну таблицу и фотографии одной пачкой: сначала проверим таблицу, затем откроем изображения.",
+        )
+        upload_types = [*_TABLE_TYPES, *_IMAGE_TYPES]
+        uploader_label = "Excel / CSV и изображения"
+        uploader_key = "universal_intake_files_both"
+
     uploads = st.file_uploader(
-        "Файлы",
-        type=["xlsx", "xlsm", "xls", "csv", "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp"],
+        uploader_label,
+        type=upload_types,
         accept_multiple_files=True,
-        key="universal_intake_files",
+        key=uploader_key,
     )
     if not uploads:
-        render_hint(
-            "Типичный сценарий: Excel + фотографии → проверить таблицу → разнести строки по Sample → "
-            "привязать изображения к тем же точкам."
-        )
+        if mode == _MODE_IMAGES:
+            render_hint(
+                "Можно выбрать сразу много PPL/XPL/BSE/карт. После загрузки PetroLab покажет их по одной: "
+                "исходный лист → точки → следующая фотография."
+            )
+        elif mode == _MODE_TABLE:
+            render_hint("После импорта таблицы появится явная кнопка перехода к изображениям.")
+        else:
+            render_hint(
+                "Таблица + фотографии → выбрать нужные листы → проверить → Дальше к изображениям."
+            )
         render_recent_import_undo(int(project_id))
         _render_post_import_steps(int(project_id))
         return
 
-    classified: list[tuple[str, bytes, str]] = []
-    for index, upload in enumerate(uploads):
-        data = upload.getvalue()
-        guessed = universal_intake._guessed_kind(upload.name)
-        kind = st.selectbox(
-            upload.name,
-            [universal_intake._KIND_TABLE, universal_intake._KIND_IMAGE, universal_intake._KIND_SKIP],
-            index=[universal_intake._KIND_TABLE, universal_intake._KIND_IMAGE, universal_intake._KIND_SKIP].index(guessed),
-            key=f"universal_kind_{index}_{universal_intake._file_token(upload.name, data)}",
-            help="Расширение — только подсказка; тип файла подтверждается явно.",
-        )
-        classified.append((upload.name, data, kind))
+    if mode == _MODE_IMAGES:
+        tables: list[tuple[str, bytes]] = []
+        images = [(upload.name, upload.getvalue()) for upload in uploads]
+    elif mode == _MODE_TABLE:
+        tables = [(upload.name, upload.getvalue()) for upload in uploads]
+        images: list[tuple[str, bytes]] = []
+    else:
+        classified: list[tuple[str, bytes, str]] = []
+        for index, upload in enumerate(uploads):
+            data = upload.getvalue()
+            guessed = universal_intake._guessed_kind(upload.name)
+            kind = st.selectbox(
+                upload.name,
+                [universal_intake._KIND_TABLE, universal_intake._KIND_IMAGE, universal_intake._KIND_SKIP],
+                index=[universal_intake._KIND_TABLE, universal_intake._KIND_IMAGE, universal_intake._KIND_SKIP].index(guessed),
+                key=f"universal_kind_{index}_{universal_intake._file_token(upload.name, data)}",
+                help="Расширение — только подсказка; тип файла подтверждается явно.",
+            )
+            classified.append((upload.name, data, kind))
+        tables = [(name, data) for name, data, kind in classified if kind == universal_intake._KIND_TABLE]
+        images = [(name, data) for name, data, kind in classified if kind == universal_intake._KIND_IMAGE]
 
-    tables = [(name, data) for name, data, kind in classified if kind == universal_intake._KIND_TABLE]
-    images = [(name, data) for name, data, kind in classified if kind == universal_intake._KIND_IMAGE]
     render_badges([
         (f"таблиц · {len(tables)}", "accent" if tables else "neutral"),
         (f"изображений · {len(images)}", "accent" if images else "neutral"),
     ])
     if len(tables) > 1:
         st.warning(
-            "В одной пачке сейчас обрабатывается одна аналитическая таблица. "
-            "Остальные пометьте «Не добавлять» и загрузите следующей пачкой."
+            "За один проход импортируется одна аналитическая таблица. "
+            "Если нужно несколько файлов, добавьте их последовательно."
         )
         return
 
@@ -349,12 +407,14 @@ def render_intake_workflow(project_id: int) -> None:
         preferred_ids = _render_table_with_locked_provenance(int(project_id), name, data, token)
         if not preferred_ids:
             if images:
-                st.info("Фотографии станут доступны для привязки сразу после безопасного импорта таблицы.")
+                st.info("Фотографии откроются сразу после безопасного импорта таблицы.")
             render_recent_import_undo(int(project_id))
             return
 
     if images:
-        _render_current_image_textural_markup(int(project_id), images)
+        # In images-only mode there is no table step to finish, so the image linker
+        # must open immediately. Source-sheet linking keeps the full original sheet
+        # available even when analyses have already been split into phase datasets.
         universal_intake_extensions.render_image_wizard_multi_dataset(
             int(project_id), images, preferred_ids
         )

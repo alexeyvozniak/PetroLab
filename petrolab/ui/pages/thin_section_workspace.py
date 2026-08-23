@@ -25,6 +25,9 @@ from petrolab.slides import (
     create_slide_field,
     create_slide_marker,
     delete_slide_marker,
+    is_bse_image_type,
+    link_bse_image_to_field,
+    list_field_bse_images,
     list_slide_fields,
     list_slide_images,
     list_slide_markers,
@@ -76,7 +79,24 @@ def _event_rectangle(value: dict | None) -> dict | None:
     y1, y2 = max(0.0, y1), min(1.0, y2)
     if x2 <= x1 or y2 <= y1:
         return None
-    return {"kind": "region", "x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
+    return {"kind": "rectangle", "x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
+
+
+def _square_from_rectangle(geometry: dict, image) -> dict:
+    """Convert a drag rectangle to a pixel-square while keeping its top-left corner."""
+    source_width = max(1, int(image.pixel_width or 1))
+    source_height = max(1, int(image.pixel_height or 1))
+    x, y = float(geometry["x"]), float(geometry["y"])
+    requested = max(float(geometry["width"]) * source_width, float(geometry["height"]) * source_height)
+    available = min((1 - x) * source_width, (1 - y) * source_height)
+    side = min(requested, available)
+    return {
+        "kind": "square",
+        "x": x,
+        "y": y,
+        "width": side / source_width,
+        "height": side / source_height,
+    }
 
 
 def _analysis_choices(project_id: int, query: str) -> tuple[list[str], dict[str, str]]:
@@ -277,7 +297,10 @@ def _open_marker_in_plots(project_id: int, markers: list[dict], marker_id: int, 
 
 
 def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[dict]) -> None:
-    render_section_header("Разметка", "Просмотр — выбрать существующую физическую точку; разметка — добавить новую")
+    render_section_header(
+        "Разметка",
+        "Выберите поле → добавьте точки → привяжите маленький BSE. Поля только прямоугольные или квадратные.",
+    )
     if streamlit_image_coordinates is None:
         st.error("Компонент разметки не установлен. Установите зависимости из requirements.txt или откройте расширенный режим.")
         return
@@ -295,7 +318,7 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
         local_query = st.text_input(
             "Найти в шлифе",
             key=f"thin_local_search_{image.thin_section_id}",
-            placeholder="🔎 Найти в этом шлифе: точку, зерно, подпись…",
+            placeholder="Найти в этом шлифе: точку, поле, BSE…",
             label_visibility="collapsed",
         )
     with everywhere_col:
@@ -305,22 +328,64 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
             _go("search")
 
     visible_markers, visible_fields = _local_search(markers, fields, local_query)
-    if local_query:
-        render_badges([(f"точек · {len(visible_markers)}", "accent"), (f"областей/контуров · {len(visible_fields)}", "neutral")])
+    field_by_id = {int(field["id"]): field for field in fields}
+    active_field_id = st.selectbox(
+        "Активное поле",
+        [None, *field_by_id],
+        format_func=lambda value: "Сначала выберите поле" if value is None else str(field_by_id[int(value)]["name"]),
+        key=f"thin_active_field_{image.id}",
+        help="Новые точки и BSE будут привязаны к этому полю.",
+    )
 
-    layer_cols = st.columns(3)
+    if active_field_id is not None:
+        active_field = field_by_id[int(active_field_id)]
+        linked_bse = list_field_bse_images(project_id, field_id=int(active_field_id))
+        render_badges([
+            (f"Поле · {active_field['name']}", "accent"),
+            (f"BSE привязано · {len(linked_bse)}", "success" if linked_bse else "neutral"),
+        ])
+        with st.expander("Связанные BSE этого поля", expanded=True):
+            st.caption("Выберите поле выше, затем привяжите к нему отдельный маленький BSE. Один BSE хранится у одного поля; повторная привязка осознанно переносит его.")
+            bse_by_id = {
+                int(candidate.id): candidate
+                for candidate in list_slide_images(project_id)
+                if candidate.thin_section_id == image.thin_section_id
+                and int(candidate.id) != int(image.id)
+                and is_bse_image_type(candidate.image_type)
+            }
+            if linked_bse:
+                for item in linked_bse:
+                    st.caption(f"✓ {item.title} · {item.pixel_width} × {item.pixel_height} px")
+            if not bse_by_id:
+                st.info("Для этого шлифа пока нет BSE. Добавьте его в «Снимки и управление», затем вернитесь к полю.")
+            else:
+                chosen_bse_id = st.selectbox(
+                    "Маленький BSE для выбранного поля",
+                    list(bse_by_id),
+                    format_func=lambda value: f"{bse_by_id[int(value)].title} · BSE",
+                    key=f"thin_bse_target_{image.id}_{active_field_id}",
+                )
+                if st.button("Привязать BSE к полю", type="primary", key=f"thin_link_bse_{image.id}_{active_field_id}", width="stretch"):
+                    try:
+                        link_bse_image_to_field(project_id, field_id=int(active_field_id), slide_image_id=int(chosen_bse_id))
+                    except Exception as exc:
+                        st.error(str(exc))
+                    else:
+                        st.success("BSE привязан к выбранному полю.")
+                        st.rerun()
+    else:
+        st.caption("Выберите существующее поле, чтобы связывать с ним точки и маленькие BSE.")
+
+    layer_cols = st.columns(2)
     show_points = layer_cols[0].checkbox("Точки", value=True, key=f"thin_layer_points_{image.id}")
-    show_regions = layer_cols[1].checkbox("Области", value=True, key=f"thin_layer_regions_{image.id}")
-    show_grains = layer_cols[2].checkbox("Контуры зерен", value=True, key=f"thin_layer_grains_{image.id}")
+    show_regions = layer_cols[1].checkbox("Поля", value=True, key=f"thin_layer_regions_{image.id}")
     mode = st.segmented_control(
         "Режим",
-        ["Просмотр", "Точка анализа", "Область", "Контур зерна"],
+        ["Просмотр", "Точка анализа", "Прямоугольное поле"],
         default="Точка анализа",
         key=f"thin_mode_{image.id}",
     ) or "Просмотр"
 
-    polygon_key = f"thin_polygon_{image.id}"
-    vertices = list(st.session_state.get(polygon_key, []))
     visible_selection_marker_ids = marker_ids_for_selection(visible_markers, selection.analysis_ids)
     overlay = _render_overlay(
         image,
@@ -328,9 +393,8 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
         visible_fields,
         show_points=show_points,
         show_regions=show_regions,
-        show_grains=show_grains,
+        show_grains=False,
         selected_marker_ids=visible_selection_marker_ids,
-        pending_vertices=vertices if mode == "Контур зерна" else None,
     )
 
     if mode == "Просмотр":
@@ -338,11 +402,7 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
             st.image(overlay, width="stretch")
             st.caption("Включите слой «Точки», чтобы выбирать физические отметки прямо на снимке.")
             return
-        event = streamlit_image_coordinates(
-            overlay,
-            use_column_width="always",
-            key=f"thin_view_canvas_{image.id}",
-        )
+        event = streamlit_image_coordinates(overlay, use_column_width="always", key=f"thin_view_canvas_{image.id}")
         token = int((event or {}).get("unix_time") or 0)
         state_key = f"thin_view_event_{image.id}"
         if token and token != int(st.session_state.get(state_key, 0)):
@@ -351,87 +411,58 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
             if point:
                 ratio = float(image.pixel_height or 1) / float(image.pixel_width or 1)
                 marker_id = nearest_marker_id(
-                    visible_markers,
-                    x_norm=float(point[0]),
-                    y_norm=float(point[1]),
-                    aspect_ratio=ratio,
+                    visible_markers, x_norm=float(point[0]), y_norm=float(point[1]), aspect_ratio=ratio,
                 )
                 if marker_id is not None and _select_marker(project_id, markers, marker_id, image_title=str(image.title)):
                     st.rerun()
-        st.caption("Кликните по существующей отметке: Selection станет всеми измерениями этой физической позиции (например EPMA + LA-ICP-MS).")
+        st.caption("Клик по существующей точке выбирает все измерения этой физической позиции, например EPMA + LA-ICP-MS.")
         return
 
-    if mode == "Область":
+    if mode == "Прямоугольное поле":
+        shape = st.radio(
+            "Форма нового поля",
+            ["Прямоугольник", "Квадрат"],
+            horizontal=True,
+            key=f"thin_field_shape_{image.id}",
+        )
         event = streamlit_image_coordinates(
             overlay,
             use_column_width="always",
             click_and_drag=True,
-            key=f"thin_region_canvas_{image.id}",
+            key=f"thin_rectangle_canvas_{image.id}",
         )
         token = int((event or {}).get("unix_time") or 0)
-        state_key = f"thin_region_event_{image.id}"
+        state_key = f"thin_rectangle_event_{image.id}"
         if token and token != int(st.session_state.get(state_key, 0)):
             geometry = _event_rectangle(event)
             st.session_state[state_key] = token
             if geometry:
-                st.session_state[f"thin_pending_region_{image.id}"] = geometry
+                if shape == "Квадрат":
+                    geometry = _square_from_rectangle(geometry, image)
+                st.session_state[f"thin_pending_rectangle_{image.id}"] = geometry
                 st.rerun()
-        pending = st.session_state.get(f"thin_pending_region_{image.id}")
+        pending = st.session_state.get(f"thin_pending_rectangle_{image.id}")
         if pending:
-            name = st.text_input("Название области", value=f"Область {len(fields) + 1}", key=f"thin_region_name_{image.id}")
-            note = st.text_input("Комментарий", key=f"thin_region_note_{image.id}")
+            name = st.text_input("Название поля", value=f"Поле {len(fields) + 1}", key=f"thin_rectangle_name_{image.id}")
+            note = st.text_input("Комментарий", key=f"thin_rectangle_note_{image.id}")
             c1, c2 = st.columns(2)
-            if c1.button("Сохранить область", type="primary", key=f"thin_region_save_{image.id}", width="stretch"):
-                create_slide_field(project_id, slide_image_id=image.id, name=name, description=note, geometry=pending)
-                st.session_state.pop(f"thin_pending_region_{image.id}", None)
+            if c1.button("Сохранить поле", type="primary", key=f"thin_rectangle_save_{image.id}", width="stretch"):
+                try:
+                    create_slide_field(project_id, slide_image_id=image.id, name=name, description=note, geometry=pending)
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state.pop(f"thin_pending_rectangle_{image.id}", None)
+                    st.success("Поле сохранено. Теперь выберите его и добавьте точки или BSE.")
+                    st.rerun()
+            if c2.button("Отменить", key=f"thin_rectangle_cancel_{image.id}", width="stretch"):
+                st.session_state.pop(f"thin_pending_rectangle_{image.id}", None)
                 st.rerun()
-            if c2.button("Отменить", key=f"thin_region_cancel_{image.id}", width="stretch"):
-                st.session_state.pop(f"thin_pending_region_{image.id}", None)
-                st.rerun()
+        else:
+            st.caption("Потяните мышью по изображению, чтобы нарисовать прямоугольник или квадрат.")
         return
 
-    if mode == "Контур зерна":
-        event = streamlit_image_coordinates(
-            overlay,
-            use_column_width="always",
-            key=f"thin_grain_canvas_{image.id}",
-        )
-        token = int((event or {}).get("unix_time") or 0)
-        state_key = f"thin_grain_event_{image.id}"
-        if token and token != int(st.session_state.get(state_key, 0)):
-            point = _event_point(event)
-            st.session_state[state_key] = token
-            if point:
-                vertices.append(point)
-                st.session_state[polygon_key] = vertices
-                st.rerun()
-        st.caption(f"Вершин контура: {len(vertices)}. Кликайте по границе зерна; для сохранения нужно минимум три точки.")
-        name = st.text_input("Название зерна", value=f"Gr-{len([f for f in fields if _field_kind(f) == 'grain']) + 1}", key=f"thin_grain_name_{image.id}")
-        note = st.text_input("Комментарий к зерну", key=f"thin_grain_note_{image.id}")
-        c1, c2, c3 = st.columns(3)
-        if c1.button("Сохранить контур", type="primary", disabled=len(vertices) < 3, key=f"thin_grain_save_{image.id}", width="stretch"):
-            create_slide_field(
-                project_id,
-                slide_image_id=image.id,
-                name=name,
-                description=note,
-                geometry={"kind": "grain", "vertices": [[float(x), float(y)] for x, y in vertices]},
-            )
-            st.session_state[polygon_key] = []
-            st.rerun()
-        if c2.button("Убрать последнюю", disabled=not vertices, key=f"thin_grain_undo_{image.id}", width="stretch"):
-            st.session_state[polygon_key] = vertices[:-1]
-            st.rerun()
-        if c3.button("Очистить", disabled=not vertices, key=f"thin_grain_clear_{image.id}", width="stretch"):
-            st.session_state[polygon_key] = []
-            st.rerun()
-        return
-
-    event = streamlit_image_coordinates(
-        overlay,
-        use_column_width="always",
-        key=f"thin_point_canvas_{image.id}",
-    )
+    event = streamlit_image_coordinates(overlay, use_column_width="always", key=f"thin_point_canvas_{image.id}")
     token = int((event or {}).get("unix_time") or 0)
     state_key = f"thin_point_event_{image.id}"
     if token and token != int(st.session_state.get(state_key, 0)):
@@ -442,7 +473,7 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
             st.rerun()
     pending = st.session_state.get(f"thin_pending_point_{image.id}")
     if not pending:
-        st.caption("Кликните по месту анализа на изображении.")
+        st.caption("Выберите активное поле, затем кликните по месту анализа на изображении.")
         return
 
     series = st.checkbox("Серия точек", key=f"thin_series_{image.id}", help="После сохранения номер автоматически увеличится на один.")
@@ -458,28 +489,33 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
         analysis_ids,
         format_func=lambda value: analysis_labels.get(value, value),
         key=f"thin_point_links_{image.id}_{token or 'pending'}",
-        help="Можно связать несколько измерений одной физической позиции, например EPMA и LA-ICP-MS.",
+        help="Несколько методов одной физической позиции останутся отдельными измерениями.",
     )
     note = st.text_input("Комментарий", key=f"thin_point_note_{image.id}_{token or 'pending'}")
     c1, c2 = st.columns(2)
     if c1.button("Сохранить точку", type="primary", key=f"thin_point_save_{image.id}", width="stretch"):
-        create_slide_marker(
-            project_id,
-            slide_image_id=image.id,
-            x_norm=float(pending[0]),
-            y_norm=float(pending[1]),
-            label=label,
-            note=note,
-            analysis_ids=tuple(selected),
-        )
-        if series:
-            st.session_state[number_key] = int(st.session_state[number_key]) + 1
-        st.session_state.pop(f"thin_pending_point_{image.id}", None)
-        st.rerun()
+        try:
+            create_slide_marker(
+                project_id,
+                slide_image_id=image.id,
+                x_norm=float(pending[0]),
+                y_norm=float(pending[1]),
+                field_id=int(active_field_id) if active_field_id is not None else None,
+                label=label,
+                note=note,
+                analysis_ids=tuple(selected),
+            )
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            if series:
+                st.session_state[number_key] = int(st.session_state[number_key]) + 1
+            st.session_state.pop(f"thin_pending_point_{image.id}", None)
+            st.success("Точка сохранена в контексте выбранного поля." if active_field_id is not None else "Точка сохранена без поля.")
+            st.rerun()
     if c2.button("Отменить", key=f"thin_point_cancel_{image.id}", width="stretch"):
         st.session_state.pop(f"thin_pending_point_{image.id}", None)
         st.rerun()
-
 
 def _links_tab(project_id: int, image, markers: list[dict], fields: list[dict]) -> None:
     linked_ids = sorted({str(value) for marker in markers for value in marker.get("analysis_ids", [])})
@@ -627,7 +663,7 @@ def render_thin_section_workspace_page() -> None:
     with links_tab:
         _links_tab(project_id, image, markers, fields)
     with images_tab:
-        st.caption("PPL, XPL и BSE одного шлифа хранятся как связанные снимки одного физического объекта. Разметка пока задаётся отдельно на каждом снимке, чтобы PetroLab не предполагал автоматическое совмещение без проверки.")
+        st.caption("PPL, XPL и BSE одного шлифа хранятся как снимки одного физического объекта. Поля создаются только прямоугольниками или квадратами на базовом снимке; маленький BSE можно явно прикрепить к одному конкретному полю без автоматического совмещения.")
         view = pd.DataFrame([
             {
                 "Название": item.title,

@@ -11,7 +11,7 @@ assert point == (0.25, 0.25), point
 
 rectangle = _event_rectangle({"x1": 80, "y1": 90, "x2": 20, "y2": 10, "width": 100, "height": 100})
 assert rectangle is not None
-assert rectangle["kind"] == "region"
+assert rectangle["kind"] == "rectangle"
 assert abs(rectangle["x"] - 0.2) < 1e-9
 assert abs(rectangle["y"] - 0.1) < 1e-9
 assert abs(rectangle["width"] - 0.6) < 1e-9
@@ -22,8 +22,8 @@ markers = [
     {"label": "K-18", "note": "core", "analysis_ids": ["a18"]},
 ]
 fields = [
-    {"name": "Gr-1", "description": "phlogopite grain", "geometry": {"kind": "grain", "vertices": [[0.1, 0.1], [0.2, 0.1], [0.2, 0.2]]}},
-    {"name": "Alteration", "description": "zone", "geometry": {"kind": "region", "x": 0.3, "y": 0.3, "width": 0.2, "height": 0.2}},
+    {"name": "Gr-1", "description": "phlogopite grain", "geometry": {"kind": "square", "x": 0.1, "y": 0.1, "width": 0.1, "height": 0.1}},
+    {"name": "Alteration", "description": "zone", "geometry": {"kind": "rectangle", "x": 0.3, "y": 0.3, "width": 0.2, "height": 0.2}},
 ]
 marker_hits, field_hits = _local_search(markers, fields, "K-17")
 assert [item["label"] for item in marker_hits] == ["K-17"]

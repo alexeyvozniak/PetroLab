@@ -94,19 +94,17 @@ class ProductGuidanceTests(unittest.TestCase):
         intake = Path("petrolab/ui/intake_workflow.py").read_text(encoding="utf-8")
         pages_init = Path("petrolab/ui/pages/__init__.py").read_text(encoding="utf-8")
         for marker in [
-            '"Главная"',
-            '"Данные"',
-            '"Графики"',
-            '"Статистика"',
-            '"Шлифы и изображения"',
-            '"Расчёты"',
-            '"Публикация"',
+            '"Обзор"',
+            '"Образцы"',
+            '"Породы"',
             '"Поиск"',
-            '"Настройки"',
+            '"Шлифы"',
+            '"Анализы"',
+            '"Добавить"',
             '"Дополнительно"',
         ]:
             self.assertIn(marker, navigation)
-        for obsolete in ["Все инструменты", "Рабочая область"]:
+        for obsolete in ["Все инструменты", "Рабочая область", '"Главная"', '"Шлифы и изображения"']:
             self.assertNotIn(obsolete, navigation)
 
         for marker in [
@@ -116,7 +114,8 @@ class ProductGuidanceTests(unittest.TestCase):
             "render_intake_workflow(int(project[\"id\"]))",
         ]:
             self.assertIn(marker, add_data)
-        self.assertIn('st.file_uploader(\n        "Файлы"', intake)
+        self.assertIn("uploader_label", intake)
+        self.assertIn("universal_intake_files_", intake)
         self.assertIn("render_table_import_with_provenance(", intake)
         self.assertIn("render_image_wizard_multi_dataset(", intake)
         self.assertIn("from .add_data import render_add_data_page", pages_init)

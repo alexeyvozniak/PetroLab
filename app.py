@@ -11,6 +11,7 @@ from petrolab.storage import ensure_storage
 from petrolab.ui.acceptance_layout import apply_acceptance_layout
 from petrolab.ui.interface_hotfix_v0156 import apply_interface_hotfix
 from petrolab.ui.navigation import render_sidebar
+from petrolab.ui.route_scroll import reset_route_scroll_if_pending
 from petrolab.ui.pages import (
     render_add_data_page, render_analyses_page, render_analytical_sessions_page,
     render_article_tables_page, render_attention_page, render_batch_edit_page,
@@ -112,3 +113,4 @@ with st.sidebar:
     route = render_sidebar(__version__)
 
 ROUTES.get(route, render_home_page)()
+reset_route_scroll_if_pending()

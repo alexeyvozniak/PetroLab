@@ -1,0 +1,107 @@
+name: Post-release UX regression
+
+on:
+  pull_request:
+    paths:
+      - 'petrolab/__init__.py'
+      - 'petrolab/dataset_membership_runtime.py'
+      - 'petrolab/phase_runtime.py'
+      - 'petrolab/source_sheet_scope.py'
+      - 'petrolab/services/source_sheet_image_service.py'
+      - 'petrolab/ui/source_sheet_image_wizard.py'
+      - 'petrolab/ui/simple_image_intake.py'
+      - 'petrolab/ui/intake_workflow.py'
+      - 'petrolab/ui/cluster_plot_handoff.py'
+      - 'petrolab/ui/pages/v0160_user_ux_hotfix.py'
+      - 'petrolab/ui/pages/v0160_phase_queue_hotfix.py'
+      - 'petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py'
+      - 'petrolab/ui/pages/v0160_statistics_integrity_hotfix.py'
+      - 'petrolab/ui/pages/v0160_quick_image_entry_hotfix.py'
+      - 'petrolab/ui/pages/v0160_cluster_statistics_hotfix.py'
+      - 'petrolab/ui/pages/v0160_cluster_xy_hotfix.py'
+      - 'petrolab/statistics.py'
+      - 'petrolab/minerals/input_validation.py'
+      - 'petrolab/minerals/runtime_fixes.py'
+      - 'petrolab/oxide_mineral_recognition.py'
+      - 'petrolab/mineral_recognition_extended.py'
+      - 'petrolab/ui/pages/__init__.py'
+      - 'tests_post_release_ux.py'
+      - 'tests_cluster_xy_handoff.py'
+      - 'tests_statistics.py'
+      - 'tests_formula_input_validation.py'
+      - 'tests_image_intake_browser.py'
+      - '.github/workflows/post-release-ux.yml'
+  workflow_dispatch:
+
+jobs:
+  ux-regression:
+    runs-on: windows-latest
+    env:
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      NUMEXPR_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check "selenium>=4.23,<5"
+      - name: Compile hotfix
+        run: >-
+          python -m py_compile
+          petrolab/dataset_membership_runtime.py
+          petrolab/phase_runtime.py
+          petrolab/source_sheet_scope.py
+          petrolab/services/source_sheet_image_service.py
+          petrolab/ui/source_sheet_image_wizard.py
+          petrolab/ui/simple_image_intake.py
+          petrolab/ui/intake_workflow.py
+          petrolab/ui/cluster_plot_handoff.py
+          petrolab/ui/pages/v0160_user_ux_hotfix.py
+          petrolab/ui/pages/v0160_phase_queue_hotfix.py
+          petrolab/ui/pages/v0160_source_sheet_intake_hotfix.py
+          petrolab/ui/pages/v0160_statistics_integrity_hotfix.py
+          petrolab/ui/pages/v0160_quick_image_entry_hotfix.py
+          petrolab/ui/pages/v0160_cluster_statistics_hotfix.py
+          petrolab/ui/pages/v0160_cluster_xy_hotfix.py
+          petrolab/statistics.py
+          petrolab/minerals/input_validation.py
+          petrolab/minerals/runtime_fixes.py
+          petrolab/oxide_mineral_recognition.py
+          petrolab/mineral_recognition_extended.py
+          tests_post_release_ux.py
+          tests_cluster_xy_handoff.py
+          tests_statistics.py
+          tests_formula_input_validation.py
+          tests_import_staging.py
+          tests_staging_mouse_selection.py
+          tests_image_intake_browser.py
+      - name: Run source-sheet and phase-repair regression
+        run: python tests_post_release_ux.py
+      - name: Run cluster to XY regression
+        run: python tests_cluster_xy_handoff.py
+      - name: Run statistics zero-floor regression
+        run: python tests_statistics.py
+      - name: Run formula zero-floor regression
+        run: python tests_formula_input_validation.py
+      - name: Run universal staging regressions
+        run: |
+          python tests_import_staging.py
+          python tests_staging_mouse_selection.py
+      - name: Run Streamlit smoke
+        run: python tests_streamlit.py
+      - name: Run direct image intake browser acceptance
+        run: python tests_image_intake_browser.py
+      - name: Upload direct image intake screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: petrolab-direct-image-intake
+          path: image_intake_browser_artifacts/*.png
+          if-no-files-found: ignore

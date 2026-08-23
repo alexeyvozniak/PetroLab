@@ -1,0 +1,199 @@
+from __future__ import annotations
+
+import os
+import shutil
+import tempfile
+from io import BytesIO
+from pathlib import Path
+
+import pandas as pd
+from PIL import Image
+
+
+ROOT = Path(tempfile.mkdtemp(prefix="petrolab_post_release_ux_"))
+os.environ["PETROLAB_DATA_DIR"] = str(ROOT / "data")
+
+from petrolab.db import add_dataset, create_project, get_dataset, list_accessible_datasets, load_dataset_dataframe, replace_dataset_rows
+from petrolab.phase_suggestions import materialize_confirmed_phases
+from petrolab.repositories.image_repository import get_image_record
+from petrolab.services.image_service import ImageAssignment, ImagePayload, ImageScope, SCOPE_ANALYSIS
+from petrolab.services.source_sheet_image_service import create_source_sheet_image_batch
+from petrolab.source_sheet_scope import list_source_sheet_scopes, load_source_sheet_universe
+from petrolab.storage import ensure_storage
+from petrolab.ui.pages.v0160_phase_queue_hotfix import (
+    _nested_split_pairs,
+    _ordered_candidates,
+    _repair_nested_splits,
+    _reviewable,
+)
+from petrolab.ui.source_sheet_image_wizard import _draft_prefix
+
+
+def _dataset(project_id: int, name: str, sheet: str, frame: pd.DataFrame) -> tuple[int, list[str]]:
+    path = ROOT / f"{name.replace(' ', '_')}_{sheet}.csv"
+    frame.to_csv(path, index=False)
+    dataset_id = add_dataset(
+        project_id,
+        name,
+        "generic",
+        "session.xlsx",
+        sheet,
+        "session-sha",
+        str(path),
+        len(frame),
+    )
+    replace_dataset_rows(dataset_id, frame, source_rows=list(range(2, len(frame) + 2)))
+    loaded = load_dataset_dataframe(dataset_id, include_meta=True)
+    return dataset_id, loaded["_analysis_id"].astype(str).tolist()
+
+
+def _png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (80, 60), "white").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def main() -> None:
+    try:
+        ensure_storage()
+        project_id = create_project("Post-release UX", "source-sheet image workflow")
+        sheet1_id, ids = _dataset(
+            project_id,
+            "Session",
+            "Sheet 1",
+            pd.DataFrame({
+                "Sample": ["S1", "S1", "S1"],
+                "Point": ["P1", "P2", "P3"],
+                "SiO2": [40.0, 45.0, 50.0],
+                "TiO2": [2.0, 1.0, 0.5],
+                "Al2O3": [14.0, 10.0, 4.0],
+            }),
+        )
+        sheet2_id, sheet2_ids = _dataset(
+            project_id,
+            "Session 2",
+            "Sheet 2",
+            pd.DataFrame({
+                "Sample": ["S2", "S2"],
+                "Point": ["A", "B"],
+                "SiO2": [51.0, 52.0],
+                "TiO2": [0.4, 0.3],
+                "Al2O3": [3.0, 2.5],
+            }),
+        )
+
+        split = materialize_confirmed_phases(
+            sheet1_id,
+            {ids[0]: "phlogopite", ids[1]: "clinopyroxene"},
+        )
+        phlogopite_id = int(split["phlogopite"])
+        clinopyroxene_id = int(split["clinopyroxene"])
+        assert phlogopite_id != clinopyroxene_id
+
+        scopes = list_source_sheet_scopes(project_id)
+        sheet1 = next(scope for scope in scopes if scope.source_sheet == "Sheet 1")
+        sheet2 = next(scope for scope in scopes if scope.source_sheet == "Sheet 2")
+        universe = load_source_sheet_universe(project_id, sheet1)
+        assert set(universe["_analysis_id"].astype(str)) == set(ids)
+        phase_by_id = dict(zip(universe["_analysis_id"].astype(str), universe["Подтверждённая фаза"].astype(str)))
+        assert phase_by_id[ids[0]] == "phlogopite"
+        assert phase_by_id[ids[1]] == "clinopyroxene"
+
+        assignment = ImageAssignment(
+            ImagePayload("bse.png", _png_bytes()),
+            ImageScope(SCOPE_ANALYSIS, analysis_ids=(ids[0], ids[1])),
+            "BSE",
+            "BSE S1 P1-P2",
+        )
+        result = create_source_sheet_image_batch(
+            project_id=project_id,
+            anchor_dataset_id=phlogopite_id,
+            assignments=[assignment],
+        )
+        assert len(result.asset_ids) == 1
+        record = get_image_record(result.asset_ids[0])
+        assert set(record["analysis_ids"]) == {ids[0], ids[1]}
+
+        bad_assignment = ImageAssignment(
+            ImagePayload("bad.png", _png_bytes()),
+            ImageScope(SCOPE_ANALYSIS, analysis_ids=(ids[0], sheet2_ids[0])),
+            "BSE",
+            "Cross sheet should fail",
+        )
+        rejected = False
+        try:
+            create_source_sheet_image_batch(
+                project_id=project_id,
+                anchor_dataset_id=phlogopite_id,
+                assignments=[bad_assignment],
+            )
+        except ValueError:
+            rejected = True
+        assert rejected
+
+        # Draft namespaces are stable for the same photo+sheet and different for
+        # another sheet: switching sheets cannot overwrite the previous draft.
+        prefix_1a = _draft_prefix("batch", "photo.png", b"123", sheet1)
+        prefix_1b = _draft_prefix("batch", "photo.png", b"123", sheet1)
+        prefix_2 = _draft_prefix("batch", "photo.png", b"123", sheet2)
+        assert prefix_1a == prefix_1b
+        assert prefix_1a != prefix_2
+
+        # Normal review queue accepts only generic/mixed datasets. A phase child is
+        # never offered again as a fresh phase-review source.
+        rows = [
+            {"id": 1, "name": "Book · Неразобранные / mixed", "mineral_key": "generic", "row_count": 4, "source_sha256": "x", "source_filename": "book.xlsx"},
+            {"id": 2, "name": "Book · phlogopite", "mineral_key": "mica", "row_count": 5, "source_sha256": "x", "source_filename": "book.xlsx"},
+            {"id": 3, "name": "Book Sheet 2", "mineral_key": "generic", "row_count": 8, "source_sha256": "x", "source_filename": "book.xlsx"},
+        ]
+        assert _reviewable(rows[0])
+        assert not _reviewable(rows[1])
+        queue = _ordered_candidates(rows, completed={1}, after_dataset_id=1)
+        assert [int(item["id"]) for item in queue] == [3]
+
+        # Reproduce the old UI bug: a phase child is submitted to the splitter again,
+        # producing Session · phlogopite · phlogopite. Repair must move the immutable
+        # analysis_id back into Session · phlogopite, update row counts and hide only
+        # the redundant child shell from this project.
+        repeated = materialize_confirmed_phases(phlogopite_id, {ids[0]: "phlogopite"})
+        nested_id = int(repeated["phlogopite"])
+        assert nested_id != phlogopite_id
+        assert int(get_dataset(phlogopite_id)["row_count"]) == 0
+        assert int(get_dataset(nested_id)["row_count"]) == 1
+        current = list_accessible_datasets(project_id)
+        pairs = _nested_split_pairs(current)
+        matching = [
+            (child, parent) for child, parent in pairs
+            if int(child["id"]) == nested_id and int(parent["id"]) == phlogopite_id
+        ]
+        diagnostics = [
+            {
+                "child": (int(child["id"]), child.get("name"), child.get("mineral_key"), child.get("source_sheet")),
+                "parent": (int(parent["id"]), parent.get("name"), parent.get("mineral_key"), parent.get("source_sheet")),
+            }
+            for child, parent in pairs
+        ]
+        datasets_diag = [
+            (int(item["id"]), item.get("name"), item.get("mineral_key"), item.get("source_sheet"), item.get("source_sha256"))
+            for item in current
+        ]
+        assert len(matching) == 1, f"pairs={diagnostics}; datasets={datasets_diag}; phlog={phlogopite_id}; nested={nested_id}"
+        moved, hidden = _repair_nested_splits(project_id, matching)
+        assert moved == 1 and hidden == 1
+        repaired = load_dataset_dataframe(phlogopite_id, include_meta=True)
+        assert repaired["_analysis_id"].astype(str).tolist() == [ids[0]]
+        assert int(get_dataset(phlogopite_id)["row_count"]) == 1
+        assert nested_id not in {int(item["id"]) for item in list_accessible_datasets(project_id)}
+
+        repaired_scope = next(scope for scope in list_source_sheet_scopes(project_id) if scope.source_sheet == "Sheet 1")
+        repaired_universe = load_source_sheet_universe(project_id, repaired_scope)
+        assert set(repaired_universe["_analysis_id"].astype(str)) == set(ids)
+        assert set(get_image_record(result.asset_ids[0])["analysis_ids"]) == {ids[0], ids[1]}
+
+        print("PetroLab post-release UX: source-sheet links, phase repair, queue progression and draft isolation: OK")
+    finally:
+        shutil.rmtree(ROOT, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()

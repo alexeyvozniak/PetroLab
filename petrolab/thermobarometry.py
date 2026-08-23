@@ -158,7 +158,13 @@ def calculate_putirka_2008_cpx_only_t32d(
     pressure_kbar: float,
     applicability_confirmed: bool,
 ) -> pd.DataFrame:
-    """Calculate T for Cpx rows without replacing their raw or formula columns."""
+    """Calculate T for Cpx rows without replacing their raw or formula columns.
+
+    Negative finite Cr2O3 values are treated as analytical below-zero noise and are
+    floored to 0 wt.% only in the calculation frame. The raw analysis is preserved
+    and the calculated row is marked WARNING. Components outside Eq. 32d (for
+    example P2O5) are deliberately ignored by this calculator.
+    """
     pressure = float(pressure_kbar)
     if not math.isfinite(pressure) or pressure < 0:
         raise ValueError("Давление должно быть конечным числом ≥ 0 kbar")
@@ -172,13 +178,30 @@ def calculate_putirka_2008_cpx_only_t32d(
 
     applicability_warning = not applicability_confirmed
 
-    oxides = _oxide_frame(dataframe)
-    finite = pd.DataFrame({column: _finite_column(oxides, column) for column in oxides.columns}, index=dataframe.index)
-    positive = pd.DataFrame({column: pd.to_numeric(oxides[column], errors="coerce").ge(0) for column in oxides.columns}, index=dataframe.index)
-    usable = finite.all(axis=1) & positive.all(axis=1)
+    raw_oxides = _oxide_frame(dataframe)
+    finite = pd.DataFrame(
+        {column: _finite_column(raw_oxides, column) for column in raw_oxides.columns},
+        index=dataframe.index,
+    )
+    calculation_oxides = raw_oxides.copy()
+    negative_cr = finite["Cr2O3"] & pd.to_numeric(raw_oxides["Cr2O3"], errors="coerce").lt(0)
+    calculation_oxides.loc[negative_cr, "Cr2O3"] = 0.0
+
+    nonnegative = pd.DataFrame(
+        {
+            column: pd.to_numeric(calculation_oxides[column], errors="coerce").ge(0)
+            for column in calculation_oxides.columns
+        },
+        index=dataframe.index,
+    )
+    usable = finite.all(axis=1) & nonnegative.all(axis=1)
     for index in dataframe.index[~usable]:
-        missing = [column for column in oxides.columns if not bool(finite.at[index, column])]
-        negative = [column for column in oxides.columns if bool(finite.at[index, column]) and not bool(positive.at[index, column])]
+        missing = [column for column in raw_oxides.columns if not bool(finite.at[index, column])]
+        negative = [
+            column
+            for column in calculation_oxides.columns
+            if bool(finite.at[index, column]) and not bool(nonnegative.at[index, column])
+        ]
         parts = []
         if missing:
             parts.append("нет/нечисловые: " + ", ".join(missing))
@@ -186,42 +209,52 @@ def calculate_putirka_2008_cpx_only_t32d(
             parts.append("отрицательные: " + ", ".join(negative))
         result.at[index, "Thermobarometry reason"] = "; ".join(parts)
 
-    if not usable.any():
-        return result
-    components = _cpx_components(oxides.loc[usable])
-    result.loc[usable, "Cation sum (6 O)"] = components["Cation sum (6 O)"]
-    result.loc[usable, "a_En"] = components["a_En"]
-    valid_activity = components["a_En"].gt(0) & np.isfinite(components["a_En"])
-    activity_index = components.index[valid_activity]
-    if len(activity_index):
-        value = components.loc[activity_index]
-        denominator = (
-            61.1 + 36.6 * value["Ti"] + 10.9 * value["FeT"]
-            - 0.95 * (value["Al"] + value["Cr"] - value["Na"] - value["K"])
-            + 0.395 * np.log(value["a_En"]) ** 2
+    if usable.any():
+        components = _cpx_components(calculation_oxides.loc[usable])
+        result.loc[usable, "Cation sum (6 O)"] = components["Cation sum (6 O)"]
+        result.loc[usable, "a_En"] = components["a_En"]
+        valid_activity = components["a_En"].gt(0) & np.isfinite(components["a_En"])
+        activity_index = components.index[valid_activity]
+        if len(activity_index):
+            value = components.loc[activity_index]
+            denominator = (
+                61.1 + 36.6 * value["Ti"] + 10.9 * value["FeT"]
+                - 0.95 * (value["Al"] + value["Cr"] - value["Na"] - value["K"])
+                + 0.395 * np.log(value["a_En"]) ** 2
+            )
+            temperature_k = (93100.0 + 544.0 * pressure) / denominator
+            calculation_ok = np.isfinite(temperature_k) & temperature_k.gt(0)
+            good_index = temperature_k.index[calculation_ok]
+            result.loc[good_index, "T (K)"] = temperature_k.loc[good_index]
+            result.loc[good_index, "T (°C)"] = temperature_k.loc[good_index] - 273.15
+            cation_ok = value.loc[good_index, "Cation sum (6 O)"].between(3.99, 4.02, inclusive="both")
+            passing = good_index[cation_ok]
+            failing = good_index[~cation_ok]
+            result.loc[passing, "Thermobarometry status"] = QC_WARNING if applicability_warning else QC_PASS
+            result.loc[passing, "Thermobarometry reason"] = (
+                "Входы полны; cation-sum screen 3.99–4.02 пройден. " +
+                ("Применимость метода не подтверждена; результат сохранён с предупреждением." if applicability_warning else "")
+            ).strip()
+            result.loc[failing, "Thermobarometry status"] = QC_FAIL
+            result.loc[failing, "Thermobarometry reason"] = (
+                "Cation-sum screen 3.99–4.02 не пройден; число показано только для диагностики. " +
+                ("Применимость метода также не подтверждена." if applicability_warning else "")
+            ).strip()
+            bad_math = activity_index[~calculation_ok]
+            result.loc[bad_math, "Thermobarometry reason"] = "Невалидный математический результат Eq. 32d."
+        invalid_activity = components.index[~valid_activity]
+        result.loc[invalid_activity, "Thermobarometry reason"] = "a_En ≤ 0; Eq. 32d неприменимо."
+
+    for index in dataframe.index[negative_cr]:
+        raw_value = float(raw_oxides.at[index, "Cr2O3"])
+        note = (
+            f"Cr2O3={raw_value:g} wt.% в исходном анализе; для Eq. 32d использовано 0 wt.% "
+            "как физическая нижняя граница, исходные данные не изменены."
         )
-        temperature_k = (93100.0 + 544.0 * pressure) / denominator
-        calculation_ok = np.isfinite(temperature_k) & temperature_k.gt(0)
-        good_index = temperature_k.index[calculation_ok]
-        result.loc[good_index, "T (K)"] = temperature_k.loc[good_index]
-        result.loc[good_index, "T (°C)"] = temperature_k.loc[good_index] - 273.15
-        cation_ok = value.loc[good_index, "Cation sum (6 O)"].between(3.99, 4.02, inclusive="both")
-        passing = good_index[cation_ok]
-        failing = good_index[~cation_ok]
-        result.loc[passing, "Thermobarometry status"] = QC_WARNING if applicability_warning else QC_PASS
-        result.loc[passing, "Thermobarometry reason"] = (
-            "Входы полны; cation-sum screen 3.99–4.02 пройден. " +
-            ("Применимость метода не подтверждена; результат сохранён с предупреждением." if applicability_warning else "")
-        ).strip()
-        result.loc[failing, "Thermobarometry status"] = QC_FAIL
-        result.loc[failing, "Thermobarometry reason"] = (
-            "Cation-sum screen 3.99–4.02 не пройден; число показано только для диагностики. " +
-            ("Применимость метода также не подтверждена." if applicability_warning else "")
-        ).strip()
-        bad_math = activity_index[~calculation_ok]
-        result.loc[bad_math, "Thermobarometry reason"] = "Невалидный математический результат Eq. 32d."
-    invalid_activity = components.index[~valid_activity]
-    result.loc[invalid_activity, "Thermobarometry reason"] = "a_En ≤ 0; Eq. 32d неприменимо."
+        existing = str(result.at[index, "Thermobarometry reason"] or "").strip()
+        result.at[index, "Thermobarometry reason"] = f"{existing} {note}".strip()
+        if result.at[index, "Thermobarometry status"] == QC_PASS:
+            result.at[index, "Thermobarometry status"] = QC_WARNING
     return result
 
 

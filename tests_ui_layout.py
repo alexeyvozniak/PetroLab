@@ -193,15 +193,13 @@ assert "st.tabs(" not in workspace, "Workspace sections must render conditionall
 # but hidden from the normal sidebar.
 from petrolab.ui.navigation import PRIMARY_NAV, ROUTE_LABELS
 expected_primary = [
-    ("home", "Главная"),
-    ("workspace", "Данные"),
-    ("plots", "Графики"),
-    ("statistics", "Статистика"),
-    ("thin_section", "Шлифы и изображения"),
-    ("calculate", "Расчёты"),
-    ("publish", "Публикация"),
+    ("home", "Обзор"),
+    ("workspace", "Образцы"),
+    ("rock_workspace", "Породы"),
     ("search", "Поиск"),
-    ("settings", "Настройки"),
+    ("thin_section", "Шлифы"),
+    ("analyses", "Анализы"),
+    ("add_data", "Добавить"),
 ]
 assert PRIMARY_NAV == expected_primary, PRIMARY_NAV
 for route in ["formulae", "minerals", "quick_import", "sources", "database", "multi_panel", "grain_profile"]:

@@ -25,14 +25,13 @@ def main() -> None:
     ]:
         assert marker in navigation, marker
 
-    # Low-level rock editors remain routable for old links and internal actions,
-    # but no longer compete for space in the normal sidebar.
+    # Product Design makes the whole-rock workspace a first-level daily action;
+    # the low-level editor remains routable only for old links and internal actions.
     for marker in [
-        '"rock_workspace": "Породы"',
+        '("rock_workspace", "Породы")',
         '"rocks": "Редактор пород"',
     ]:
         assert marker in navigation, marker
-    assert '("rock_workspace", "Породы")' not in navigation
     assert '("rocks", "Редактор пород")' not in navigation
 
     for marker in [
