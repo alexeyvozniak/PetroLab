@@ -26,6 +26,7 @@ from petrolab.ternary_plotting import build_interactive_ternary, build_publicati
 from petrolab.ui.components import collect_related_images, render_asset_gallery
 from petrolab.ui.plot_style_controls import render_figure_style_controls
 from petrolab.ui.ternary_controls import render_ternary_selection
+from petrolab.ui.selection_controls import render_save_selection
 from petrolab.visualization_presets import POINT_STYLE_PRESETS
 
 
@@ -346,6 +347,7 @@ def render_ternary_workspace(
             changed = clear_work_group(selected_ids)
             st.success(f"Рабочая группа очищена у {changed} точек.")
             st.rerun()
+        render_save_selection(project_id, selected_ids, key_prefix="ternary", context={"chart_type": "ternary", "components": [a_label, b_label, c_label]})
         _render_selected_points(plot_data, selected_ids, project_id, (a_label, b_label, c_label))
 
     if interactive_ids and st.button("Вернуть интерактивно исключённые ternary-точки", key="ternary_restore"):

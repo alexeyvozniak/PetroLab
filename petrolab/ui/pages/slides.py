@@ -12,10 +12,13 @@ from petrolab.sample_registry import list_samples
 from petrolab.slides import (
     IMAGE_TYPES,
     STORAGE_LINKED,
+    attach_image_to_slide_field,
     create_slide_field,
     create_slide_marker,
     delete_slide_image,
     delete_slide_marker,
+    detach_image_from_slide_field,
+    list_field_images,
     list_slide_fields,
     list_slide_images,
     list_slide_markers,
@@ -198,8 +201,10 @@ def _add_marker(project_id: int, images: list) -> None:
     )
     query = st.text_input("Найти строки для привязки", placeholder="PG-12, mica, point 17…", key="slide_marker_analysis_query")
     analysis_ids, analysis_labels = _analysis_choices(project_id, query)
+    saved_selection = [str(value) for value in st.session_state.get("selection_analysis_ids", [])]
     selected_analysis = st.multiselect(
         "Связанные строки анализа (можно несколько)", analysis_ids,
+        default=[value for value in saved_selection if value in analysis_ids],
         format_func=lambda value: analysis_labels.get(value, value), key="slide_marker_analysis_ids",
         help="Так EDS, EPMA и LA остаются отдельными измерениями, но показываются в одном месте шлифа.",
     )
@@ -252,6 +257,33 @@ def _map_and_manage(project_id: int, images: list) -> None:
                 else:
                     st.success("Оригинал перепривязан; метки и превью не изменились.")
                     st.rerun()
+    if fields:
+        st.divider()
+        st.markdown("#### Малые BSE/EDS для конкретного поля")
+        st.caption("Выберите прямоугольное поле на основном снимке, затем прикрепите к нему отдельный BSE/EDS/LA-снимок. Он не будет ошибочно связан со всем шлифом.")
+        field_by_id = {int(field["id"]): field for field in fields}
+        field_id = st.selectbox("Поле", list(field_by_id), format_func=lambda value: str(field_by_id[int(value)]["name"]), key="slide_field_image_field")
+        detailed = [candidate for candidate in images if candidate.id != image.id and candidate.image_type in {"BSE", "EDS-карта", "LA-ICP-MS-карта"}]
+        linked = list_field_images(project_id, field_id=int(field_id))
+        if detailed:
+            by_id = {candidate.id: candidate for candidate in detailed}
+            candidate_id = st.selectbox("Снимок BSE/EDS/LA", list(by_id), format_func=lambda value: by_id[int(value)].title, key="slide_field_image_candidate")
+            if st.button("Привязать к полю", type="primary", key="slide_field_image_attach"):
+                try:
+                    attach_image_to_slide_field(project_id, field_id=int(field_id), image_id=int(candidate_id))
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"{by_id[int(candidate_id)].title} привязан к полю {field_by_id[int(field_id)]['name']}.")
+                    st.rerun()
+        else:
+            st.caption("Сначала добавьте отдельный BSE, EDS- или LA-снимок на вкладке «Снимок».")
+        for linked_image in linked:
+            row = st.columns([3, 1])
+            row[0].caption(f"{linked_image.image_type} · {linked_image.title} → {field_by_id[int(field_id)]['name']}")
+            if row[1].button("Отвязать", key=f"slide_field_image_detach_{field_id}_{linked_image.id}"):
+                detach_image_from_slide_field(int(field_id), int(linked_image.id))
+                st.rerun()
     if markers:
         st.markdown("#### Метки")
         table = pd.DataFrame([
@@ -293,7 +325,7 @@ def render_slides_page() -> None:
         return
     render_hint("Первый раз? Идите слева направо: снимок → поле (если нужно) → метка. Все дополнительные связи можно добавить позднее.")
     images = list_slide_images(project_id)
-    add_tab, field_tab, marker_tab, map_tab = st.tabs(["1 · Снимок", "2 · Поле", "3 · Метки", "Карта"])
+    add_tab, field_tab, marker_tab, map_tab = st.tabs(["1 · Снимок", "2 · Поле", "3 · Метки", "Карта и BSE"])
     with add_tab:
         _add_image(project_id)
     if not images:
