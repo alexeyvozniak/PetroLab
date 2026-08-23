@@ -297,10 +297,14 @@ def main() -> None:
         )
         _wait_for_idle(driver)
 
-        for width, height in VIEWPORTS:
-            driver.set_window_size(width, height)
-            for page_name, nav_label in PAGES.items():
-                _navigate(driver, nav_label, PAGE_DESTINATIONS[page_name])
+        for page_name, nav_label in PAGES.items():
+            # Navigate at desktop width; narrow layouts may collapse the sidebar into
+            # a menu, which is a responsive state rather than a missing route.
+            driver.set_window_size(1440, 900)
+            _navigate(driver, nav_label, PAGE_DESTINATIONS[page_name])
+            for width, height in VIEWPORTS:
+                driver.set_window_size(width, height)
+                _wait_for_idle(driver)
                 _assert_page(driver, page_name, width, height)
                 driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
