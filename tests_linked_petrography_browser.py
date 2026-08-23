@@ -329,6 +329,8 @@ def main() -> None:
         _wait_for_route_top(driver)
         text = _main_text(driver)
         assert "Шлифы и поля" in text
+        _click_tab(driver, "Карта и BSE")
+        text = _main_text(driver)
         assert "Selection · 3" in text, text[:2500]
         assert "Selection здесь · 3" in text
         _assert_no_exception(driver)
