@@ -306,7 +306,6 @@ def _intake_mode() -> str:
     return st.segmented_control(
         "Что добавить?",
         [_MODE_TABLE, _MODE_IMAGES, _MODE_BOTH],
-        default=_MODE_TABLE,
         key=_INTAKE_MODE_KEY,
         help=(
             "«Анализы» — Excel/CSV. «Изображения» — добавить фотографии к уже загруженным анализам. "

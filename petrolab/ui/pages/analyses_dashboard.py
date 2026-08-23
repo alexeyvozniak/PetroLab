@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 
 from petrolab.analysis_drafts import (
@@ -19,8 +20,9 @@ from petrolab.services.analysis_service import save_changes_and_sync, save_chang
 from petrolab.ui.analysis_components import PROTECTED_ANALYSIS_COLUMNS, render_point_card
 from petrolab.ui.destructive_actions import confirm_then, render_pending
 from petrolab.ui.editability import common_editable_source_columns
-from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.layout import render_badges, render_page_header, render_work_context
 from petrolab.ui.project_context import active_project_id
+from petrolab.ui.selection_context import read_selection
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", "QC уровень", "QC решение", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
 _SAVE_FLASH_KEY = "analysis_save_flash"
@@ -127,6 +129,15 @@ def render_analyses_dashboard_page() -> None:
         shown = shown[shown["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
     derived = active_derived_columns(selected_ids)
     render_badges([(f"{len(shown):,} строк".replace(",", " "), "neutral"), (f"{len(selected_ids)} наборов", "accent")])
+    context = read_selection()
+    visible_ids = set(shown.get("_analysis_id", pd.Series(dtype=str)).astype(str))
+    render_work_context(
+        area="активный проект · рабочая таблица анализов",
+        visible_count=len(shown),
+        selection_count=context.count,
+        selection_visible_count=len(visible_ids & set(context.analysis_ids)),
+        note="Фильтр меняет вид, а не состав рабочей выборки",
+    )
 
     table_tab, point_tab = st.tabs(["Таблица", "Карточка точки"])
     with table_tab:

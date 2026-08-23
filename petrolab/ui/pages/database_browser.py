@@ -24,7 +24,7 @@ from petrolab.measurement_registry import list_entities
 from petrolab.derived import load_unified_with_derived
 from petrolab.generations import attach_generations
 from petrolab.unified_catalog import mineral_inventory, sample_overview, unlinked_rock_samples, whole_rock_inventory
-from petrolab.ui.layout import render_badges, render_page_header
+from petrolab.ui.layout import render_badges, render_page_header, render_work_context
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
 from petrolab.settings_service import load_settings, save_settings
@@ -359,6 +359,11 @@ def render_database_browser_page() -> None:
         (f"{int(overview['Минеральных анализов'].sum()) if not overview.empty else 0} минеральных анализов", "neutral"),
         (f"{int(overview['Изотопных измерений'].sum()) if not overview.empty else 0} изотопных измерений", "neutral"),
     ])
+    render_work_context(
+        area=("активный проект · каталог Sample" if scope == "Активный проект" else "все проекты · каталог Sample"),
+        visible_count=len(overview),
+        note="Образец хранит физический контекст; анализы и изображения остаются связанными с ним",
+    )
 
     tab_samples, tab_minerals, tab_rocks, tab_tools = st.tabs(["Образцы", "Минералы", "Породы и изотопы", "Порядок в базе"])
     with tab_samples:

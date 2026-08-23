@@ -114,6 +114,18 @@ h3 {
     font-weight: 600;
     margin-top: .2rem;
 }
+.petrolab-work-context {
+    margin: .32rem 0 .62rem;
+    padding: .44rem .62rem;
+    border: 1px solid var(--petro-border);
+    border-left: 3px solid var(--petro-accent);
+    border-radius: var(--petro-radius-sm);
+    background: var(--petro-surface-soft);
+    color: var(--petro-text-muted);
+    font-size: .77rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
 .petrolab-page-help,
 .petrolab-inline-help,
 .petrolab-section-help {

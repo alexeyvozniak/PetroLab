@@ -5,6 +5,7 @@ import streamlit as st
 from petrolab.db import list_accessible_datasets, list_projects
 from petrolab.settings_service import load_settings
 from petrolab.ui.project_context import active_project_id, set_active_project
+from petrolab.ui.selection_context import clear_selection, read_selection
 from petrolab.update_checker import available_update
 
 
@@ -112,6 +113,31 @@ def _render_update_notice(installed_version: str) -> None:
         st.rerun()
 
 
+def _render_selection_tray() -> None:
+    """Keep the active scientific selection visible on every workspace page."""
+    selection = read_selection()
+    if not selection.analysis_ids:
+        return
+    st.markdown('<div class="petrolab-nav-section">Рабочая выборка</div>', unsafe_allow_html=True)
+    st.markdown(f"**{selection.count} анализов выбрано**")
+    st.caption(f"Источник: {selection.origin or 'текущий экран'}")
+    if selection.label:
+        st.caption(selection.label)
+    if st.button("Построить график", key="sidebar_selection_to_plots", width="stretch"):
+        st.session_state["selection_analysis_ids"] = list(selection.analysis_ids)
+        st.session_state["active_selection_analysis_ids"] = list(selection.analysis_ids)
+        navigate("plots")
+        st.rerun()
+    if st.button("Открыть выборки", key="sidebar_selection_open", width="stretch"):
+        navigate("selections")
+        st.rerun()
+    if st.button("Очистить выборку", key="sidebar_selection_clear", width="stretch"):
+        clear_selection()
+        st.session_state["selection_analysis_ids"] = []
+        st.session_state["active_selection_analysis_ids"] = []
+        st.rerun()
+
+
 def render_sidebar(version: str) -> str:
     st.markdown('<div class="petrolab-sidebar-brand">◈ ПетроЛаб</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="petrolab-sidebar-version">v{version} · локальные данные</div>', unsafe_allow_html=True)
@@ -138,6 +164,8 @@ def render_sidebar(version: str) -> str:
     else:
         st.session_state.pop("_sidebar_project_ready", None)
         st.caption("Создайте первый проект")
+
+    _render_selection_tray()
 
     _render_update_notice(version)
 

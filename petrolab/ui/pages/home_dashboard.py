@@ -6,6 +6,11 @@ import streamlit as st
 from petrolab.db import list_accessible_datasets
 from petrolab.derived import formula_status
 from petrolab.minerals.registry import labels as mineral_labels
+from petrolab.project_checklist import (
+    create_project_checklist_item,
+    list_project_checklist_items,
+    set_project_checklist_item_completed,
+)
 from petrolab.project_health import project_health
 from petrolab.repositories.image_repository import list_image_records
 from petrolab.services.rock_service import rock_summary
@@ -17,6 +22,87 @@ from petrolab.ui.project_context import active_project
 def _go(route: str) -> None:
     navigate(route)
     st.rerun()
+
+
+TASK_DESTINATIONS = {
+    "Открыть вручную позже": "",
+    "Добавить данные": "add_data",
+    "Анализы": "analyses",
+    "Шлифы": "slides",
+    "Графики": "plots",
+    "Требует внимания": "attention",
+}
+
+
+def _dataset_label(dataset: dict) -> str:
+    source = str(dataset.get("source_sheet") or "").strip()
+    return f"{dataset['name']} · {source}" if source else str(dataset["name"])
+
+
+def _render_project_checklist(project_id: int, datasets: list[dict]) -> None:
+    """Personal, reversible next actions which never alter analytical data."""
+    render_section_header(
+        "Следующие действия",
+        "Личный список активного проекта. Выполненные пункты скрываются, но остаются в журнале.",
+    )
+    by_dataset_id = {int(dataset["id"]): dataset for dataset in datasets}
+    with st.form("home_project_checklist_form", clear_on_submit=True):
+        title = st.text_input("Что нужно сделать?", placeholder="Например: разобрать LA-ICP-MS для 19 ТР-1")
+        details = st.expander("Детали задачи", expanded=False)
+        with details:
+            left, right = st.columns(2)
+            dataset_id = left.selectbox(
+                "Связать с набором", [None, *by_dataset_id],
+                format_func=lambda value: "Без привязки" if value is None else _dataset_label(by_dataset_id[int(value)]),
+            )
+            destination = right.selectbox("Где выполнить", list(TASK_DESTINATIONS))
+            note = st.text_input("Пояснение", placeholder="Что именно проверить или подготовить")
+        submitted = st.form_submit_button("Добавить действие", type="primary")
+    if submitted:
+        try:
+            create_project_checklist_item(
+                project_id, title=title, note=note,
+                dataset_id=None if dataset_id is None else int(dataset_id),
+                target_route=TASK_DESTINATIONS[destination],
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            st.rerun()
+
+    active = list_project_checklist_items(project_id)
+    if not active:
+        st.caption("Открытых действий нет. Добавьте следующий шаг, пока он не потерялся среди файлов и измерений.")
+    for item in active:
+        item_id = int(item["id"])
+        tick, body, action = st.columns([0.55, 3.25, 1.1], vertical_alignment="center")
+        with tick:
+            done = st.checkbox("Готово", key=f"home_project_task_done_{item_id}")
+        with body:
+            st.markdown(f"**{item['title']}**")
+            details = [f"Набор: {item['dataset_name']}" if item.get("dataset_name") else "", str(item.get("note") or "")]
+            if any(details):
+                st.caption(" · ".join(part for part in details if part))
+        with action:
+            route = str(item.get("target_route") or "")
+            if route and st.button("Открыть", key=f"home_project_task_open_{item_id}", width="stretch"):
+                _go(route)
+        if done:
+            set_project_checklist_item_completed(project_id, item_id, completed=True)
+            st.session_state.pop(f"home_project_task_done_{item_id}", None)
+            st.rerun()
+
+    completed = list_project_checklist_items(project_id, completed=True, limit=12)
+    if completed:
+        with st.expander(f"Выполнено · {len(completed)}", expanded=False):
+            for item in completed:
+                left, right = st.columns([4, 1], vertical_alignment="center")
+                with left:
+                    st.markdown(f"~~{item['title']}~~")
+                with right:
+                    if st.button("Вернуть", key=f"home_project_task_restore_{item['id']}", width="stretch"):
+                        set_project_checklist_item_completed(project_id, int(item["id"]), completed=False)
+                        st.rerun()
 
 
 def render_home_dashboard_page() -> None:
@@ -59,6 +145,8 @@ def render_home_dashboard_page() -> None:
                 type="primary" if index == 0 else "secondary", width="stretch",
             ):
                 _go(route)
+
+    _render_project_checklist(project_id, datasets)
 
     render_section_header("Состояние проекта")
     m1, m2, m3, m4 = st.columns(4)

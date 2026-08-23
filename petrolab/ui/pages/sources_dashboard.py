@@ -35,7 +35,7 @@ from petrolab.services.import_service import (
     refresh_dataset_from_source,
 )
 from petrolab.sources import source_status
-from petrolab.ui.layout import render_badges, render_hint, render_page_header
+from petrolab.ui.layout import render_badges, render_hint, render_page_header, render_work_context
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project
 
@@ -210,7 +210,7 @@ def _block_mapping_and_preview(
     inspector: Callable[[dict], ImportSchemaPreview],
     previewer: Callable[[dict, dict[str, str], dict[str, str]], pd.DataFrame],
     prefix: str,
-) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], bool]:
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], bool, int]:
     ids = [str(block["id"]) for block in blocks]
     lookup = {str(block["id"]): block for block in blocks}
     labels = {
@@ -221,15 +221,16 @@ def _block_mapping_and_preview(
     semantic, measurement, ready = _schema_mapping(
         ids, lambda block_id, _header: inspector(lookup[block_id]), prefix, headers, labels,
     )
+    row_count = 0
     if ready:
-        ready = _render_normalized_previews(
+        ready, row_count = _render_normalized_previews(
             ids,
             lambda block_id: previewer(
                 lookup[block_id], semantic.get(block_id, {}), measurement.get(block_id, {})
             ),
             labels,
         )
-    return semantic, measurement, ready
+    return semantic, measurement, ready, row_count
 
 
 def _raw_uploaded_rows(data: bytes, filename: str, sheet: str) -> pd.DataFrame:
@@ -362,16 +363,18 @@ def _render_normalized_previews(
     selected: list[str],
     previewer: Callable[[str], pd.DataFrame],
     labels: dict[str, str] | None = None,
-) -> bool:
+) -> tuple[bool, int]:
     """Show the actual future rows for every selected sheet before any write."""
     if not selected:
-        return True
+        return True, 0
     st.subheader("Предпросмотр перед сохранением")
     ready = True
+    row_count = 0
     for index, sheet in enumerate(selected):
         label = (labels or {}).get(sheet, sheet or "CSV")
         try:
             dataframe = previewer(sheet)
+            row_count += len(dataframe)
             with st.expander(f"{label} · будет создан новый набор", expanded=index == 0):
                 st.caption(
                     f"После нормализации будет сохранено строк: {len(dataframe)}. "
@@ -381,7 +384,26 @@ def _render_normalized_previews(
         except Exception as exc:
             st.error(f"{label}: не удалось построить предпросмотр — {exc}")
             ready = False
-    return ready
+    return ready, row_count
+
+
+def _render_import_readiness(*, ready: bool, table_count: int, row_count: int, manual: bool) -> None:
+    """Make the point of no return legible before the import button."""
+    if not table_count:
+        return
+    if ready:
+        st.success(
+            f"Готово к импорту: таблиц {table_count}; строк {row_count}. "
+            "Будут созданы новые наборы PetroLab."
+        )
+    else:
+        st.warning(
+            "Импорт пока не готов: подтвердите все неоднозначные поля и исправьте отмеченные ошибки. "
+            "Ничего ещё не записано."
+        )
+    if manual:
+        st.caption("Ручная разметка сохранит границы каждой таблицы и исходные номера строк Excel.")
+    st.caption("Исходный файл не изменяется этим действием. Для связанного XLSX/XLSM обратная синхронизация возможна только позже и с резервной копией.")
 
 
 def _render_linked_import(project_id: int) -> None:
@@ -416,18 +438,18 @@ def _render_linked_import(project_id: int) -> None:
     st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
     mode = st.radio(
         "Как устроен файл",
-        ["Одна таблица на лист", "Несколько таблиц внутри одного листа"],
+        ["Одна готовая таблица на лист", "Разобрать вручную: несколько таблиц на одном листе"],
         horizontal=True, key="linked_import_mode",
     )
     blocks: list[dict] = []
     headers: dict[str, int] = {}
     minerals: dict[str, str] = {}
-    if mode == "Несколько таблиц внутри одного листа":
+    if mode == "Разобрать вручную: несколько таблиц на одном листе":
         blocks = _manual_blocks(
             sheets, default_mineral, "linked",
             lambda sheet: _raw_uploaded_rows(source_path.read_bytes(), source_path.name, sheet),
         )
-        semantic, measurement, ready = _block_mapping_and_preview(
+        semantic, measurement, ready, row_count = _block_mapping_and_preview(
             blocks,
             inspector=lambda block: inspect_linked_block(
                 source_path, block["sheet"], block["header_row"], block["last_row"]
@@ -445,8 +467,9 @@ def _render_linked_import(project_id: int) -> None:
         semantic, measurement, ready = _schema_mapping(
             selected, lambda sheet, header: inspect_linked_sheet(source_path, sheet, header), "linked", headers,
         )
+        row_count = 0
         if selected and ready:
-            ready = _render_normalized_previews(
+            ready, row_count = _render_normalized_previews(
                 selected,
                 lambda sheet: preview_linked_source(
                     source_path, sheet, headers[sheet], minerals[sheet],
@@ -454,7 +477,10 @@ def _render_linked_import(project_id: int) -> None:
                 ),
             )
 
-    if st.button("Связать и импортировать", type="primary", key="link_local", disabled=not (selected or blocks) or not ready):
+    table_count = len(blocks) if blocks else len(selected)
+    _render_import_readiness(ready=ready, table_count=table_count, row_count=row_count, manual=bool(blocks))
+    import_label = f"Связать и импортировать · {table_count} табл. · {row_count} строк"
+    if st.button(import_label, type="primary", key="link_local", disabled=not (selected or blocks) or not ready):
         try:
             result = import_linked_sheets(
                 project_id=target_project_id, path=source_path, sheet_names=selected,
@@ -492,15 +518,15 @@ def _render_uploaded_import(project_id: int) -> None:
     st.caption("При этом импорте будет создан новый набор. Добавление строк к уже существующему набору намеренно не выполняется без отдельного сопоставления точек.")
     mode = st.radio(
         "Как устроен файл",
-        ["Одна таблица на лист", "Несколько таблиц внутри одного листа"],
+        ["Одна готовая таблица на лист", "Разобрать вручную: несколько таблиц на одном листе"],
         horizontal=True, key="upload_import_mode",
     )
     blocks: list[dict] = []
     headers: dict[str, int] = {}
     minerals: dict[str, str] = {}
-    if mode == "Несколько таблиц внутри одного листа":
+    if mode == "Разобрать вручную: несколько таблиц на одном листе":
         blocks = _manual_blocks(sheets, default_mineral, "upload", lambda sheet: _raw_uploaded_rows(data, uploaded.name, sheet))
-        semantic, measurement, ready = _block_mapping_and_preview(
+        semantic, measurement, ready, row_count = _block_mapping_and_preview(
             blocks,
             inspector=lambda block: inspect_uploaded_block(
                 data, uploaded.name, block["sheet"], block["header_row"], block["last_row"]
@@ -518,15 +544,19 @@ def _render_uploaded_import(project_id: int) -> None:
         semantic, measurement, ready = _schema_mapping(
             selected, lambda sheet, header: inspect_uploaded_sheet(data, uploaded.name, sheet, header), "upload", headers,
         )
+        row_count = 0
         if selected and ready:
-            ready = _render_normalized_previews(
+            ready, row_count = _render_normalized_previews(
                 selected,
                 lambda sheet: preview_uploaded_source(
                     data, uploaded.name, sheet, headers[sheet], minerals[sheet],
                     semantic.get(sheet, {}), measurement.get(sheet, {}),
                 ),
             )
-    if st.button("Импортировать рабочую копию", type="primary", key="upload_import", disabled=not (selected or blocks) or not ready):
+    table_count = len(blocks) if blocks else len(selected)
+    _render_import_readiness(ready=ready, table_count=table_count, row_count=row_count, manual=bool(blocks))
+    import_label = f"Импортировать рабочую копию · {table_count} табл. · {row_count} строк"
+    if st.button(import_label, type="primary", key="upload_import", disabled=not (selected or blocks) or not ready):
         try:
             result = import_uploaded_sheets(
                 project_id=target_project_id, file_bytes=data, filename=uploaded.name,
@@ -612,6 +642,10 @@ def render_sources_dashboard_page() -> None:
     if project is None:
         st.info("Сначала создайте проект.")
         return
+    render_work_context(
+        area=f"проект «{project['name']}» · импорт новых данных",
+        note="файл → разметка → проверка → новый набор PetroLab",
+    )
     _render_import_continue(int(project["id"]))
     render_badges([
         ("1 · Файл", "accent"), ("2 · Листы", "neutral"),

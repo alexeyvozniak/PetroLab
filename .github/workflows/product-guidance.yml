@@ -9,6 +9,7 @@ on:
       - "petrolab/operation_journal.py"
       - "petrolab/phase_reassignment.py"
       - "petrolab/project_health.py"
+      - "petrolab/project_checklist.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
@@ -21,6 +22,7 @@ on:
       - "petrolab/ui/plot_manager.py"
       - "petrolab/ui/plot_spec.py"
       - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/selection_components.py"
       - "petrolab/ui/source_controls.py"
       - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/pages/add_data.py"
@@ -28,12 +30,15 @@ on:
       - "petrolab/ui/pages/batch_edit.py"
       - "petrolab/ui/pages/change_log.py"
       - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/linked_views.py"
       - "petrolab/ui/pages/multi_panel.py"
       - "petrolab/ui/pages/object_workspace.py"
       - "petrolab/ui/pages/plots_dashboard.py"
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
+      - "tests_project_checklist.py"
+      - "tests_v0160_contextual_selection.py"
       - "tests_product_ui_viewports.py"
       - "tests_streamlit.py"
       - "tests_ui_layout.py"
@@ -44,6 +49,7 @@ on:
       - "petrolab/operation_journal.py"
       - "petrolab/phase_reassignment.py"
       - "petrolab/project_health.py"
+      - "petrolab/project_checklist.py"
       - "petrolab/smart_start.py"
       - "petrolab/edit_undo.py"
       - "petrolab/interactive_plotting.py"
@@ -56,6 +62,7 @@ on:
       - "petrolab/ui/plot_manager.py"
       - "petrolab/ui/plot_spec.py"
       - "petrolab/ui/selection_context.py"
+      - "petrolab/ui/selection_components.py"
       - "petrolab/ui/source_controls.py"
       - "petrolab/ui/workflow_routing.py"
       - "petrolab/ui/pages/add_data.py"
@@ -63,12 +70,15 @@ on:
       - "petrolab/ui/pages/batch_edit.py"
       - "petrolab/ui/pages/change_log.py"
       - "petrolab/ui/pages/home_dashboard.py"
+      - "petrolab/ui/pages/linked_views.py"
       - "petrolab/ui/pages/multi_panel.py"
       - "petrolab/ui/pages/object_workspace.py"
       - "petrolab/ui/pages/plots_dashboard.py"
       - "petrolab/ui/pages/__init__.py"
       - "app.py"
       - "tests_product_guidance.py"
+      - "tests_project_checklist.py"
+      - "tests_v0160_contextual_selection.py"
       - "tests_product_ui_viewports.py"
       - "tests_streamlit.py"
       - "tests_ui_layout.py"
@@ -99,6 +109,7 @@ jobs:
           petrolab/operation_journal.py
           petrolab/phase_reassignment.py
           petrolab/project_health.py
+          petrolab/project_checklist.py
           petrolab/smart_start.py
           petrolab/edit_undo.py
           petrolab/interactive_plotting.py
@@ -110,6 +121,7 @@ jobs:
           petrolab/ui/plot_manager.py
           petrolab/ui/plot_spec.py
           petrolab/ui/selection_context.py
+          petrolab/ui/selection_components.py
           petrolab/ui/source_controls.py
           petrolab/ui/workflow_routing.py
           petrolab/ui/pages/add_data.py
@@ -117,16 +129,23 @@ jobs:
           petrolab/ui/pages/batch_edit.py
           petrolab/ui/pages/change_log.py
           petrolab/ui/pages/home_dashboard.py
+          petrolab/ui/pages/linked_views.py
           petrolab/ui/pages/multi_panel.py
           petrolab/ui/pages/object_workspace.py
           petrolab/ui/pages/plots_dashboard.py
           tests_product_guidance.py
+          tests_project_checklist.py
+          tests_v0160_contextual_selection.py
           tests_product_ui_viewports.py
           tests_streamlit.py
           tests_ui_layout.py
           tests_v0157_linked_selection.py
       - name: Run product guidance regressions
         run: python tests_product_guidance.py
+      - name: Run project checklist regressions
+        run: python tests_project_checklist.py
+      - name: Run contextual selection UX gate
+        run: python tests_v0160_contextual_selection.py
       - name: Run linked-selection integration gate
         run: python tests_v0157_linked_selection.py
       - name: Run Streamlit workspace regressions
