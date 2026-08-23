@@ -96,7 +96,7 @@ def assert_data_workspace_defaults_to_existing_dataset(app) -> None:
 
 
 def assert_back_restores_route(app) -> None:
-    open_page(app, "Данные", "workspace")
+    open_page(app, "Образцы", "workspace")
     open_page(app, "Графики", "plots")
     _sidebar_button(app, "← Назад").click()
     app.run(timeout=30)
