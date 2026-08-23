@@ -83,8 +83,6 @@ ROUTE_TARGETS: dict[str, tuple[str, str]] = {
     "equilibrium": ("petrolab.ui.pages.equilibrium", "render_equilibrium_page"),
     "distribution": ("petrolab.ui.pages.distribution", "render_distribution_page"),
     "science_plots": ("petrolab.ui.pages.science_plots", "render_science_plots_page"),
-    # Use the v0.16 cluster wrapper: it keeps statistical clusters temporary,
-    # transfers them to XY as an overlay, and preserves the integrity guard.
     "statistics": ("petrolab.ui.pages.v0160_cluster_statistics_hotfix", "render_statistics_page"),
     "generations": ("petrolab.ui.pages.generations", "render_generations_page"),
     "rocks": ("petrolab.ui.pages.rocks", "render_rocks_page"),
@@ -120,8 +118,7 @@ def _render_route(route: str) -> None:
     if cold_load:
         placeholder.markdown(
             f"""
-            <div style="max-width:640px;margin:1.1rem auto;padding:1.15rem 1.25rem;"
-                 "border:1px solid var(--petro-border);border-radius:8px;background:var(--petro-surface);">
+            <div style="max-width:640px;margin:1.1rem auto;padding:1.15rem 1.25rem;border:1px solid var(--petro-border);border-radius:8px;background:var(--petro-surface);">
               <div style="font-weight:750;font-size:1.05rem;margin-bottom:.22rem;">◈ ПетроЛаб</div>
               <div style="font-weight:700;margin-bottom:.2rem;">Открываем «{label}»…</div>
               <div style="color:var(--petro-text-muted);font-size:.8rem;line-height:1.4;">
