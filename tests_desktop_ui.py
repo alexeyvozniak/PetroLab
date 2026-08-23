@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -7,6 +8,15 @@ THEME = (ROOT / "petrolab" / "ui" / "theme.py").read_text(encoding="utf-8")
 LAYOUT = (ROOT / "petrolab" / "ui" / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (ROOT / "petrolab" / "ui" / "navigation.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
+REFERENCE_PAGES = {
+    name: (ROOT / "petrolab" / "ui" / "pages" / name).read_text(encoding="utf-8")
+    for name in (
+        "add_data_reference.py",
+        "linked_views_reference.py",
+        "search_reference.py",
+        "slides_reference.py",
+    )
+}
 
 # Approved Product Design direction: a light scientific workspace, compact controls,
 # teal actions and a narrow dark navigation rail on the analysis-first screens.
@@ -40,7 +50,11 @@ for marker in [
     assert marker in NAVIGATION, marker
 
 # Key product surfaces should use the reference-led implementations, not the old
-# generic Streamlit page layouts.
+# generic Streamlit page layouts. Parse every file so lazy imports cannot hide a
+# syntax error until a user opens the corresponding screen.
+for filename, source in REFERENCE_PAGES.items():
+    ast.parse(source, filename=filename)
+
 for marker in [
     'add_data_reference',
     'linked_views_reference',
@@ -48,6 +62,15 @@ for marker in [
     'slides_reference',
 ]:
     assert marker in APP, marker
+
+for filename, markers in {
+    "linked_views_reference.py": ["Предварительный отбор", "Кодировка", "Сохранить как рабочую группу"],
+    "search_reference.py": ["Результаты", "Построить график по выборке", "Источники в выборке"],
+    "slides_reference.py": ["Фотографии", "Связанный шлиф", "Выбрано:"],
+    "add_data_reference.py": ["Проверка импорта", "Сохранение", "render_intake_workflow"],
+}.items():
+    for marker in markers:
+        assert marker in REFERENCE_PAGES[filename], f"{filename}: {marker}"
 
 # Optional prose remains discoverable without occupying the workspace permanently.
 for marker in [
