@@ -20,9 +20,7 @@ def _light_sidebar_for_reference() -> None:
         [data-testid="stSidebar"] .petrolab-sidebar-version,
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
         [data-testid="stSidebar"] .petrolab-nav-section { color:#7b8796 !important; }
-        [data-testid="stSidebar"] .stButton > button {
-            color:#425066 !important; background:transparent !important;
-        }
+        [data-testid="stSidebar"] .stButton > button { color:#425066 !important; background:transparent !important; }
         [data-testid="stSidebar"] .stButton > button:hover { background:#f3f7f8 !important; }
         [data-testid="stSidebar"] .stButton > button[kind="primary"],
         [data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {
@@ -44,7 +42,7 @@ def render_add_data_reference_page() -> None:
     _light_sidebar_for_reference()
     project = active_project()
 
-    top = st.columns([2.1, 4.2, 1.1, .9, .9])
+    top = st.columns([2.1, 4.3, 1.1, .9, .95])
     top[0].markdown('<div class="pd-screen-title">Добавить данные</div>', unsafe_allow_html=True)
     top[1].text_input(
         "Поиск",
@@ -52,9 +50,18 @@ def render_add_data_reference_page() -> None:
         key="pd_add_data_search",
         label_visibility="collapsed",
     )
-    top[2].button("Добавить", type="primary", width="stretch", key="pd_add_data_top")
-    top[3].button("Справка", width="stretch", key="pd_add_data_help")
-    top[4].button("Настройки", width="stretch", key="pd_add_data_settings", on_click=lambda: navigate("settings"))
+    with top[2]:
+        if st.button("Добавить", type="primary", width="stretch", key="pd_add_data_top"):
+            st.session_state["intake_entry_mode"] = "Анализы"
+            st.rerun()
+    with top[3]:
+        if st.button("Справка", width="stretch", key="pd_add_data_help"):
+            navigate("help")
+            st.rerun()
+    with top[4]:
+        if st.button("Настройки", width="stretch", key="pd_add_data_settings"):
+            navigate("settings")
+            st.rerun()
 
     st.markdown('<div class="pd-panel-title">Проверка импорта</div>', unsafe_allow_html=True)
     st.markdown(
