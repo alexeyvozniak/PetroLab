@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parent
 SELECTION_COMPONENTS = (ROOT / "petrolab" / "ui" / "selection_components.py").read_text(encoding="utf-8")
 LINKED_VIEWS = (ROOT / "petrolab" / "ui" / "pages" / "linked_views.py").read_text(encoding="utf-8")
 LINKED_PANELS = (ROOT / "petrolab" / "ui" / "linked_panels.py").read_text(encoding="utf-8")
+NAVIGATION = (ROOT / "petrolab" / "ui" / "navigation.py").read_text(encoding="utf-8")
+CHECKLIST = (ROOT / "petrolab" / "project_checklist.py").read_text(encoding="utf-8")
 
 
 def main() -> None:
@@ -22,6 +24,10 @@ def main() -> None:
     ]:
         assert marker in LINKED_VIEWS, marker
     assert "Текущий режим:" in LINKED_PANELS
+    for marker in ["_render_selection_tray", "Открыть выборки", "Очистить выборку"]:
+        assert marker in NAVIGATION, marker
+    for marker in ["project_checklist_items", "ON DELETE SET NULL", "set_project_checklist_item_completed"]:
+        assert marker in CHECKLIST, marker
     print("v0.16 contextual selection UX gate: OK")
 
 

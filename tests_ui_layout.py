@@ -101,10 +101,24 @@ assert '("slides", "Шлифы")' in NAVIGATION
 assert '("samples", "Образцы")' in NAVIGATION
 assert '"samples": render_database_browser_page' in APP
 assert '"slides": render_slides_page' in APP
+thin_workspace = (PAGES / "thin_section_workspace.py").read_text(encoding="utf-8")
+for marker in ["list_image_fields", "Подтверждаю перенос BSE в выбранное поле", "Перенос снимет прежнюю связь"]:
+    assert marker in thin_workspace, marker
 
 home = (PAGES / "home_dashboard.py").read_text(encoding="utf-8")
 assert "Рабочая копия PetroLab" in home
 assert "Связанный исходный файл" in home
+for marker in [
+    "Следующие действия", "Личный список активного проекта", "Добавить действие",
+    "Готово", "Выполнено ·", "Вернуть", "project_checklist", "Детали задачи",
+]:
+    assert marker in home, marker
+checklist = (ROOT / "petrolab" / "project_checklist.py").read_text(encoding="utf-8")
+for marker in [
+    "project_checklist_items", "create_project_checklist_item", "list_project_checklist_items",
+    "set_project_checklist_item_completed", "ON DELETE SET NULL",
+]:
+    assert marker in checklist, marker
 
 sources = (PAGES / "sources_dashboard.py").read_text(encoding="utf-8")
 for marker in ["внутренняя рабочая копия", "зафиксированный фрагмент Excel", "Перечитать исходный файл"]:
@@ -115,11 +129,13 @@ for marker in [
     "render_linked_views_page", "Связанные представления", "_render_xy_panel",
     "_render_ternary_panel", "_render_spider_panel", "Применить выделение",
     "selection_action_description", "selection_action_label", "Цвет", "Форма",
-    "render_work_context",
+    "render_work_context", "Кодировка точек", "из {len(dataframe)}",
 ]:
     assert marker in LINKED_VIEWS, marker
 assert '("linked_views", "Связанные представления")' in NAVIGATION
 assert '"linked_views": render_linked_views_page' in APP
+for marker in ["_render_selection_tray", "Построить график", "Открыть выборки", "Очистить выборку"]:
+    assert marker in NAVIGATION, marker
 
 # The shared context strip must explain scope without turning a filter into a
 # destructive data operation. Import must expose its final write explicitly.

@@ -28,6 +28,7 @@ from petrolab.slides import (
     is_bse_image_type,
     link_bse_image_to_field,
     list_field_bse_images,
+    list_image_fields,
     list_slide_fields,
     list_slide_images,
     list_slide_markers,
@@ -365,13 +366,25 @@ def _annotation_panel(project_id: int, image, markers: list[dict], fields: list[
                     format_func=lambda value: f"{bse_by_id[int(value)].title} · BSE",
                     key=f"thin_bse_target_{image.id}_{active_field_id}",
                 )
-                if st.button("Привязать BSE к полю", type="primary", key=f"thin_link_bse_{image.id}_{active_field_id}", width="stretch"):
+                previous_fields = list_image_fields(project_id, image_id=int(chosen_bse_id))
+                moved_from = [str(item["name"]) for item in previous_fields if int(item["id"]) != int(active_field_id)]
+                confirm_move = True
+                if moved_from:
+                    st.warning("Этот BSE уже связан с полем: " + ", ".join(moved_from) + ". Перенос снимет прежнюю связь.")
+                    confirm_move = st.checkbox(
+                        "Подтверждаю перенос BSE в выбранное поле",
+                        key=f"thin_bse_move_confirm_{image.id}_{active_field_id}_{chosen_bse_id}",
+                    )
+                if st.button(
+                    "Привязать BSE к полю", type="primary", disabled=not confirm_move,
+                    key=f"thin_link_bse_{image.id}_{active_field_id}", width="stretch",
+                ):
                     try:
                         link_bse_image_to_field(project_id, field_id=int(active_field_id), slide_image_id=int(chosen_bse_id))
                     except Exception as exc:
                         st.error(str(exc))
                     else:
-                        st.success("BSE привязан к выбранному полю.")
+                        st.success("BSE привязан к выбранному полю. При необходимости его можно вернуть, выбрав прежнее поле и повторно привязав снимок.")
                         st.rerun()
     else:
         st.caption("Выберите существующее поле, чтобы связывать с ним точки и маленькие BSE.")

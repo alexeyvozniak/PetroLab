@@ -86,9 +86,9 @@ def _linked_scatter(
             ))
     _mark_active(figure, active_ids)
     figure.update_layout(
-        title=title, height=390, margin={"l": 42, "r": 12, "t": 42, "b": 42},
+        title=f"{title} · {len(work)} из {len(dataframe)}", height=390, margin={"l": 42, "r": 12, "t": 42, "b": 42},
         xaxis_title=x, yaxis_title=y, dragmode="lasso", clickmode="event+select",
-        legend={"orientation": "h", "y": -0.22},
+        showlegend=False,
     )
     return figure
 
@@ -124,7 +124,10 @@ def _render_ternary_panel(dataframe: pd.DataFrame, *, active_ids: set[str]) -> s
     if prepared.valid.empty:
         st.warning("Нет строк с тремя валидными компонентами.")
         return set()
-    figure = build_interactive_ternary(prepared.valid, a_label=a, b_label=b, c_label=c, title="Ternary")
+    figure = build_interactive_ternary(
+        prepared.valid, a_label=a, b_label=b, c_label=c,
+        title=f"Ternary · {len(prepared.valid)} из {len(dataframe)}",
+    )
     _mark_active(figure, active_ids)
     event = st.plotly_chart(
         figure, width="stretch", key="linked_ternary_plot", on_select="rerun", selection_mode=("points",),
@@ -139,7 +142,10 @@ def _render_spider_panel(dataframe: pd.DataFrame, *, elements: tuple[str, ...], 
     if pattern.data.empty:
         st.info("Нет совместимых trace-элементов для этой панели.")
         return set()
-    figure = build_pattern_figure(pattern, title=title, ylabel="Sample / CI chondrite", log_y=True, show_legend=False, alpha=0.7)
+    figure = build_pattern_figure(
+        pattern, title=f"{title} · {len(pattern.data)} из {len(dataframe)}",
+        ylabel="Sample / CI chondrite", log_y=True, show_legend=False, alpha=0.7,
+    )
     ids = dataframe.loc[pattern.data.index, "_analysis_id"].astype(str).tolist()
     if figure.axes:
         for line, analysis_id in zip(figure.axes[0].lines, ids):
@@ -156,6 +162,24 @@ def _render_spider_panel(dataframe: pd.DataFrame, *, elements: tuple[str, ...], 
         "Кривые для отбора", ids, default=[value for value in ids if value in active_ids],
         format_func=lambda value: labels.get(value, value[:8]), key=f"linked_{title}_curves",
     ))
+
+
+def _render_encoding_legend(dataframe: pd.DataFrame, *, color_by: str | None, symbol_by: str | None) -> None:
+    """One compact legend, rather than six copies beneath linked panels."""
+    if color_by is None and symbol_by is None:
+        st.caption("Все точки отображаются одинаково. Настройте цвет или форму, если нужно сравнить группы.")
+        return
+    rows: list[dict[str, str]] = []
+    if color_by:
+        for index, value in enumerate(dataframe[color_by].fillna("Без значения").astype(str).drop_duplicates().head(16)):
+            rows.append({"Кодировка": "Цвет", "Поле": color_by, "Значение": value, "Обозначение": f"вариант {index + 1}"})
+    if symbol_by:
+        for index, value in enumerate(dataframe[symbol_by].fillna("Без значения").astype(str).drop_duplicates().head(16)):
+            rows.append({"Кодировка": "Форма", "Поле": symbol_by, "Значение": value, "Обозначение": _SYMBOLS[index % len(_SYMBOLS)]})
+    if rows:
+        with st.expander("Кодировка точек", expanded=False):
+            st.caption("Одна общая легенда для всех панелей. В каждой панели видны только строки с совместимыми числовыми значениями.")
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(310, 50 + 35 * len(rows)))
 
 
 def render_linked_views_page() -> None:
@@ -193,6 +217,7 @@ def render_linked_views_page() -> None:
         note="Выборка общая для таблиц, XY, ternary и spider",
     )
     render_hint("Выделите точки на XY или ternary либо выберите кривые на spider. Затем примените действие ниже. Исходные анализы, QC и фильтры не меняются.")
+    _render_encoding_legend(frame, color_by=color_by, symbol_by=symbol_by)
 
     pending: set[str] = set()
     top = st.columns(3)

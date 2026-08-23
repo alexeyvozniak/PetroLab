@@ -157,7 +157,7 @@ def render_selection_panel(
 
     selected = selected_dataframe(dataframe)
     dataset_ids = _selected_dataset_ids(selected)
-    title = f"Выбрано: {context.count}"
+    title = f"Рабочая выборка · {context.count} анализов"
     if context.label:
         title += f" · {context.label}"
     export_bytes_key = f"_{key_prefix}_selection_export_bytes"
@@ -184,11 +184,11 @@ def render_selection_panel(
         else:
             st.info("Отбор сохранён, но выбранные анализы не входят в текущий вид. Перейдите к таблице/графику с этим контекстом.")
 
-        st.caption("Один и тот же отбор используется между таблицей, XY, multi-panel и статистикой. Сохранение как группа/Generation — отдельное действие.")
+        st.caption("Это временный исследовательский список точных analysis_id. Он общий для таблиц, шлифов и графиков, но не меняет данные, QC, Generation или рабочую группу.")
         _render_thin_section_action(project_id=project_id, analysis_ids=context.analysis_ids, key_prefix=key_prefix)
 
         a1, a2, a3, a4, a5, a6 = st.columns(6)
-        if a1.button("XY", key=f"{key_prefix}_to_xy", width="stretch"):
+        if a1.button("Построить XY", key=f"{key_prefix}_to_xy", width="stretch"):
             seed_selection_plot_handoff(
                 st.session_state,
                 dataset_ids=dataset_ids,
@@ -197,7 +197,7 @@ def render_selection_panel(
             )
             navigate("plots")
             st.rerun()
-        if a2.button("Несколько", key=f"{key_prefix}_to_multi", width="stretch"):
+        if a2.button("Связанные графики", key=f"{key_prefix}_to_multi", width="stretch"):
             if dataset_ids:
                 st.session_state["workflow_plot_dataset_ids"] = dataset_ids
             navigate("multi_panel")
@@ -218,7 +218,7 @@ def render_selection_panel(
             navigate("formulae")
             st.rerun()
         if a6.button(
-            "Экспорт",
+            "Подготовить XLSX",
             key=f"{key_prefix}_prepare_export",
             width="stretch",
             help="Подготовить точный XLSX по analysis_id текущего Selection. Фильтр, Hide и Exclude не урезают файл.",
