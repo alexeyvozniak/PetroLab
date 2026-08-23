@@ -221,7 +221,7 @@ def main() -> None:
         )
         _wait_for_idle(driver)
 
-        _navigate_sidebar(driver, "Данные")
+        _navigate_sidebar(driver, "Образцы")
         driver.save_screenshot(str(ARTIFACTS / "00_workspace_before_image_intake.png"))
         _click_button(driver, "+ Добавить изображения")
         try:
