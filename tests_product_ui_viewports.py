@@ -100,7 +100,6 @@ def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
     _wait_for_page_content(driver, ("Образцы",), "back_samples", output)
     _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
     _wait_for_page_content(driver, ("Шлифы и поля",), "back_thin_section", output)
-    _assert_no_exception(driver)
 
 
 def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> None:

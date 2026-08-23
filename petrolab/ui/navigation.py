@@ -90,6 +90,7 @@ NAV_HELP = {
 def navigate(route: str) -> None:
     if route in ROUTE_LABELS:
         st.session_state["nav_route"] = route
+        st.session_state["_scroll_to_top_pending"] = True
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
@@ -148,7 +149,7 @@ def render_sidebar(version: str) -> str:
         st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
         for route, label in entries:
             if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
-                st.session_state["nav_route"] = route
+                navigate(route)
                 st.rerun()
 
     secondary_routes = {route for entries in SECONDARY_NAV_SECTIONS.values() for route, _ in entries}
@@ -157,12 +158,12 @@ def render_sidebar(version: str) -> str:
             st.markdown(f'<div class="petrolab-nav-section">{section}</div>', unsafe_allow_html=True)
             for route, label in entries:
                 if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
-                    st.session_state["nav_route"] = route
+                    navigate(route)
                     st.rerun()
 
     st.markdown('<div class="petrolab-nav-section">Система</div>', unsafe_allow_html=True)
     for route, label in SYSTEM_NAVIGATION:
         if st.button(label, key=f"nav_{route}", type="primary" if route == current else "secondary", width="stretch", help=NAV_HELP.get(route)):
-            st.session_state["nav_route"] = route
+            navigate(route)
             st.rerun()
     return current

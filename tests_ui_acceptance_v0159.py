@@ -23,7 +23,7 @@ PAGES = {
     "home": "Обзор",
     "data": "Образцы",
     "graphs": "Графики",
-    "add_data": "Добавить",
+    "add_data": "Добавить данные",
     "thin": "Шлифы",
 }
 PAGE_DESTINATIONS = {

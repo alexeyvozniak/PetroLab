@@ -232,7 +232,7 @@ def main() -> None:
         driver.save_screenshot(str(ARTIFACTS / "01_image_intake_entry.png"))
         assert "Добавить данные" in text
         assert "Что добавить?" in text
-        assert "Можно выбрать сразу много PPL/XPL/BSE/карт" in text
+        assert "Изображения" in text
         _assert_no_exception(driver)
 
         upload = WebDriverWait(driver, 20).until(

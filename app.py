@@ -9,6 +9,7 @@ from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
 from petrolab.ui.navigation import render_sidebar
+from petrolab.ui.route_scroll import reset_route_scroll_if_pending
 from petrolab.ui.pages import (
     render_add_data_page, render_analyses_page, render_analytical_sessions_page,
     render_article_tables_page, render_attention_page, render_batch_edit_page,
@@ -92,4 +93,5 @@ ROUTES = {
 with st.sidebar:
     route = render_sidebar(__version__)
 
+reset_route_scroll_if_pending()
 ROUTES.get(route, render_home_page)()
