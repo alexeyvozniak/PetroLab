@@ -122,7 +122,10 @@ def _render_selection_tray() -> None:
             st.session_state["active_selection_analysis_ids"] = list(selection.analysis_ids)
             navigate("linked_views")
             st.rerun()
-        if st.button("Очистить", key="sidebar_selection_clear", width="stretch"):
+        if st.button("Открыть выборки", key="sidebar_selection_open", width="stretch"):
+            navigate("selections")
+            st.rerun()
+        if st.button("Очистить выборку", key="sidebar_selection_clear", width="stretch"):
             clear_selection()
             st.session_state["selection_analysis_ids"] = []
             st.session_state["active_selection_analysis_ids"] = []
