@@ -26,6 +26,8 @@ PAGES = {
     "search": ("Поиск", "Поиск"),
     "add_data": ("Добавить", "Проверка импорта"),
     "thin": ("Шлифы", "Шлифы"),
+    "statistics": ("Статистика", "Пошаговый анализ"),
+    "publication": ("Экспорт", "Экспорт и публикация"),
 }
 
 
@@ -225,6 +227,10 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
     elif page_name == "thin":
         assert "Шлифы" in text
         assert "Добавьте первый общий снимок" in text or "Фотографии" in text
+    elif page_name == "statistics":
+        assert "Статистика" in text and "1. Найти группы" in text and "2. PCA" in text
+    elif page_name == "publication":
+        assert "Экспорт и публикация" in text and "Рисунок" in text and "Таблицы" in text and "Данные" in text
 
 
 def main() -> None:
