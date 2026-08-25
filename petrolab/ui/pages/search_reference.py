@@ -8,7 +8,8 @@ from petrolab.search import global_search
 from petrolab.ui.layout import render_page_header
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import set_active_project
-from petrolab.ui.selection_context import set_selection
+from petrolab.ui.reference_selection import render_manual_selection_table, render_selection_action_bar
+from petrolab.ui.selection_context import read_selection, set_selection
 
 
 def _analysis_rows(results: list[dict]) -> pd.DataFrame:
@@ -36,9 +37,7 @@ def _analysis_rows(results: list[dict]) -> pd.DataFrame:
         view["_search_title"] = view["_analysis_id"].map(lambda value: str(meta.get(str(value), {}).get("title") or value))
         view["_search_detail"] = view["_analysis_id"].map(lambda value: str(meta.get(str(value), {}).get("detail") or ""))
         pieces.append(view)
-    if not pieces:
-        return pd.DataFrame()
-    return pd.concat(pieces, ignore_index=True, sort=False)
+    return pd.concat(pieces, ignore_index=True, sort=False) if pieces else pd.DataFrame()
 
 
 def _first_existing(frame: pd.DataFrame, *names: str) -> str | None:
@@ -48,41 +47,36 @@ def _first_existing(frame: pd.DataFrame, *names: str) -> str | None:
     return None
 
 
-def _display_table(frame: pd.DataFrame) -> pd.DataFrame:
+def _table_columns(frame: pd.DataFrame) -> list[str]:
     if frame.empty:
-        return frame
+        return []
     sample = _first_existing(frame, "Sample", "Образец")
-    mineral = _first_existing(frame, "Минерал", "Mineral")
+    grain = _first_existing(frame, "Grain", "Зерно")
     point = _first_existing(frame, "Point", "Точка")
+    mineral = _first_existing(frame, "Минерал", "Mineral")
     generation = _first_existing(frame, "Generation", "Положение")
     method = _first_existing(frame, "Method", "Метод")
     source = _first_existing(frame, "Источник", "Source")
-    columns = [
-        ("_analysis_id", "ID анализа"),
-        (sample, "Образец"),
-        (mineral, "Минерал"),
-        (point, "Точка"),
-        (generation, "Положение"),
-        (method, "Метод"),
-        (source, "Источник"),
-        ("_project_name", "Проект"),
+    chemistry = [
+        column for column in ("SiO2", "TiO2", "Al2O3", "MgO", "FeO", "Cr2O3", "F", "Cl", "Mg#")
+        if column in frame.columns
+    ][:5]
+    return [
+        column for column in (
+            sample, grain, point, mineral, generation, method, *chemistry, source, "_project_name"
+        ) if column and column in frame.columns
     ]
-    data = {}
-    for column, label in columns:
-        if column and column in frame.columns:
-            data[label] = frame[column]
-    return pd.DataFrame(data)
 
 
 def render_search_reference_page() -> None:
     render_page_header(
-        "Поиск",
-        "Найдите анализ, образец или изображение и соберите рабочую выборку без копирования данных.",
+        "Поиск по всем данным",
+        "Найдите анализ, образец, шлиф или изображение и соберите одну рабочую выборку без копирования данных.",
     )
 
     projects = list_projects()
     by_id = {int(row["id"]): row for row in projects}
-    top = st.columns([4.5, 1.25])
+    top = st.columns([4.9, 1.1])
     query = top[0].text_input(
         "Поиск",
         placeholder="апатит Кивгуба, 19 ТР-1, флогопит, BSE…",
@@ -105,7 +99,7 @@ def render_search_reference_page() -> None:
 
     if len(query.strip()) < 2:
         st.markdown(
-            '<div class="pd-note-card">Введите хотя бы две буквы или цифры. Результаты появятся здесь же, без перехода на отдельную страницу.</div>',
+            '<div class="pd-note-card">Введите хотя бы две буквы или цифры. Поиск работает по проектам, образцам, точкам, минералам, анализам и изображениям.</div>',
             unsafe_allow_html=True,
         )
         return
@@ -115,14 +109,14 @@ def render_search_reference_page() -> None:
     images = [item for item in results if item.get("kind") == "image"]
     category = st.segmented_control(
         "Тип результата",
-        [f"Все · {len(results)}", f"Анализы · {len(analyses)}", f"Изображения · {len(images)}"],
+        [f"Все · {len(results)}", f"Анализы · {len(analyses)}", f"Шлифы и фото · {len(images)}"],
         default=f"Все · {len(results)}",
         key="pd_search_category",
         label_visibility="collapsed",
     ) or f"Все · {len(results)}"
     if category.startswith("Анализы"):
         visible_results = analyses
-    elif category.startswith("Изображения"):
+    elif category.startswith("Шлифы"):
         visible_results = images
     else:
         visible_results = results
@@ -132,11 +126,11 @@ def render_search_reference_page() -> None:
         return
 
     frame = _analysis_rows(analyses)
-    left, center, right = st.columns([1.45, 3.9, 1.5], gap="small")
+    left, center, right = st.columns([1.4, 4.35, 1.55], gap="small")
 
     with left:
         st.markdown(f'<div class="pd-panel-title">Результаты ({len(visible_results)})</div>', unsafe_allow_html=True)
-        for index, result in enumerate(visible_results[:14]):
+        for index, result in enumerate(visible_results[:16]):
             active = st.session_state.get("pd_search_focus") == index
             with st.container(border=True):
                 st.markdown(f"**{result['title']}**")
@@ -145,95 +139,92 @@ def render_search_reference_page() -> None:
                     st.session_state["pd_search_focus"] = index
                     set_active_project(int(result["project_id"]))
                     if result["kind"] == "analysis":
-                        st.session_state["pd_search_focus_analysis"] = str(result["analysis_id"])
-                    else:
-                        dataset_id = result.get("dataset_id")
-                        if dataset_id is not None:
-                            st.session_state["workflow_image_dataset_id"] = int(dataset_id)
-                        st.session_state["workflow_image_asset_id"] = int(result["asset_id"])
-                        navigate("images")
+                        updated = set_selection(
+                            [str(result["analysis_id"])],
+                            origin="Поиск",
+                            mode="add" if read_selection().analysis_ids else "replace",
+                            label=query.strip(),
+                        )
+                        st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
+                        st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
                         st.rerun()
-        if len(visible_results) > 14:
-            st.caption(f"Показаны первые 14 из {len(visible_results)}")
+                    dataset_id = result.get("dataset_id")
+                    if dataset_id is not None:
+                        st.session_state["workflow_image_dataset_id"] = int(dataset_id)
+                    st.session_state["workflow_image_asset_id"] = int(result["asset_id"])
+                    navigate("slides")
+                    st.rerun()
+        if len(visible_results) > 16:
+            st.caption(f"Показаны первые 16 из {len(visible_results)}")
 
+    chosen = frame.iloc[0:0].copy()
     with center:
-        st.markdown('<div class="pd-panel-title">Выбранные анализы</div>', unsafe_allow_html=True)
+        st.markdown('<div class="pd-panel-title">Анализы</div>', unsafe_allow_html=True)
         if frame.empty:
-            st.info("Для этой вкладки нет аналитических строк.")
-            selected_ids: list[str] = []
+            st.info("По этому запросу нет аналитических строк.")
         else:
-            labels = {
-                str(row["_analysis_id"]): str(row.get("_search_title") or row["_analysis_id"])
-                for _, row in frame.iterrows()
-            }
-            default_ids = [str(value) for value in st.session_state.get("pd_search_selected_ids", []) if str(value) in labels]
-            focus_id = str(st.session_state.get("pd_search_focus_analysis") or "")
-            if focus_id in labels and focus_id not in default_ids:
-                default_ids.append(focus_id)
-            selected_ids = st.multiselect(
-                "Рабочая выборка",
-                list(labels),
-                default=default_ids,
-                format_func=lambda value: labels.get(str(value), str(value)),
-                key="pd_search_selected_ids",
-                label_visibility="collapsed",
-                placeholder="Выберите один или несколько анализов",
+            chosen = render_manual_selection_table(
+                frame,
+                key_prefix="pd_search",
+                origin="Поиск",
+                columns=_table_columns(frame),
+                height=600,
+                max_rows=1200,
             )
-            if not selected_ids:
-                selected_ids = list(labels)
-                st.caption("Пока ничего не отмечено вручную: таблица показывает все найденные анализы.")
-            shown = frame[frame["_analysis_id"].astype(str).isin(selected_ids)].copy()
-            st.dataframe(_display_table(shown), width="stretch", hide_index=True, height=580)
 
     with right:
-        st.markdown(f'<div class="pd-panel-title">Выбрано: {len(selected_ids) if not frame.empty else 0} анализа</div>', unsafe_allow_html=True)
-        if frame.empty:
-            st.caption("Выберите вкладку «Анализы», чтобы собрать выборку.")
+        context = read_selection()
+        selection_here = frame[
+            frame["_analysis_id"].astype(str).isin(set(context.analysis_ids))
+        ].copy() if not frame.empty else frame
+        st.markdown(f'<div class="pd-panel-title">Выбрано: {len(selection_here)} анализов</div>', unsafe_allow_html=True)
+        if selection_here.empty:
+            st.caption("Отметьте строки галочками в таблице.")
         else:
-            chosen = frame[frame["_analysis_id"].astype(str).isin(selected_ids)].copy()
-            mineral_col = _first_existing(chosen, "Минерал", "Mineral")
-            point_col = _first_existing(chosen, "Point", "Точка")
-            method_col = _first_existing(chosen, "Method", "Метод")
-            source_col = _first_existing(chosen, "Источник", "Source")
+            mineral_col = _first_existing(selection_here, "Минерал", "Mineral")
+            point_col = _first_existing(selection_here, "Point", "Точка")
+            method_col = _first_existing(selection_here, "Method", "Метод")
+            source_col = _first_existing(selection_here, "Источник", "Source")
             st.caption("Что включено в выборку")
-            st.markdown(f"**Проекты:** {chosen['_project_name'].nunique(dropna=True)}")
+            st.markdown(f"**Проекты:** {selection_here['_project_name'].nunique(dropna=True)}")
             if mineral_col:
-                st.markdown(f"**Минералы:** {chosen[mineral_col].nunique(dropna=True)}")
+                st.markdown(f"**Минералы:** {selection_here[mineral_col].nunique(dropna=True)}")
             if point_col:
-                st.markdown(f"**Точки:** {chosen[point_col].nunique(dropna=True)}")
+                st.markdown(f"**Точки:** {selection_here[point_col].nunique(dropna=True)}")
             if method_col:
-                methods = ", ".join(chosen[method_col].dropna().astype(str).drop_duplicates().head(4))
+                methods = ", ".join(selection_here[method_col].dropna().astype(str).drop_duplicates().head(4))
                 st.markdown(f"**Методы:** {methods or '—'}")
 
-            active_sources: set[str] | None = None
-            if source_col and chosen[source_col].notna().any():
+            preview = selection_here.copy()
+            if source_col and selection_here[source_col].notna().any():
                 st.divider()
                 st.caption("Источники в выборке")
-                active_sources = set()
-                for source in chosen[source_col].dropna().astype(str).drop_duplicates().head(10):
-                    count = int((chosen[source_col].astype(str) == source).sum())
+                active_sources: set[str] = set()
+                for source in selection_here[source_col].dropna().astype(str).drop_duplicates().head(12):
+                    count = int((selection_here[source_col].astype(str) == source).sum())
                     enabled = st.toggle(f"{source} · {count}", value=True, key=f"pd_source_{hash(source)}")
                     if enabled:
                         active_sources.add(source)
-                if active_sources:
-                    chosen = chosen[chosen[source_col].astype(str).isin(active_sources)].copy()
-                else:
-                    chosen = chosen.iloc[0:0].copy()
+                preview = selection_here[selection_here[source_col].astype(str).isin(active_sources)].copy() if active_sources else selection_here.iloc[0:0].copy()
+                st.caption(f"На график сейчас пойдёт: {len(preview)}")
             st.markdown(
-                '<div class="pd-warning-card">Отключение источника влияет только на текущую выборку и график. Исходные анализы не удаляются.</div>',
+                '<div class="pd-warning-card">Выключение источника влияет только на текущий просмотр и передачу на график. Исходные анализы не удаляются.</div>',
                 unsafe_allow_html=True,
             )
-
-            if st.button("Построить график по выборке", type="primary", width="stretch", disabled=chosen.empty, key="pd_search_to_plot"):
-                ids = chosen["_analysis_id"].astype(str).tolist()
+            if st.button("Показать выбранное на графиках", type="primary", width="stretch", disabled=preview.empty, key="pd_search_to_plot"):
+                ids = preview["_analysis_id"].astype(str).tolist()
                 updated = set_selection(ids, origin="Поиск", mode="replace", label=query.strip())
                 st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
                 st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
                 st.session_state["workflow_plot_analysis_ids"] = list(updated.analysis_ids)
-                st.session_state["workflow_plot_dataset_ids"] = list(dict.fromkeys(int(value) for value in chosen["_dataset_id"].tolist()))
-                if not chosen.empty:
-                    first_project = next((int(result["project_id"]) for result in analyses if str(result["analysis_id"]) in set(ids)), None)
-                    if first_project is not None:
-                        set_active_project(first_project)
+                st.session_state["workflow_plot_dataset_ids"] = list(dict.fromkeys(int(value) for value in preview["_dataset_id"].tolist()))
                 navigate("linked_views")
                 st.rerun()
+
+    if not frame.empty:
+        render_selection_action_bar(
+            frame,
+            key_prefix="pd_search_bottom",
+            show_images=True,
+            show_statistics=True,
+        )
