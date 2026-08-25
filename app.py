@@ -76,7 +76,7 @@ ROUTE_TARGETS: dict[str, tuple[str, str]] = {
     "formulae": ("petrolab.ui.pages.formulae", "render_formulae_page"),
     "plots": ("petrolab.ui.pages.plots_dashboard", "render_plots_dashboard_page"),
     "ternary": ("petrolab.ui.pages.ternary", "render_ternary_page"),
-    "linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page"),
+    "linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page"),
     "thermobarometry": ("petrolab.ui.pages.thermobarometry", "render_thermobarometry_page"),
     "equilibrium": ("petrolab.ui.pages.equilibrium", "render_equilibrium_page"),
     "distribution": ("petrolab.ui.pages.distribution", "render_distribution_page"),
