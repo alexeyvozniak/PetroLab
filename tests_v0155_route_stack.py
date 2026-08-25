@@ -9,10 +9,11 @@ def main() -> None:
     package = Path("petrolab/__init__.py").read_text(encoding="utf-8")
 
     # Routes are lazy module/function targets so first paint does not import every
-    # scientific page. The four Product Design screens are explicit route owners.
+    # scientific page. Product Design screens are explicit route owners. The
+    # linked workspace is reached through its Plotly compatibility wrapper.
     for marker in [
         '"figure_recipes": ("petrolab.ui.pages.figure_recipes", "render_figure_recipes_page")',
-        '"linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page")',
+        '"linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page")',
         '"search": ("petrolab.ui.pages.search_reference", "render_search_reference_page")',
         '"slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page")',
         '"add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page")',
