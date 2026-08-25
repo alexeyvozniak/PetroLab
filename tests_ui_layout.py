@@ -14,14 +14,16 @@ APP = (ROOT / "app.py").read_text(encoding="utf-8")
 PROJECT_CONTEXT = (UI / "project_context.py").read_text(encoding="utf-8")
 DESTRUCTIVE_ACTIONS = (UI / "destructive_actions.py").read_text(encoding="utf-8")
 SCIENCE = (PAGES / "science_plots.py").read_text(encoding="utf-8")
+REFERENCE_SELECTION = (UI / "reference_selection.py").read_text(encoding="utf-8")
 
-# Approved reference visual system: light scientific workspace, restrained teal
-# actions and a narrow dark rail on analysis-first screens.
+# Approved final visual target: white scientific workspace, light compact rail,
+# restrained teal actions, thin dividers and dense data tables.
 for token in [
-    "--petro-bg: #f6f8fa", "--petro-surface: #ffffff", "--petro-sidebar: #10283a",
-    "--petro-text: #162033", "--petro-text-muted: #68758a", "--petro-accent: #0f7f82",
+    "--petro-bg: #ffffff", "--petro-surface: #ffffff", "--petro-sidebar: #ffffff",
+    "--petro-text: #172230", "--petro-text-muted: #6c7886", "--petro-accent: #0b7f7a",
     "--petro-success", "--petro-warning", "--petro-danger", ".pd-status-strip", ".pd-chip",
-    "focus-visible", "@media (max-width:1100px)", "@media (max-width:760px)", "overflow-x:auto",
+    ".petrolab-selection-tray", "focus-visible", "@media (max-width:1100px)",
+    "@media (max-width:760px)", "overflow-x:auto",
 ]:
     assert token in THEME, token
 assert '<h1 class="petrolab-page-title">' in LAYOUT
@@ -33,21 +35,34 @@ for marker in ["ACTIVE_PROJECT_KEY", "def active_project(", "def active_project_
     assert marker in PROJECT_CONTEXT, marker
 assert "active_project_id" in NAVIGATION and "set_active_project" in NAVIGATION
 
-# The primary rail mirrors the supplied Product Design references.
-for marker in [
-    '("home", "Обзор")', '("projects", "Проекты")', '("samples", "Образцы")',
-    '("search", "Поиск")', '("slides", "Шлифы")', '("analyses", "Анализы")',
-    '("linked_views", "Построение")', '("add_data", "Добавить")', '"Ещё"', '"Настройки"',
-]:
+# The primary rail follows the selected screenshot order.
+ordered_markers = [
+    '("home", "Обзор")', '("projects", "Проекты")', '("search", "Поиск")',
+    '("samples", "Образцы")', '("slides", "Шлифы")', '("analyses", "Анализы")',
+    '("linked_views", "Построение")', '("add_data", "Добавить")',
+]
+positions = []
+for marker in ordered_markers:
     assert marker in NAVIGATION, marker
+    positions.append(NAVIGATION.index(marker))
+assert positions == sorted(positions), "primary navigation order drifted from reference"
+assert '"Ещё"' in NAVIGATION and '"Настройки"' in NAVIGATION
 
-# Reference-led screens are first-class routes and must parse even though app.py
-# imports them lazily for faster startup.
+# Manual table selection is a single shared primitive, not one-off checkbox code.
+for marker in [
+    "def render_manual_selection_table(", "def render_selection_action_bar(",
+    '"Выбрать все видимые"', '"Снять видимые"', "set_selection", "set_work_group",
+    'navigate("linked_views")', 'navigate("slides")', 'navigate("statistics")',
+]:
+    assert marker in REFERENCE_SELECTION, marker
+
+# Reference-led screens are first-class routes and use the shared Selection.
 reference_pages = {
     "add_data_reference.py": ["Проверка импорта", "render_intake_workflow"],
     "linked_views_reference.py": ["Предварительный отбор", "Кодировка", "Сохранить как рабочую группу"],
-    "search_reference.py": ["Результаты", "Источники в выборке", "Построить график по выборке"],
-    "slides_reference.py": ["Фотографии", "Связанный шлиф", "Выбрано:"],
+    "search_reference.py": ["Результаты", "Источники в выборке", "render_manual_selection_table", "render_selection_action_bar"],
+    "slides_reference.py": ["Связанный шлиф", "render_manual_selection_table", "render_selection_action_bar"],
+    "analyses_dashboard.py": ["render_manual_selection_table", "render_selection_action_bar", "Редактирование"],
 }
 for filename, markers in reference_pages.items():
     path = PAGES / filename
