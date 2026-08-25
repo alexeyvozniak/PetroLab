@@ -9,14 +9,14 @@ from petrolab.ui.selection_context import clear_selection, read_selection
 from petrolab.update_checker import available_update
 
 
-# The primary rail mirrors the approved Product Design references: short,
+# The primary rail mirrors the approved Product Design reference: short,
 # task-oriented and stable. Specialist tools stay one level deeper.
 PRIMARY_NAV_SECTIONS = {
     "": [
         ("home", "Обзор"),
         ("projects", "Проекты"),
-        ("samples", "Образцы"),
         ("search", "Поиск"),
+        ("samples", "Образцы"),
         ("slides", "Шлифы"),
         ("analyses", "Анализы"),
         ("linked_views", "Построение"),
@@ -75,10 +75,10 @@ ROUTE_LABELS = {
 NAV_HELP = {
     "home": "Состояние активного проекта и следующий разумный шаг.",
     "projects": "Создать новый проект или открыть переносимый PetroLab.",
+    "search": "Найти анализы, образцы, шлифы, изображения и источники во всех проектах.",
     "samples": "Образцы, их паспорт и связанные данные.",
-    "search": "Найти анализы, минералы, точки и изображения во всех проектах.",
     "slides": "Фотографии шлифов, поля и привязанные аналитические точки.",
-    "analyses": "Таблица импортированных анализов, QC, расчёты и правки.",
+    "analyses": "Таблица импортированных анализов, ручной отбор, QC, расчёты и правки.",
     "linked_views": "Несколько синхронизированных научных диаграмм и одна общая выборка.",
     "add_data": "Добавить Excel/CSV, изображения и привязать их к точкам.",
 }
@@ -117,7 +117,7 @@ def _render_selection_tray() -> None:
         return
     with st.expander(f"Выборка · {selection.count}", expanded=False):
         st.caption(selection.label or f"Источник: {selection.origin or 'текущий экран'}")
-        if st.button("Построение", key="sidebar_selection_to_linked", width="stretch"):
+        if st.button("Показать на графиках", key="sidebar_selection_to_linked", width="stretch"):
             st.session_state["selection_analysis_ids"] = list(selection.analysis_ids)
             st.session_state["active_selection_analysis_ids"] = list(selection.analysis_ids)
             navigate("linked_views")
