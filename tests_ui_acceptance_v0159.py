@@ -13,6 +13,7 @@ import pandas as pd
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
 
@@ -203,7 +204,7 @@ def _prepare_search(driver: webdriver.Chrome) -> None:
     if not fields:
         return
     fields[0].clear()
-    fields[0].send_keys("Sample 1")
+    fields[0].send_keys("Sample 1", Keys.ENTER)
     _wait_for_destination(driver, "Результаты")
 
 
