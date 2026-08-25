@@ -8,6 +8,7 @@ THEME = (ROOT / "petrolab" / "ui" / "theme.py").read_text(encoding="utf-8")
 LAYOUT = (ROOT / "petrolab" / "ui" / "layout.py").read_text(encoding="utf-8")
 NAVIGATION = (ROOT / "petrolab" / "ui" / "navigation.py").read_text(encoding="utf-8")
 APP = (ROOT / "app.py").read_text(encoding="utf-8")
+REFERENCE_SELECTION = (ROOT / "petrolab" / "ui" / "reference_selection.py").read_text(encoding="utf-8")
 REFERENCE_PAGES = {
     name: (ROOT / "petrolab" / "ui" / "pages" / name).read_text(encoding="utf-8")
     for name in (
@@ -15,45 +16,51 @@ REFERENCE_PAGES = {
         "linked_views_reference.py",
         "search_reference.py",
         "slides_reference.py",
+        "analyses_dashboard.py",
     )
 }
 
-# Approved Product Design direction: a light scientific workspace, compact controls,
-# teal actions and a narrow dark navigation rail on the analysis-first screens.
+# Final selected Product Design reference: a white scientific workspace, compact
+# light rail, thin separators, dense tables and restrained teal actions.
 for marker in [
     'font-family: "Segoe UI", Inter, Arial, sans-serif',
-    '--petro-bg: #f6f8fa',
-    '--petro-sidebar: #10283a',
-    '--petro-accent: #0f7f82',
-    '--petro-radius-sm: 6px',
-    '--petro-radius-md: 8px',
+    '--petro-bg: #ffffff',
+    '--petro-sidebar: #ffffff',
+    '--petro-accent: #0b7f7a',
+    '--petro-radius-sm: 5px',
+    '--petro-radius-md: 7px',
     '--petro-border-strong',
     '[data-testid="stDataFrame"]',
     '[data-testid="stTabs"] [data-baseweb="tab-list"]',
-    'border-left:3px solid #18b6b2',
+    'border-left:3px solid var(--petro-accent)',
     '.pd-status-strip',
     '.pd-chip',
+    '.petrolab-selection-tray',
 ]:
     assert marker in THEME, marker
 
-# Primary rail must match the short task-oriented navigation shown in the references.
-for marker in [
+# Primary rail order is intentional and mirrors the supplied screenshot.
+ordered = [
     '("home", "Обзор")',
     '("projects", "Проекты")',
-    '("samples", "Образцы")',
     '("search", "Поиск")',
+    '("samples", "Образцы")',
     '("slides", "Шлифы")',
     '("analyses", "Анализы")',
     '("linked_views", "Построение")',
     '("add_data", "Добавить")',
-]:
+]
+positions = []
+for marker in ordered:
     assert marker in NAVIGATION, marker
+    positions.append(NAVIGATION.index(marker))
+assert positions == sorted(positions)
 
-# Key product surfaces should use the reference-led implementations, not the old
-# generic Streamlit page layouts. Parse every file so lazy imports cannot hide a
-# syntax error until a user opens the corresponding screen.
+# Key product surfaces should use the screenshot-led implementations. Parse every
+# source so lazy loading cannot hide syntax errors until a user opens the route.
 for filename, source in REFERENCE_PAGES.items():
     ast.parse(source, filename=filename)
+ast.parse(REFERENCE_SELECTION, filename="reference_selection.py")
 
 for marker in [
     'add_data_reference',
@@ -65,12 +72,20 @@ for marker in [
 
 for filename, markers in {
     "linked_views_reference.py": ["Предварительный отбор", "Кодировка", "Сохранить как рабочую группу"],
-    "search_reference.py": ["Результаты", "Построить график по выборке", "Источники в выборке"],
-    "slides_reference.py": ["Фотографии", "Связанный шлиф", "Выбрано:"],
+    "search_reference.py": ["Результаты", "Источники в выборке", "render_manual_selection_table"],
+    "slides_reference.py": ["Связанный шлиф", "render_manual_selection_table", "render_selection_action_bar"],
+    "analyses_dashboard.py": ["render_manual_selection_table", "render_selection_action_bar", "Редактирование"],
     "add_data_reference.py": ["Проверка импорта", "Сохранение", "render_intake_workflow"],
 }.items():
     for marker in markers:
         assert marker in REFERENCE_PAGES[filename], f"{filename}: {marker}"
+
+# Manual row selection is one cross-screen Selection, not per-table local state.
+for marker in [
+    '"Выбрать все видимые"', '"Снять видимые"', "read_selection", "set_selection",
+    "set_work_group", 'navigate("linked_views")', 'navigate("slides")', 'navigate("statistics")',
+]:
+    assert marker in REFERENCE_SELECTION, marker
 
 # Optional prose remains discoverable without occupying the workspace permanently.
 for marker in [
