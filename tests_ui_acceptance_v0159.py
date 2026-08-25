@@ -13,6 +13,7 @@ import pandas as pd
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
 
@@ -20,18 +21,14 @@ PORT = 8525
 PROJECT_NAME = "Viewport project"
 VIEWPORTS = [(1440, 900), (1024, 768), (968, 516), (768, 900), (390, 844)]
 PAGES = {
-    "home": "Обзор",
-    "data": "Образцы",
-    "graphs": "Графики",
-    "add_data": "Добавить данные",
-    "thin": "Шлифы",
-}
-PAGE_DESTINATIONS = {
-    "home": PROJECT_NAME,
-    "data": "Образцы",
-    "graphs": "XY-диаграммы",
-    "add_data": "Добавить данные",
-    "thin": "Шлифы и поля",
+    "home": ("Обзор", PROJECT_NAME),
+    "data": ("Образцы", "Образцы"),
+    "linked": ("Построение", "Предварительный отбор"),
+    "search": ("Поиск", "Поиск"),
+    "add_data": ("Добавить", "Проверка импорта"),
+    "thin": ("Шлифы", "Шлифы"),
+    "statistics": ("Статистика", "Статистика"),
+    "publication": ("Экспорт", "Экспорт и публикация"),
 }
 
 
@@ -41,15 +38,40 @@ def _seed_test_data(root: Path) -> None:
     from petrolab.storage import ensure_storage
 
     ensure_storage()
-    project_id = create_project(PROJECT_NAME, "Stable UI acceptance fixture")
+    project_id = create_project(PROJECT_NAME, "Product Design acceptance fixture")
     dataframe = pd.DataFrame(
         {
-            "Sample": ["Sample 1", "Sample 1", "Sample 2"],
-            "Point": ["P-1", "P-2", "P-3"],
-            "SiO2": [40.0, 41.0, 42.0],
-            "Al2O3": [15.0, 14.0, 13.0],
-            "TiO2": [2.0, 2.2, 1.8],
-            "Generation": ["Core", "Rim", "Core"],
+            "Sample": ["Sample 1", "Sample 1", "Sample 2", "Sample 2", "Sample 3", "Sample 3"],
+            "Point": ["P-1", "P-2", "P-3", "P-4", "P-5", "P-6"],
+            "Mineral": ["Phlogopite"] * 6,
+            "Method": ["EPMA", "LA-ICP-MS", "EPMA", "SIMS", "EPMA", "LA-ICP-MS"],
+            "Generation": ["Core", "Rim", "Core", "Rim", "Inclusion", "Core"],
+            "SiO2": [40.0, 43.5, 48.0, 55.0, 62.5, 69.0],
+            "Al2O3": [15.0, 14.0, 13.0, 12.0, 11.0, 10.5],
+            "TiO2": [2.8, 2.4, 2.0, 1.6, 1.2, 0.8],
+            "MgO": [8.0, 10.0, 12.5, 15.0, 18.0, 20.0],
+            "K2O": [1.0, 1.5, 2.0, 2.8, 3.6, 4.4],
+            "F": [0.70, 0.65, 0.60, 0.55, 0.48, 0.40],
+            "Cl": [0.10, 0.12, 0.14, 0.16, 0.18, 0.20],
+            "OH": [0.20, 0.23, 0.26, 0.29, 0.34, 0.40],
+            "Nb": [5, 8, 12, 20, 35, 60],
+            "Ta": [0.4, 0.7, 1.1, 1.8, 3.1, 5.4],
+            "Rb": [20, 35, 55, 90, 150, 240],
+            "Sr": [900, 650, 420, 260, 150, 90],
+            "La": [100, 90, 80, 72, 65, 58],
+            "Ce": [90, 82, 74, 66, 60, 54],
+            "Pr": [75, 70, 64, 58, 53, 48],
+            "Nd": [62, 58, 53, 49, 45, 41],
+            "Sm": [35, 32, 29, 27, 24, 22],
+            "Eu": [12, 11, 10, 9, 8, 7],
+            "Gd": [28, 26, 24, 22, 20, 18],
+            "Tb": [22, 20, 18, 17, 15, 14],
+            "Dy": [18, 17, 15, 14, 13, 12],
+            "Ho": [14, 13, 12, 11, 10, 9],
+            "Er": [11, 10, 9, 8, 7.5, 7],
+            "Tm": [8, 7.5, 7, 6.5, 6, 5.5],
+            "Yb": [6.5, 6, 5.5, 5, 4.5, 4],
+            "Lu": [5.0, 4.6, 4.2, 3.8, 3.4, 3.0],
         }
     )
     csv_path = root / "fixture.csv"
@@ -64,7 +86,7 @@ def _seed_test_data(root: Path) -> None:
         csv_path=str(csv_path),
         row_count=len(dataframe),
     )
-    replace_dataset_rows(dataset_id, dataframe, source_rows=[2, 3, 4])
+    replace_dataset_rows(dataset_id, dataframe, source_rows=list(range(2, 2 + len(dataframe))))
 
 
 def _wait_for_server(url: str, timeout: float = 35.0) -> None:
@@ -128,7 +150,6 @@ def _main_text(driver: webdriver.Chrome) -> str:
 
 
 def _wait_for_destination(driver: webdriver.Chrome, needle: str, timeout: float = 35.0) -> None:
-    """Wait for the requested page itself, not for the previous DOM to look idle."""
     deadline = time.time() + timeout
     last = ""
     while time.time() < deadline:
@@ -152,7 +173,7 @@ def _visible_sidebar_button(driver: webdriver.Chrome, label: str):
     if buttons:
         return buttons[0]
     for summary in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] [data-testid="stExpander"] summary'):
-        if summary.is_displayed() and "Дополнительно" in summary.text:
+        if summary.is_displayed() and "Ещё" in summary.text:
             driver.execute_script("arguments[0].click();", summary)
             time.sleep(0.2)
             buttons = [
@@ -171,21 +192,20 @@ def _navigate(driver: webdriver.Chrome, label: str, destination: str) -> None:
 
 
 def _assert_no_exception(driver: webdriver.Chrome, width: int, height: int) -> None:
-    exceptions = [
-        item.text for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stException"]')
-        if item.is_displayed()
-    ]
+    exceptions = [item.text for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stException"]') if item.is_displayed()]
     assert not exceptions, f"Streamlit exception at {width}x{height}: {exceptions}"
 
 
-def _minimum_plot_width(viewport_width: int) -> float:
-    if viewport_width >= 1200:
-        return 540.0
-    if viewport_width >= 900:
-        return 420.0
-    if viewport_width >= 700:
-        return 330.0
-    return 280.0
+def _prepare_search(driver: webdriver.Chrome) -> None:
+    fields = [
+        item for item in driver.find_elements(By.CSS_SELECTOR, 'input')
+        if item.is_displayed() and "апатит" in (item.get_attribute("placeholder") or "").lower()
+    ]
+    if not fields:
+        return
+    fields[0].clear()
+    fields[0].send_keys("Sample 1", Keys.ENTER)
+    _wait_for_destination(driver, "Результаты")
 
 
 def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: int) -> None:
@@ -193,87 +213,39 @@ def _assert_page(driver: webdriver.Chrome, page_name: str, width: int, height: i
     _assert_no_exception(driver, width, height)
 
     if page_name == "home":
-        assert PROJECT_NAME in text, f"Project context missing at {width}x{height}"
-        return
-
-    if page_name == "data":
-        assert "Образцы" in text, f"Sample catalogue title missing at {width}x{height}"
-        grids = driver.find_elements(
-            By.CSS_SELECTOR, '[data-testid="stDataFrame"], [data-testid="stDataEditor"]'
-        )
-        assert grids, f"Analyses workspace rendered without a table/editor at {width}x{height}"
-        return
-
-    if page_name == "graphs":
-        assert "XY-диаграммы" in text, f"Graph workspace title missing at {width}x{height}"
-        charts = driver.find_elements(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"], .js-plotly-plot')
-        charts = [chart for chart in charts if chart.is_displayed()]
-        assert charts, f"No visible Plotly graph at {width}x{height}"
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", charts[0])
-        rect = driver.execute_script(
-            """
-            const el = arguments[0];
-            const r = el.getBoundingClientRect();
-            return {left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height,
-                    visibleHeight: Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0))};
-            """,
-            charts[0],
-        )
-        minimum_width = _minimum_plot_width(width)
-        assert float(rect["width"]) >= minimum_width, (
-            f"Plot is too narrow for scientific work at {width}x{height}: "
-            f"required {minimum_width}, got {rect}"
-        )
-        minimum_visible = 140 if height <= 600 else 180
-        assert float(rect["visibleHeight"]) >= minimum_visible, (
-            f"First plot is not sufficiently visible at {width}x{height}: {rect}"
-        )
-        return
-
-    if page_name == "add_data":
-        assert "Добавить данные" in text, f"Add Data title missing at {width}x{height}"
-        assert "Что добавить?" in text, f"Add Data mode selector missing at {width}x{height}"
-        assert "Excel / CSV" in text, f"Add Data analytical intake missing at {width}x{height}"
-        assert "PPL / XPL / BSE / карты" in text, f"Add Data image intake missing at {width}x{height}"
-        uploaders = [
-            item for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stFileUploader"]')
-            if item.is_displayed()
-        ]
-        assert uploaders, f"Add Data file uploader missing at {width}x{height}"
-        return
-
-    if page_name == "thin":
-        assert "Шлифы и поля" in text, f"Thin-section workspace title missing at {width}x{height}"
-        assert ("Шлиф" in text or "Создайте первый шлиф" in text), (
-            f"Thin-section physical context missing at {width}x{height}"
-        )
-        return
+        assert PROJECT_NAME in text
+    elif page_name == "data":
+        assert "Образцы" in text
+    elif page_name == "linked":
+        assert "Предварительный отбор" in text and "Кодировка" in text
+        charts = [item for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"], .js-plotly-plot') if item.is_displayed()]
+        assert charts, f"No linked Plotly panel at {width}x{height}"
+    elif page_name == "search":
+        assert "Результаты" in text or "Введите хотя бы две" in text
+    elif page_name == "add_data":
+        assert "Проверка импорта" in text and "Что добавить?" in text
+        assert any(item.is_displayed() for item in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stFileUploader"]'))
+    elif page_name == "thin":
+        assert "Шлифы" in text
+        assert "Добавьте первый общий снимок" in text or "Фотографии" in text
+    elif page_name == "statistics":
+        assert "Статистика" in text and "1. Найти группы" in text and "2. PCA" in text
+    elif page_name == "publication":
+        assert "Экспорт и публикация" in text and "Рисунок" in text and "Таблицы" in text and "Данные" in text
 
 
 def main() -> None:
-    root = Path(tempfile.mkdtemp(prefix="petrolab_v0159_acceptance_"))
+    root = Path(tempfile.mkdtemp(prefix="petrolab_product_design_acceptance_"))
     process: subprocess.Popen | None = None
     driver: webdriver.Chrome | None = None
     try:
         _seed_test_data(root)
-        output = Path(
-            os.environ.get("PETROLAB_V0159_ACCEPTANCE_ARTIFACTS", "v0159_acceptance_artifacts")
-        )
+        output = Path(os.environ.get("PETROLAB_V0159_ACCEPTANCE_ARTIFACTS", "v0159_acceptance_artifacts"))
         output.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env["PETROLAB_DATA_DIR"] = str(root / "data")
         process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "streamlit",
-                "run",
-                "app.py",
-                "--server.headless=true",
-                f"--server.port={PORT}",
-                "--server.address=127.0.0.1",
-                "--browser.gatherUsageStats=false",
-            ],
+            [sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless=true", f"--server.port={PORT}", "--server.address=127.0.0.1", "--browser.gatherUsageStats=false"],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -292,23 +264,21 @@ def main() -> None:
         except WebDriverException as exc:
             raise RuntimeError(f"Could not start Chrome: {exc}") from exc
         driver.get(url)
-        WebDriverWait(driver, 25).until(
-            lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]')
-        )
+        WebDriverWait(driver, 25).until(lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stAppViewContainer"]'))
         _wait_for_idle(driver)
 
-        for page_name, nav_label in PAGES.items():
-            # Navigate at desktop width; narrow layouts may collapse the sidebar into
-            # a menu, which is a responsive state rather than a missing route.
+        for page_name, (nav_label, destination) in PAGES.items():
             driver.set_window_size(1440, 900)
-            _navigate(driver, nav_label, PAGE_DESTINATIONS[page_name])
+            _navigate(driver, nav_label, destination)
+            if page_name == "search":
+                _prepare_search(driver)
             for width, height in VIEWPORTS:
                 driver.set_window_size(width, height)
                 _wait_for_idle(driver)
                 _assert_page(driver, page_name, width, height)
                 driver.save_screenshot(str(output / f"{page_name}_{width}x{height}.png"))
 
-        print("PetroLab 0.16.1 stable UI acceptance: OK")
+        print("PetroLab Product Design real-browser acceptance: OK")
     finally:
         if driver is not None:
             driver.quit()

@@ -2,27 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from importlib import import_module
 
 import streamlit as st
 
 from petrolab import __version__
 from petrolab.settings_service import load_settings
 from petrolab.storage import ensure_storage
-from petrolab.ui.navigation import render_sidebar
+from petrolab.ui.navigation import ROUTE_LABELS, render_sidebar
 from petrolab.ui.route_scroll import reset_route_scroll_if_pending
-from petrolab.ui.pages import (
-    render_add_data_page, render_analyses_page, render_analytical_sessions_page,
-    render_article_tables_page, render_attention_page, render_batch_edit_page,
-    render_change_log_page, render_collaboration_page, render_data_intake_page,
-    render_database_browser_page, render_distribution_page, render_equilibrium_page,
-    render_export_page, render_figure_recipes_page, render_formulae_page, render_generations_page,
-    render_guided_workflow_page, render_help_page, render_home_page, render_images_page,
-    render_measurements_page, render_minerals_page, render_mixed_minerals_page,
-    render_linked_views_page, render_plots_page, render_projects_page, render_rocks_page, render_science_plots_page,
-    render_search_page, render_selections_page,
-    render_settings_page, render_slides_page, render_sources_page, render_statistics_page,
-    render_ternary_page, render_thermobarometry_page, render_updates_page,
-)
 from petrolab.ui.theme import apply_theme
 from petrolab.ui.workflow_routing import apply_smart_plot_defaults, route_fresh_import_to_workflow
 
@@ -69,29 +57,84 @@ _reconcile_plot_recipe_state()
 route_fresh_import_to_workflow()
 apply_smart_plot_defaults()
 
-ROUTES = {
-    "home": render_home_page, "workflow": render_guided_workflow_page,
-    "add_data": render_add_data_page, "attention": render_attention_page,
-    "batch_edit": render_batch_edit_page, "intake": render_data_intake_page,
-    "sessions": render_analytical_sessions_page, "mixed_minerals": render_mixed_minerals_page,
-    "measurements": render_measurements_page, "samples": render_database_browser_page, "database": render_database_browser_page,
-    "sources": render_sources_page, "analyses": render_analyses_page, "formulae": render_formulae_page,
-    "plots": render_plots_page, "ternary": render_ternary_page,
-    "linked_views": render_linked_views_page,
-    "thermobarometry": render_thermobarometry_page, "equilibrium": render_equilibrium_page,
-    "distribution": render_distribution_page, "science_plots": render_science_plots_page,
-    "statistics": render_statistics_page, "generations": render_generations_page, "rocks": render_rocks_page,
-    "search": render_search_page, "selections": render_selections_page,
-    "slides": render_slides_page, "images": render_images_page, "minerals": render_minerals_page,
-    "article_tables": render_article_tables_page, "export": render_export_page,
-    "figure_recipes": render_figure_recipes_page,
-    "projects": render_projects_page, "collaboration": render_collaboration_page,
-    "settings": render_settings_page, "help": render_help_page, "updates": render_updates_page,
-    "change_log": render_change_log_page,
+
+# Keep the first paint lean. Heavy scientific pages load only when opened.
+ROUTE_TARGETS: dict[str, tuple[str, str]] = {
+    "home": ("petrolab.ui.pages.home_dashboard", "render_home_dashboard_page"),
+    "workflow": ("petrolab.ui.pages.guided_workflow", "render_guided_workflow_page"),
+    "add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page"),
+    "attention": ("petrolab.ui.pages.attention", "render_attention_page"),
+    "batch_edit": ("petrolab.ui.pages.batch_edit", "render_batch_edit_page"),
+    "intake": ("petrolab.ui.pages.data_intake", "render_data_intake_page"),
+    "sessions": ("petrolab.ui.pages.analytical_sessions", "render_analytical_sessions_page"),
+    "mixed_minerals": ("petrolab.ui.pages.mixed_minerals", "render_mixed_minerals_page"),
+    "measurements": ("petrolab.ui.pages.measurements", "render_measurements_page"),
+    "samples": ("petrolab.ui.pages.database_reference", "render_database_reference_page"),
+    "database": ("petrolab.ui.pages.database_reference", "render_database_reference_page"),
+    "sources": ("petrolab.ui.pages.sources_dashboard", "render_sources_dashboard_page"),
+    "analyses": ("petrolab.ui.pages.analyses_dashboard", "render_analyses_dashboard_page"),
+    "formulae": ("petrolab.ui.pages.formulae", "render_formulae_page"),
+    "plots": ("petrolab.ui.pages.plots_dashboard", "render_plots_dashboard_page"),
+    "ternary": ("petrolab.ui.pages.ternary", "render_ternary_page"),
+    "linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page"),
+    "thermobarometry": ("petrolab.ui.pages.thermobarometry", "render_thermobarometry_page"),
+    "equilibrium": ("petrolab.ui.pages.equilibrium", "render_equilibrium_page"),
+    "distribution": ("petrolab.ui.pages.distribution", "render_distribution_page"),
+    "science_plots": ("petrolab.ui.pages.science_plots", "render_science_plots_page"),
+    "statistics": ("petrolab.ui.pages.statistics_reference", "render_statistics_reference_page"),
+    "generations": ("petrolab.ui.pages.generations", "render_generations_page"),
+    "rocks": ("petrolab.ui.pages.rocks", "render_rocks_page"),
+    "search": ("petrolab.ui.pages.search_reference", "render_search_reference_page"),
+    "selections": ("petrolab.ui.pages.selections", "render_selections_page"),
+    "slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page"),
+    "images": ("petrolab.ui.pages.images_dashboard", "render_images_dashboard_page"),
+    "minerals": ("petrolab.ui.pages.minerals", "render_minerals_page"),
+    "article_tables": ("petrolab.ui.pages.article_tables", "render_article_tables_page"),
+    "export": ("petrolab.ui.pages.export_reference", "render_export_reference_page"),
+    "figure_recipes": ("petrolab.ui.pages.figure_recipes", "render_figure_recipes_page"),
+    "projects": ("petrolab.ui.pages.projects", "render_projects_page"),
+    "collaboration": ("petrolab.ui.pages.collaboration", "render_collaboration_page"),
+    "settings": ("petrolab.ui.pages.settings", "render_settings_page"),
+    "help": ("petrolab.ui.pages.help", "render_help_page"),
+    "updates": ("petrolab.ui.pages.updates", "render_updates_page"),
+    "change_log": ("petrolab.ui.pages.change_log", "render_change_log_page"),
 }
+
+
+@st.cache_resource(show_spinner=False)
+def _resolve_renderer(module_path: str, function_name: str):
+    module = import_module(module_path)
+    return getattr(module, function_name)
+
+
+def _render_route(route: str) -> None:
+    target = ROUTE_TARGETS.get(route, ROUTE_TARGETS["home"])
+    label = ROUTE_LABELS.get(route, "Обзор")
+    loaded_routes = set(st.session_state.get("_petrolab_loaded_routes", []))
+    cold_load = route not in loaded_routes
+    placeholder = st.empty()
+    if cold_load:
+        placeholder.markdown(
+            f"""
+            <div class="petrolab-loading-card">
+              <div class="petrolab-loading-brand">PetroLab</div>
+              <div class="petrolab-loading-title">Открываем «{label}»…</div>
+              <div class="petrolab-loading-copy">Подключаем только нужный модуль. Данные остаются локально.</div>
+              <div class="petrolab-loading-line"></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    renderer = _resolve_renderer(*target)
+    if cold_load:
+        loaded_routes.add(route)
+        st.session_state["_petrolab_loaded_routes"] = sorted(loaded_routes)
+        placeholder.empty()
+    renderer()
+
 
 with st.sidebar:
     route = render_sidebar(__version__)
 
 reset_route_scroll_if_pending()
-ROUTES.get(route, render_home_page)()
+_render_route(route)

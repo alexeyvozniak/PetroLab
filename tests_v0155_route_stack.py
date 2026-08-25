@@ -6,32 +6,36 @@ from pathlib import Path
 def main() -> None:
     app = Path("app.py").read_text(encoding="utf-8")
     navigation = Path("petrolab/ui/navigation.py").read_text(encoding="utf-8")
-    pages = Path("petrolab/ui/pages/__init__.py").read_text(encoding="utf-8")
     package = Path("petrolab/__init__.py").read_text(encoding="utf-8")
 
+    # Routes are lazy module/function targets so first paint does not import every
+    # scientific page. Product Design screens are explicit route owners. The
+    # linked workspace is reached through its Plotly compatibility wrapper.
     for marker in [
-        '"figure_recipes": render_figure_recipes_page',
-        '"linked_views": render_linked_views_page',
-        '"rocks": render_rocks_page',
+        '"figure_recipes": ("petrolab.ui.pages.figure_recipes", "render_figure_recipes_page")',
+        '"linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page")',
+        '"search": ("petrolab.ui.pages.search_reference", "render_search_reference_page")',
+        '"slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page")',
+        '"add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page")',
+        '"rocks": ("petrolab.ui.pages.rocks", "render_rocks_page")',
+        "def _resolve_renderer(",
+        "import_module(module_path)",
     ]:
         assert marker in app, marker
 
-    # Product Design exposes everyday material work first and groups specialised
-    # publication/scientific tools under an explicit secondary disclosure.
+    # Everyday rail follows the approved references; specialised tools remain in
+    # the secondary disclosure rather than competing with the main workflow.
     for marker in [
+        '("samples", "Образцы")',
+        '("search", "Поиск")',
+        '("slides", "Шлифы")',
+        '("linked_views", "Построение")',
+        '("add_data", "Добавить")',
         '("rocks", "Породы")',
-        '("linked_views", "Связанные представления")',
         '("figure_recipes", "Figure Recipe")',
-        '"Дополнительные инструменты"',
+        '"Ещё"',
     ]:
         assert marker in navigation, marker
-
-    for marker in [
-        "from .figure_recipes import render_figure_recipes_page",
-        "from .linked_views import render_linked_views_page",
-        "from .rocks import render_rocks_page",
-    ]:
-        assert marker in pages, marker
 
     # Release keeps earlier non-UI scientific/runtime safety hooks until each is
     # explicitly replaced. UI wrapper accumulation is no longer a requirement.
@@ -40,7 +44,7 @@ def main() -> None:
     ]:
         assert marker in package, marker
 
-    print("v0.15.7 route stack tests: OK")
+    print("route stack tests: OK")
 
 
 if __name__ == "__main__":

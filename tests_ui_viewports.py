@@ -20,9 +20,9 @@ PORT = 8517
 VIEWPORTS = ((1440, 900), (1024, 768), (768, 900), (390, 844))
 PAGES = (
     ("home", "Обзор"),
-    ("graphs", "Графики"),
+    ("linked", "Построение"),
     ("rocks", "Породы"),
-    ("publication", "Таблицы для статьи"),
+    ("publication", "Экспорт"),
 )
 
 
@@ -70,23 +70,30 @@ def _reset_desktop_metrics(driver: webdriver.Chrome) -> None:
     driver.set_window_size(1280, 900)
 
 
+def _visible_sidebar_buttons(driver: webdriver.Chrome, label: str) -> list:
+    return [
+        button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')
+        if button.is_displayed() and button.text.strip() == label
+    ]
+
+
 def _select_page(driver: webdriver.Chrome, label: str, output: Path, page_name: str) -> None:
     _reset_desktop_metrics(driver)
     driver.refresh()
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stSidebar"]')))
     output.mkdir(parents=True, exist_ok=True)
     try:
-        # Publication and scientific routes are purposefully behind the
-        # secondary disclosure; the test must exercise that real navigation.
-        if not any(button.text.strip() == label for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')):
+        # Specialist routes live under the compact secondary disclosure «Ещё».
+        if not _visible_sidebar_buttons(driver, label):
             sidebar = driver.find_element(By.CSS_SELECTOR, '[data-testid="stSidebar"]')
             for details in sidebar.find_elements(By.CSS_SELECTOR, "details"):
-                if "Дополнительные инструменты" in details.text and details.get_attribute("open") is None:
-                    details.find_element(By.CSS_SELECTOR, "summary").click()
+                summary = details.find_element(By.CSS_SELECTOR, "summary")
+                if "Ещё" in summary.text and details.get_attribute("open") is None:
+                    summary.click()
                     break
-            wait.until(lambda d: any(button.text.strip() == label for button in d.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button')))
-        buttons = [button for button in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stSidebar"] button') if button.is_displayed() and button.text.strip() == label]
+            wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
+        buttons = _visible_sidebar_buttons(driver, label)
         assert buttons, f"Sidebar button not found: {label}"
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", buttons[0])
         buttons[0].click()

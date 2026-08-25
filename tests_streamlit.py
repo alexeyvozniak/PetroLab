@@ -89,18 +89,18 @@ def _button(app, label: str):
 def assert_recipe_delete_requires_second_click(app) -> None:
     from petrolab.db import list_plot_recipes
 
-    open_page(app, "Графики")
+    open_page(app, "Обычные графики")
     selector = _selectbox(app, "Загрузить рецепт")
     option = next(value for value in selector.options if str(value).startswith("UI destructive recipe"))
     selector.set_value(option)
     app.run(timeout=30)
-    assert_no_exceptions(app, "Графики / recipe selection")
+    assert_no_exceptions(app, "Обычные графики / recipe selection")
 
     before = list_plot_recipes()
     assert any(record["name"] == "UI destructive recipe" for record in before)
     _button(app, "Удалить рецепт").click()
     app.run(timeout=30)
-    assert_no_exceptions(app, "Графики / first delete click")
+    assert_no_exceptions(app, "Обычные графики / first delete click")
     after_first = list_plot_recipes()
     assert any(record["name"] == "UI destructive recipe" for record in after_first), (
         "First destructive click must not delete the recipe"
@@ -111,7 +111,7 @@ def assert_recipe_delete_requires_second_click(app) -> None:
 
     _button(app, "Удалить рецепт").click()
     app.run(timeout=30)
-    assert_no_exceptions(app, "Графики / confirmed recipe delete")
+    assert_no_exceptions(app, "Обычные графики / confirmed recipe delete")
     after_second = list_plot_recipes()
     assert not any(record["name"] == "UI destructive recipe" for record in after_second)
 
@@ -129,9 +129,9 @@ def main() -> None:
         assert_single_project_context(app, "Обзор")
         assert_recipe_delete_requires_second_click(app)
         pages = [
-            "Обзор", "Образцы", "Добавить данные", "Анализы", "Расчёты",
-            "Графики", "Треугольные диаграммы", "Научные диаграммы", "Статистика",
-            "Породы", "Изображения", "Минералогические модули",
+            "Обзор", "Образцы", "Добавить", "Анализы", "Расчёты",
+            "Построение", "Обычные графики", "Треугольные диаграммы", "Научные диаграммы", "Статистика",
+            "Породы", "Фотографии", "Минералогические модули",
             "Таблицы для статьи", "Экспорт", "Проекты", "Настройки",
             "Справка", "Что нового", "История правок данных",
         ]

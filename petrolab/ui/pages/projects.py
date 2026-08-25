@@ -72,9 +72,10 @@ def _portable_archive_controls(project: dict) -> None:
 
 
 def _restore_controls(projects_exist: bool) -> None:
-    with st.expander("Открыть переносимый .petrolab", expanded=not projects_exist):
+    with st.expander("Открыть переносимый .petrolab", expanded=False):
         st.caption(
-            "Для нового компьютера выберите архив .petrolab. Восстановление проверяет manifest и SQLite до изменения рабочей базы."
+            "Перенесите сюда проект с другого компьютера или восстановите резервную копию. "
+            "PetroLab проверит manifest и SQLite до изменения рабочей базы."
         )
         uploaded = st.file_uploader("Архив PetroLab", type=["petrolab"], key="restore_petrolab_upload")
         replace = False
@@ -109,11 +110,12 @@ def _restore_controls(projects_exist: bool) -> None:
 def render_projects_page() -> None:
     render_page_header(
         "Проекты",
-        "Проект — постоянный научный контекст для источников, анализов, изображений, пород и публикационных данных.",
+        "Создайте новый научный проект или откройте переносимый архив PetroLab.",
         eyebrow="Система",
     )
     projects = list_projects()
-    _restore_controls(bool(projects))
+
+    # Primary onboarding action comes first: most users start a new workspace here.
     with st.expander("+ Новый проект", expanded=not bool(projects)):
         with st.form("new_project", clear_on_submit=True):
             name = st.text_input("Название", placeholder="Например, Kola lamprophyres")
@@ -126,6 +128,9 @@ def render_projects_page() -> None:
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+
+    # Restoring is an important but secondary path, so it follows project creation.
+    _restore_controls(bool(projects))
 
     if not projects:
         return

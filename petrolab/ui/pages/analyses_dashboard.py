@@ -22,6 +22,7 @@ from petrolab.ui.destructive_actions import confirm_then, render_pending
 from petrolab.ui.editability import common_editable_source_columns
 from petrolab.ui.layout import render_badges, render_page_header, render_work_context
 from petrolab.ui.project_context import active_project_id
+from petrolab.ui.reference_selection import render_manual_selection_table, render_selection_action_bar
 from petrolab.ui.selection_context import read_selection
 
 _BASIC = ["Sample", "Grain", "Point", "Generation", "QC уровень", "QC решение", WORK_GROUP_COLUMN, "Проект", "Набор", "Минерал", "Источник", "Лист", "Строка Excel"]
@@ -78,11 +79,110 @@ def _clear_draft_and_editor(project_id: int) -> None:
     st.session_state.pop(_DRAFT_EDITOR_KEY, None)
 
 
+def _render_editor(
+    project_id: int,
+    datasets: list[dict],
+    selected_ids: list[int],
+    shown: pd.DataFrame,
+    derived: set[str],
+    mode: str,
+) -> None:
+    wanted = _view_columns(shown, derived, mode)
+    internals = [column for column in shown.columns if str(column).startswith("_")]
+    base_editor = shown[internals + [column for column in wanted if column not in internals]].copy()
+    editable = common_editable_source_columns(datasets, selected_ids) | {"QC решение"}
+    protected = (set(shown.columns) - set(editable)) | PROTECTED_ANALYSIS_COLUMNS | set(derived) | META_COLUMNS
+    disabled = [column for column in base_editor.columns if column in protected or str(column).startswith("_")]
+
+    draft = load_analysis_draft(project_id)
+    overlay = apply_analysis_draft(base_editor, draft.changes, protected_columns=protected)
+    if overlay.resolved:
+        draft = remove_analysis_draft_changes(project_id, overlay.resolved)
+    working_editor = overlay.dataframe
+
+    if draft.changes:
+        stamp = _draft_time(draft.updated_at)
+        label = f"Черновик автосохранён · {len(draft.changes)} правок"
+        if stamp:
+            label += f" · {stamp}"
+        render_badges([(label, "success")])
+        st.caption(
+            "Черновик хранится локально и переживает перезапуск компьютера. "
+            "В научную базу и исходный Excel он попадёт только после явного сохранения."
+        )
+    if overlay.applied:
+        st.info(f"Восстановлено из локального черновика: {len(overlay.applied)} правок.")
+    if overlay.conflicts:
+        st.warning(
+            f"Не применено конфликтующих правок: {len(overlay.conflicts)}. "
+            "Исходные значения изменились после создания черновика; PetroLab не перезаписывает их автоматически."
+        )
+
+    render_pending(
+        "analysis_draft",
+        "Черновик содержит несохранённую работу. Нажмите «Удалить черновик» ещё раз, чтобы окончательно её отбросить.",
+    )
+    if draft.changes and st.button("Удалить черновик", key="discard_analysis_draft"):
+        if confirm_then(
+            "analysis_draft",
+            int(project_id),
+            lambda: _clear_draft_and_editor(int(project_id)),
+        ):
+            st.rerun()
+
+    edited = st.data_editor(
+        working_editor,
+        width="stretch",
+        hide_index=True,
+        height=620,
+        disabled=disabled,
+        num_rows="fixed",
+        key=_DRAFT_EDITOR_KEY,
+        column_config={"_analysis_id": None, "_dataset_id": None},
+    )
+    changes = compute_changes(base_editor, edited, protected_columns=protected)
+    replace_visible_analysis_draft(
+        project_id,
+        base_editor["_analysis_id"].astype(str).tolist() if "_analysis_id" in base_editor.columns else [],
+        [column for column in base_editor.columns if not str(column).startswith("_")],
+        [*overlay.conflicts, *changes],
+    )
+    if changes:
+        render_badges([
+            (f"{len(changes)} несохранённых изменений", "warning"),
+            ("автосохранение черновика включено", "success"),
+        ])
+
+    save, sync = st.columns([1, 1.35])
+    if save.button("Сохранить", type="primary", disabled=not changes, width="stretch"):
+        result = save_changes_to_database(changes)
+        if result.ok:
+            remove_analysis_draft_changes(project_id, changes)
+            _rerun_with_result(
+                f"Сохранено изменений: {result.saved_changes}.",
+                result.warnings,
+            )
+        for error in result.errors:
+            st.error(error)
+    if sync.button("Сохранить и синхронизировать Excel", disabled=not changes, width="stretch"):
+        result = save_changes_and_sync(changes)
+        if result.ok:
+            remove_analysis_draft_changes(project_id, changes)
+            _rerun_with_result(
+                f"Сохранено: {result.saved_changes}; обновлено файлов: {result.synced_files}.",
+                result.warnings,
+            )
+        for error in result.errors:
+            st.error(error)
+    st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
+    st.caption("QC и ручная рабочая выборка остаются независимыми: выделение строк не меняет исходные данные и не назначает Generation.")
+
+
 def render_analyses_dashboard_page() -> None:
     project_id = active_project_id()
     render_page_header(
         "Анализы",
-        "Рабочая таблица активного проекта: отберите строки, проверьте QC, внесите правки и передайте выборку на графики.",
+        "Табличный рабочий экран: фильтруйте, отмечайте отдельные строки и передавайте одну общую Selection на графики, статистику и шлифы.",
         eyebrow="Данные",
     )
     _show_save_flash()
@@ -95,29 +195,28 @@ def render_analyses_dashboard_page() -> None:
         return
 
     labels = {dataset_label(item): int(item["id"]) for item in datasets}
-    requested_dataset_ids = [
-        int(value) for value in st.session_state.pop("workflow_edit_dataset_ids", [])
-    ]
-    requested_analysis_ids = {
-        str(value) for value in st.session_state.pop("workflow_edit_analysis_ids", [])
-    }
+    requested_dataset_ids = [int(value) for value in st.session_state.pop("workflow_edit_dataset_ids", [])]
+    requested_analysis_ids = {str(value) for value in st.session_state.pop("workflow_edit_analysis_ids", [])}
     requested_context = st.session_state.pop("workflow_edit_context", {})
     requested_labels = [label for label, dataset_id in labels.items() if dataset_id in requested_dataset_ids]
     if requested_labels:
         st.session_state["db_datasets_dashboard"] = requested_labels
-        st.info(
-            "Открыт отбор из «Вся база». Отредактируйте поля и нажмите «Сохранить и синхронизировать Excel»; "
-            "перед записью PetroLab проверит исходный файл и создаст резервную копию."
-        )
+        st.info("Открыт точный отбор из другого экрана. Ручное выделение и редактирование работают только с этими строками.")
         if requested_context:
-            st.caption("Изменения будут применены только к строкам исходного отбора.")
-    with st.container(border=True):
-        c1, c2 = st.columns([2.2, 1])
-        selected_labels = c1.multiselect(
-            "Наборы", list(labels), default=requested_labels or list(labels), key="db_datasets_dashboard"
-        )
-        mode = c2.selectbox("Колонки", ["Основное", "Химия", "Расчёты", "QC", "Все"], key="db_column_view")
-        query = st.text_input("Поиск", placeholder="Образец, зерно, поколение или значение", key="db_search_dashboard")
+            st.caption("Контекст исходного отбора сохранён.")
+
+    toolbar = st.columns([2.1, 1.05, 2.15, .9])
+    selected_labels = toolbar[0].multiselect(
+        "Наборы", list(labels), default=requested_labels or list(labels), key="db_datasets_dashboard", label_visibility="collapsed"
+    )
+    mode = toolbar[1].selectbox(
+        "Колонки", ["Основное", "Химия", "Расчёты", "QC", "Все"], key="db_column_view", label_visibility="collapsed"
+    )
+    query = toolbar[2].text_input(
+        "Поиск", placeholder="Образец, зерно, поколение или значение", key="db_search_dashboard", label_visibility="collapsed"
+    )
+    toolbar[3].caption("Ctrl/Cmd + F: поиск")
+
     selected_ids = [labels[label] for label in selected_labels]
     if not selected_ids:
         st.info("Выберите хотя бы один набор.")
@@ -128,108 +227,40 @@ def render_analyses_dashboard_page() -> None:
     if requested_analysis_ids:
         shown = shown[shown["_analysis_id"].astype(str).isin(requested_analysis_ids)].copy()
     derived = active_derived_columns(selected_ids)
-    render_badges([(f"{len(shown):,} строк".replace(",", " "), "neutral"), (f"{len(selected_ids)} наборов", "accent")])
     context = read_selection()
     visible_ids = set(shown.get("_analysis_id", pd.Series(dtype=str)).astype(str))
     render_work_context(
-        area="активный проект · рабочая таблица анализов",
+        area="активный проект · таблица анализов",
         visible_count=len(shown),
         selection_count=context.count,
         selection_visible_count=len(visible_ids & set(context.analysis_ids)),
-        note="Фильтр меняет вид, а не состав рабочей выборки",
+        note="Фильтр меняет только вид. Галочки меняют общую рабочую Selection.",
     )
 
-    table_tab, point_tab = st.tabs(["Таблица", "Карточка точки"])
+    table_tab, edit_tab, point_tab = st.tabs(["Таблица", "Редактирование", "Карточка точки"])
     with table_tab:
         wanted = _view_columns(shown, derived, mode)
-        internals = [column for column in shown.columns if str(column).startswith("_")]
-        base_editor = shown[internals + [column for column in wanted if column not in internals]].copy()
-        editable = common_editable_source_columns(datasets, selected_ids) | {"QC решение"}
-        protected = (set(shown.columns) - set(editable)) | PROTECTED_ANALYSIS_COLUMNS | set(derived) | META_COLUMNS
-        disabled = [column for column in base_editor.columns if column in protected or str(column).startswith("_")]
-
-        draft = load_analysis_draft(project_id)
-        overlay = apply_analysis_draft(base_editor, draft.changes, protected_columns=protected)
-        if overlay.resolved:
-            draft = remove_analysis_draft_changes(project_id, overlay.resolved)
-        working_editor = overlay.dataframe
-
-        if draft.changes:
-            stamp = _draft_time(draft.updated_at)
-            label = f"Черновик автосохранён · {len(draft.changes)} правок"
-            if stamp:
-                label += f" · {stamp}"
-            render_badges([(label, "success")])
-            st.caption(
-                "Черновик хранится локально и переживает перезапуск компьютера. "
-                "В научную базу и исходный Excel он попадёт только после явного сохранения."
-            )
-        if overlay.applied:
-            st.info(f"Восстановлено из локального черновика: {len(overlay.applied)} правок.")
-        if overlay.conflicts:
-            st.warning(
-                f"Не применено конфликтующих правок: {len(overlay.conflicts)}. "
-                "Исходные значения изменились после создания черновика; PetroLab не перезаписывает их автоматически."
-            )
-
-        render_pending(
-            "analysis_draft",
-            "Черновик содержит несохранённую работу. Нажмите «Удалить черновик» ещё раз, чтобы окончательно её отбросить.",
-        )
-        if draft.changes and st.button("Удалить черновик", key="discard_analysis_draft"):
-            if confirm_then(
-                "analysis_draft",
-                int(project_id),
-                lambda: _clear_draft_and_editor(int(project_id)),
-            ):
-                st.rerun()
-
-        edited = st.data_editor(
-            working_editor,
-            width="stretch",
-            hide_index=True,
+        render_manual_selection_table(
+            shown,
+            key_prefix="analyses_table",
+            origin="Анализы · таблица",
+            columns=wanted,
             height=650,
-            disabled=disabled,
-            num_rows="fixed",
-            key=_DRAFT_EDITOR_KEY,
+            max_rows=4000,
         )
-        changes = compute_changes(base_editor, edited, protected_columns=protected)
-        replace_visible_analysis_draft(
-            project_id,
-            base_editor["_analysis_id"].astype(str).tolist() if "_analysis_id" in base_editor.columns else [],
-            [column for column in base_editor.columns if not str(column).startswith("_")],
-            [*overlay.conflicts, *changes],
+        render_selection_action_bar(
+            shown,
+            key_prefix="analyses_bottom",
+            project_id=project_id,
+            show_images=True,
+            show_statistics=True,
         )
-        if changes:
-            render_badges([
-                (f"{len(changes)} несохранённых изменений", "warning"),
-                ("автосохранение черновика включено", "success"),
-            ])
 
-        save, sync = st.columns([1, 1.35])
-        if save.button("Сохранить", type="primary", disabled=not changes, width="stretch"):
-            result = save_changes_to_database(changes)
-            if result.ok:
-                remove_analysis_draft_changes(project_id, changes)
-                _rerun_with_result(
-                    f"Сохранено изменений: {result.saved_changes}.",
-                    result.warnings,
-                )
-            for error in result.errors:
-                st.error(error)
-        if sync.button("Сохранить и синхронизировать Excel", disabled=not changes, width="stretch"):
-            result = save_changes_and_sync(changes)
-            if result.ok:
-                remove_analysis_draft_changes(project_id, changes)
-                _rerun_with_result(
-                    f"Сохранено: {result.saved_changes}; обновлено файлов: {result.synced_files}.",
-                    result.warnings,
-                )
-            for error in result.errors:
-                st.error(error)
-        st.caption("Синхронизация изменяет связанный XLSX/XLSM; перед записью проверяются внешние изменения и создаётся резервная копия.")
-        st.caption("«QC уровень» и причины рассчитываются из данных и не скрывают анализы. В «QC решение» можно вручную оставить Авто, Включить или Исключить для графиков; это поле хранится только в PetroLab.")
+    with edit_tab:
+        st.caption("Здесь меняются значения и QC. Ручной Selection из первой вкладки сохраняется и не смешивается с редактированием данных.")
+        _render_editor(project_id, datasets, selected_ids, shown, derived, mode)
+
     with point_tab:
         if len(shown) > 3000:
-            st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск в toolbar, чтобы сузить выборку.")
+            st.caption("Для списка точек показаны первые 3000 совпадений. Используйте поиск сверху, чтобы сузить выборку.")
         render_point_card(shown, project_id)

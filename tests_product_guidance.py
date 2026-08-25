@@ -88,18 +88,25 @@ class ProductGuidanceTests(unittest.TestCase):
             self.assertEqual(mixed.route, "mixed_minerals")
             self.assertGreaterEqual(mixed.count, 2)
 
-    def test_primary_navigation_is_user_task_oriented(self):
+    def test_primary_navigation_matches_approved_reference_flow(self):
         navigation = Path("petrolab/ui/navigation.py").read_text(encoding="utf-8")
-        add_data = Path("petrolab/ui/pages/add_data.py").read_text(encoding="utf-8")
-        # Daily routes remain visible; less-frequent corrective tools are grouped
-        # under one explicit disclosure instead of competing with the main work.
+        app = Path("app.py").read_text(encoding="utf-8")
+        add_data = Path("petrolab/ui/pages/add_data_reference.py").read_text(encoding="utf-8")
+
+        # The approved Product Design reference uses a short, stable rail rather
+        # than section headings competing with everyday tasks.
         for marker in [
-            "Начать", "Материал", "Анализы и графики", "Добавить данные",
-            "Образцы", "Шлифы", "Породы", "Анализы", "Графики",
-            "Дополнительные инструменты", "Требует внимания", "Массовые действия",
+            '("home", "Обзор")', '("projects", "Проекты")', '("samples", "Образцы")',
+            '("search", "Поиск")', '("slides", "Шлифы")', '("analyses", "Анализы")',
+            '("linked_views", "Построение")', '("add_data", "Добавить")', '"Ещё"',
+            '"Требует внимания"', '"Массовые действия"',
         ]:
             self.assertIn(marker, navigation)
-        for marker in ["Excel / CSV", "PPL / XPL / BSE / карты", "render_intake_workflow", "Добавить данные"]:
+
+        for marker in ["add_data_reference", "linked_views_reference", "search_reference", "slides_reference"]:
+            self.assertIn(marker, app)
+
+        for marker in ["Проверка импорта", "render_intake_workflow", "Сохранение", "Справка", "Настройки"]:
             self.assertIn(marker, add_data)
 
 
