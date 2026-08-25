@@ -18,22 +18,19 @@ from tests_guided_ui_viewports import _assert_viewport, _seed, _select_page, _vi
 
 PORT = 8522
 PAGES = (
-    ("add_data", "Добавить данные", ("Добавить данные", "Excel / CSV")),
+    ("add_data", "Добавить", ("Проверка импорта", "Что добавить?")),
     ("attention", "Требует внимания", ("Сначала проверить", "Неразобранные фазы / mixed")),
     ("batch", "Массовые действия", ("Наборы", "Фильтр")),
     ("history", "История правок данных", ("История действий", "Интерпретации", "Значения и Excel")),
 )
 PRIMARY_NAV = (
-    "Обзор", "Добавить данные", "Найти в проектах", "Образцы", "Шлифы", "Породы", "Анализы", "Графики",
+    "Обзор", "Проекты", "Поиск", "Образцы", "Шлифы", "Анализы", "Построение", "Добавить",
 )
-# The dashboard opens in its deliberately compact daily-work view.  Point,
-# box and lasso controls belong to the separate linked-panels workspace;
-# asserting them here falsely couples two different user journeys.
+# The current Product Design rail routes linked scientific exploration through
+# «Построение». Older «Графики» labels belong to the secondary scientific tools.
 PLOT_WORKSPACE_MARKERS = (
-    "Быстрое построение",
-    "Расширенный редактор",
-    "Интерактивный график",
-    "Публикационный экспорт",
+    "Предварительный отбор",
+    "Кодировка",
 )
 VIEWPORTS = ((1440, 900), (390, 844))
 
@@ -86,7 +83,7 @@ def _assert_primary_navigation(driver: webdriver.Chrome, output: Path) -> None:
 
 
 def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output: Path, slug: str) -> None:
-    """Navigate inside one Streamlit websocket session so Back history is meaningful."""
+    """Navigate inside one Streamlit websocket session so sequential task flow is exercised."""
     wait = WebDriverWait(driver, 25)
     try:
         wait.until(lambda d: bool(_visible_sidebar_buttons(d, label)))
@@ -102,27 +99,22 @@ def _click_primary_without_refresh(driver: webdriver.Chrome, label: str, output:
 
 
 def _assert_back_flow(driver: webdriver.Chrome, output: Path) -> None:
-    # Task-first navigation is direct: move from a Sample catalogue to thin
-    # sections without relying on an artificial browser-history control.
+    # Task-first navigation is direct: move from Samples to thin sections in one
+    # live session without depending on browser history.
     _click_primary_without_refresh(driver, "Образцы", output, "back_samples")
     _wait_for_page_content(driver, ("Образцы",), "back_samples", output)
     _click_primary_without_refresh(driver, "Шлифы", output, "back_thin_section")
-    _wait_for_page_content(driver, ("Шлифы и поля",), "back_thin_section", output)
+    _wait_for_page_content(driver, ("Шлифы",), "back_thin_section", output)
 
 
 def _assert_plot_workspace_contract(driver: webdriver.Chrome, output: Path) -> None:
-    """Real browser gate for the daily plotting workspace.
-
-    The compact XY workspace exposes fast plotting and publication output.
-    Linked point/box/lasso selection is intentionally verified in its own
-    multi-panel journey, rather than being asserted on this separate screen.
-    """
-    _select_page(driver, "Графики", output, "plot_workspace")
-    _wait_for_page_content(driver, ("XY-диаграммы", *PLOT_WORKSPACE_MARKERS), "plot_workspace", output)
+    """Real browser gate for the linked scientific workspace."""
+    _select_page(driver, "Построение", output, "plot_workspace")
+    _wait_for_page_content(driver, PLOT_WORKSPACE_MARKERS, "plot_workspace", output)
     wait = WebDriverWait(driver, 25)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')))
     chart = driver.find_element(By.CSS_SELECTOR, '[data-testid="stPlotlyChart"]')
-    assert chart.is_displayed(), "Interactive XY plot is not visible in the real browser"
+    assert chart.is_displayed(), "Interactive linked plot is not visible in the real browser"
 
 
 def main() -> None:
