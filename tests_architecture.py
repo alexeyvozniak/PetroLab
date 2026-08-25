@@ -28,10 +28,12 @@ for marker in [
 ]:
     assert marker in app_text, marker
 
-# The four screenshot-led Product Design surfaces own their routes explicitly.
+# The screenshot-led Product Design surfaces own their routes explicitly. The
+# linked-view route passes through a tiny Plotly compatibility layer while the
+# reference page remains the actual workspace implementation.
 reference_routes = {
     "add_data_reference.py": '"add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page")',
-    "linked_views_reference.py": '"linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page")',
+    "linked_views_compat.py": '"linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page")',
     "search_reference.py": '"search": ("petrolab.ui.pages.search_reference", "render_search_reference_page")',
     "slides_reference.py": '"slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page")',
 }
@@ -40,6 +42,7 @@ for filename, route_marker in reference_routes.items():
     assert path.exists(), filename
     ast.parse(path.read_text(encoding="utf-8"), filename=filename)
     assert route_marker in app_text, route_marker
+assert (pages_dir / "linked_views_reference.py").exists(), "linked reference workspace missing"
 
 # Authoritative page owners remain in place. The visual redesign must not bring
 # back the obsolete parallel page/policy layer.
