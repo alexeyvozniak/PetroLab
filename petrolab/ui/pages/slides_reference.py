@@ -10,38 +10,10 @@ from petrolab.measurement_registry import list_entities
 from petrolab.slides import list_slide_fields, list_slide_images, list_slide_markers, render_slide_overlay
 from petrolab.ui.navigation import navigate
 from petrolab.ui.project_context import active_project_id
-from petrolab.ui.selection_context import clear_selection, read_selection, set_selection
+from petrolab.ui.reference_selection import render_manual_selection_table, render_selection_action_bar
+from petrolab.ui.selection_context import read_selection, set_selection
 
 from . import slides as legacy
-
-
-def _light_sidebar_for_reference() -> None:
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
-            background:#ffffff !important; border-right:1px solid #dce3e8 !important;
-        }
-        [data-testid="stSidebar"] .petrolab-sidebar-brand { color:#0f7f82 !important; }
-        [data-testid="stSidebar"] .petrolab-sidebar-version,
-        [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
-        [data-testid="stSidebar"] .petrolab-nav-section { color:#7b8796 !important; }
-        [data-testid="stSidebar"] .stButton > button { color:#425066 !important; background:transparent !important; }
-        [data-testid="stSidebar"] .stButton > button:hover { background:#f3f7f8 !important; }
-        [data-testid="stSidebar"] .stButton > button[kind="primary"],
-        [data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {
-            color:#0f6e71 !important; background:#e9f5f4 !important;
-            border-color:#c4dfdf !important; border-left:3px solid #0f7f82 !important;
-        }
-        [data-testid="stSidebar"] [data-baseweb="select"] > div {
-            background:#ffffff !important; border-color:#d5dde3 !important;
-        }
-        [data-testid="stSidebar"] [data-baseweb="select"] span,
-        [data-testid="stSidebar"] [data-baseweb="select"] svg { color:#334155 !important; fill:#334155 !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def _analysis_frame(project_id: int, analysis_ids: list[str]) -> pd.DataFrame:
@@ -70,39 +42,23 @@ def _first(frame: pd.DataFrame, *names: str) -> str | None:
     return None
 
 
-def _table(frame: pd.DataFrame) -> pd.DataFrame:
+def _table_columns(frame: pd.DataFrame) -> list[str]:
     if frame.empty:
-        return frame
+        return []
     mineral = _first(frame, "Минерал", "Mineral")
     point = _first(frame, "Point", "Точка")
+    grain = _first(frame, "Grain", "Зерно")
     generation = _first(frame, "Generation", "Положение")
     method = _first(frame, "Method", "Метод")
     source = _first(frame, "Источник", "Source")
-    preferred_values = [
-        column for column in ("Mg#", "SiO2", "TiO2", "Al2O3", "FeO", "MgO", "Cr2O3", "NiO", "F", "Cl")
+    chemistry = [
+        column for column in ("SiO2", "TiO2", "Al2O3", "MgO", "FeO", "Cr2O3", "Mg#", "F", "Cl")
         if column in frame.columns
-    ][:4]
-    result = pd.DataFrame(index=frame.index)
-    result["ID"] = frame["_analysis_id"].astype(str)
-    if mineral:
-        result["Минерал"] = frame[mineral]
-    if point:
-        result["Точка"] = frame[point]
-    if generation:
-        result["Положение"] = frame[generation]
-    if method:
-        result["Метод"] = frame[method]
-    if preferred_values:
-        result["Ключевые значения"] = frame[preferred_values].apply(
-            lambda row: "   ".join(
-                f"{column} {pd.to_numeric(row[column], errors='coerce'):.4g}"
-                for column in preferred_values
-                if pd.notna(pd.to_numeric(row[column], errors="coerce"))
-            ),
-            axis=1,
-        )
-    result["Источник"] = frame[source] if source else frame["_dataset_name"]
-    return result
+    ][:5]
+    return [
+        column for column in (grain, point, mineral, generation, method, *chemistry, source, "_dataset_name")
+        if column and column in frame.columns
+    ]
 
 
 def _section_name(project_id: int, image) -> str:
@@ -130,7 +86,12 @@ def _analysis_ids(markers: list[dict]) -> list[str]:
 def _render_editor(project_id: int, images: list, editor: str) -> None:
     if not editor:
         return
-    labels = {"Снимок": "Добавить снимок", "Поле": "Добавить поле", "Метка": "Добавить метку", "Разметка": "Редактирование шлифа"}
+    labels = {
+        "Снимок": "Добавить снимок",
+        "Поле": "Добавить поле",
+        "Метка": "Добавить метку",
+        "Разметка": "Редактирование шлифа",
+    }
     with st.expander(labels.get(editor, editor), expanded=True):
         if editor == "Снимок":
             legacy._add_image(project_id)
@@ -143,7 +104,6 @@ def _render_editor(project_id: int, images: list, editor: str) -> None:
 
 
 def render_slides_reference_page() -> None:
-    _light_sidebar_for_reference()
     project_id = active_project_id()
     if project_id is None:
         st.info("Сначала создайте или выберите проект.")
@@ -175,21 +135,18 @@ def render_slides_reference_page() -> None:
     fields = list_slide_fields(project_id, slide_image_id=image.id)
     linked_ids = _analysis_ids(markers)
     frame = _analysis_frame(project_id, linked_ids)
-    context = read_selection()
-    current_selection = set(context.analysis_ids)
-    selected_here = [value for value in linked_ids if value in current_selection]
 
     title = _section_name(project_id, image)
     safe_title = html.escape(title)
-    top = st.columns([2.2, 3.7, 1.55, 1.1])
+    top = st.columns([2.15, 3.85, 1.45, 1.05])
     with top[0]:
         st.markdown(f'<div class="pd-screen-title">{safe_title}</div>', unsafe_allow_html=True)
         st.caption(f"{getattr(image, 'image_type', 'снимок')} · {len(markers)} меток · {len(linked_ids)} анализов")
     with top[1]:
-        st.text_input("Поиск", placeholder="Поиск", key="pd_slide_search", label_visibility="collapsed")
+        st.text_input("Поиск", placeholder="Поиск по точкам и анализам", key="pd_slide_search", label_visibility="collapsed")
     with top[2]:
-        if st.button("Построить график", type="primary", width="stretch", disabled=not linked_ids, key="pd_slide_plot"):
-            ids = selected_here or linked_ids
+        if st.button("Показать на графиках", type="primary", width="stretch", disabled=not read_selection().analysis_ids and not linked_ids, key="pd_slide_plot"):
+            ids = list(read_selection().analysis_ids) or linked_ids
             updated = set_selection(ids, origin="Шлиф", mode="replace", label=title)
             st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
             st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
@@ -205,10 +162,10 @@ def render_slides_reference_page() -> None:
             if st.button("Метка", width="stretch", key="pd_slide_add_marker"):
                 st.session_state["pd_slide_editor"] = "Метка"
 
-    tabs = st.tabs(["Фотографии", "Связанный шлиф", "Анализы"])
+    tabs = st.tabs(["Шлиф", "Анализы", "Разметка"])
 
     with tabs[0]:
-        left, right = st.columns([1.45, 2.55], gap="medium")
+        left, right = st.columns([1.55, 2.65], gap="medium")
         with left:
             try:
                 st.image(render_slide_overlay(image, markers, fields), width="stretch")
@@ -237,7 +194,7 @@ def render_slides_reference_page() -> None:
             with st.container(border=True):
                 st.markdown('<div class="pd-panel-title">Связанный шлиф</div>', unsafe_allow_html=True)
                 st.markdown(f"**{safe_title}**")
-                st.caption(f"Полей: {len(fields)} · Аналитических меток: {len(markers)}" if fields else f"Аналитических меток: {len(markers)}")
+                st.caption(f"Полей: {len(fields)} · Аналитических меток: {len(markers)}")
                 if st.button("Редактировать разметку", width="stretch", key="pd_slide_edit_map"):
                     st.session_state["pd_slide_editor"] = "Разметка"
 
@@ -246,65 +203,46 @@ def render_slides_reference_page() -> None:
             if frame.empty:
                 st.info("На этом снимке пока нет связанных аналитических строк.")
             else:
-                st.dataframe(_table(frame), width="stretch", hide_index=True, height=570)
-                mineral_col = _first(frame, "Минерал", "Mineral")
-                point_col = _first(frame, "Point", "Точка")
-                label_map: dict[str, str] = {}
-                for _, row in frame.iterrows():
-                    mineral = str(row.get(mineral_col) or "").strip() if mineral_col else ""
-                    point = str(row.get(point_col) or "").strip() if point_col else ""
-                    label_map[str(row["_analysis_id"])] = " · ".join(value for value in (mineral, point) if value) or str(row["_analysis_id"])
-
-                chosen = st.multiselect(
-                    "Выбранные анализы",
-                    list(label_map),
-                    default=[value for value in selected_here if value in label_map],
-                    format_func=lambda value: label_map.get(str(value), str(value)),
-                    key="pd_slide_selected_ids",
-                    placeholder="Выберите анализы для общего графика",
+                render_manual_selection_table(
+                    frame,
+                    key_prefix="pd_slide_main",
+                    origin="Шлиф",
+                    columns=_table_columns(frame),
+                    height=570,
+                    max_rows=1000,
                 )
-                if chosen:
-                    updated = set_selection(chosen, origin="Шлиф", mode="replace", label=title)
-                    st.session_state["selection_analysis_ids"] = list(updated.analysis_ids)
-                    st.session_state["active_selection_analysis_ids"] = list(updated.analysis_ids)
-                    selected_here = list(updated.analysis_ids)
-                elif context.origin == "Шлиф" and context.analysis_ids:
-                    clear_selection()
-                    st.session_state["selection_analysis_ids"] = []
-                    st.session_state["active_selection_analysis_ids"] = []
-                    selected_here = []
 
-        selected_count = len(selected_here) if not frame.empty else 0
-        with st.container(border=True):
-            tray = st.columns([1.1, 4.2, 1.4])
-            tray[0].markdown(f"**Выбрано: {selected_count} анализов**")
-            tray[0].caption("Готово для построения графика" if selected_count else "Отметьте строки выше")
-            if selected_here and not frame.empty:
-                mineral_col = _first(frame, "Минерал", "Mineral")
-                method_col = _first(frame, "Method", "Метод")
-                chips: list[str] = []
-                for analysis_id in selected_here[:6]:
-                    row = frame[frame["_analysis_id"].astype(str) == analysis_id]
-                    if row.empty:
-                        continue
-                    record = row.iloc[0]
-                    mineral = str(record.get(mineral_col) or "Анализ") if mineral_col else "Анализ"
-                    method = str(record.get(method_col) or "") if method_col else ""
-                    chip_text = html.escape(mineral + (" · " + method if method else ""))
-                    chips.append(f'<span class="pd-chip">{chip_text}</span>')
-                tray[1].markdown("".join(chips), unsafe_allow_html=True)
-            if tray[2].button("Построить", type="primary", width="stretch", disabled=selected_count == 0, key="pd_slide_bottom_plot"):
-                navigate("linked_views")
-                st.rerun()
+        if not frame.empty:
+            render_selection_action_bar(
+                frame,
+                key_prefix="pd_slide_bottom",
+                project_id=project_id,
+                show_images=False,
+                show_statistics=True,
+            )
 
     with tabs[1]:
-        st.caption("Поля, BSE и аналитические метки остаются отдельными сущностями и редактируются без изменения самих измерений.")
-        legacy._map_and_manage(project_id, images)
-
-    with tabs[2]:
         if frame.empty:
             st.info("Нет связанных анализов.")
         else:
-            st.dataframe(_table(frame), width="stretch", hide_index=True, height=680)
+            render_manual_selection_table(
+                frame,
+                key_prefix="pd_slide_analysis_tab",
+                origin="Шлиф",
+                columns=_table_columns(frame),
+                height=680,
+                max_rows=1500,
+            )
+            render_selection_action_bar(
+                frame,
+                key_prefix="pd_slide_analysis_bottom",
+                project_id=project_id,
+                show_images=False,
+                show_statistics=True,
+            )
+
+    with tabs[2]:
+        st.caption("Поля, BSE и аналитические метки остаются отдельными сущностями. Разметка не меняет сами измерения.")
+        legacy._map_and_manage(project_id, images)
 
     _render_editor(project_id, images, str(st.session_state.get("pd_slide_editor") or ""))
