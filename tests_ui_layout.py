@@ -60,6 +60,7 @@ for marker in [
 reference_pages = {
     "add_data_reference.py": ["Проверка импорта", "render_intake_workflow"],
     "linked_views_reference.py": ["Предварительный отбор", "Кодировка", "Сохранить как рабочую группу"],
+    "linked_views_compat.py": ["_scatter_compatible", "render_linked_views_reference_page"],
     "search_reference.py": ["Результаты", "Источники в выборке", "render_manual_selection_table", "render_selection_action_bar"],
     "slides_reference.py": ["Связанный шлиф", "render_manual_selection_table", "render_selection_action_bar"],
     "analyses_dashboard.py": ["render_manual_selection_table", "render_selection_action_bar", "Редактирование"],
@@ -74,7 +75,7 @@ for filename, markers in reference_pages.items():
 
 for marker in [
     '"add_data": ("petrolab.ui.pages.add_data_reference", "render_add_data_reference_page")',
-    '"linked_views": ("petrolab.ui.pages.linked_views_reference", "render_linked_views_reference_page")',
+    '"linked_views": ("petrolab.ui.pages.linked_views_compat", "render_linked_views_reference_page")',
     '"search": ("petrolab.ui.pages.search_reference", "render_search_reference_page")',
     '"slides": ("petrolab.ui.pages.slides_reference", "render_slides_reference_page")',
     "def _resolve_renderer(", "import_module(module_path)",
